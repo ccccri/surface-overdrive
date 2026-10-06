@@ -73,6 +73,15 @@ Triggers: daily, on every push, and manually. Matrix: Fedora 44 and 45 (45 stays
 
 Module signing key: a repository secret. The public certificate ships in `/usr/share/surface-overdrive/mok.der` and must be enrolled in the firmware once (MOK).
 
+### 4.1.1 System tuning outside the packages
+
+Small settings that are not about the hardware fixes but belong to the final build:
+- **Plymouth scaling**: `DeviceScale=1` in `/etc/plymouth/plymouthd.conf` (`image/rootfs/etc/plymouth/plymouthd.conf`). Plymouth's configuration is copied into the initramfs
+  (checked on the tablet: `lsinitrd` lists `etc/plymouth/plymouthd.conf`), so the image build has to **regenerate the initramfs** with `dracut` after adding the file.
+- **GRUB countdown**: `set timeout_style=countdown` and `set timeout=5` (`image/boot/grub2/user.cfg`). On Kinoite `grub.cfg` is static and lives in `/boot`, which is **not** part of the image;
+  it sources `/boot/grub2/user.cfg` after its own `timeout_style=menu` and `timeout=1`, so a first-boot step writes that file idempotently (the bootstrap does it too).
+  The 5 second value is a placeholder: a countdown of 1 second is pointless. **[TO CONFIRM]**
+
 ### 4.2 Updates on the tablet
 
 Kinoite's standard automatic updates download the new image and activate it at the next reboot.
