@@ -1,38 +1,43 @@
-# Spike: cosa verificare sul tablet prima di scrivere codice
+# Spikes: what to verify on the tablet before writing code
 
-Ogni spike ha una domanda, un metodo, un criterio di successo e cosa cambia nell'architettura a seconda del risultato.
-Servono accesso al Surface (SSH o terminale diretto) e la sua installazione aggiornata.
+Each spike has a question, a method, a success criterion and what changes in the architecture depending on the result.
+They need access to the Surface (SSH or a local terminal) and its updated installation.
 
-## S1: l'NFC funziona senza patch al kernel?
-- **Domanda**: il driver stock `nxp-nci_i2c` si può legare al dispositivo ACPI `NXP3001:00` senza compilare nulla?
-- **Metodo**: vedere se il bus i2c espone `driver_override` per il dispositivo; provare `bind` del driver stock; in alternativa leggere `/sys/bus/i2c/devices/i2c-NXP3001:00`.
-  Misurare quanto spesso compaiono letture NACK senza la patch di retry.
-- **Successo**: tag letti con il driver stock e latenza simile a quella della vecchia repo.
-- **Se sì**: l'NFC esce dai moduli da compilare (restano solo camera e volume). **Se no**: modulo firmato in CI, con la patch di retry da proporre a monte.
+## S1: does NFC work without a kernel patch?
+- **Question**: can the stock `nxp-nci_i2c` driver bind to the ACPI device `NXP3001:00` without building anything?
+- **Method**: see whether the i2c bus exposes `driver_override` for the device; try binding the stock driver; otherwise inspect `/sys/bus/i2c/devices/i2c-NXP3001:00`.
+  Measure how often NACKed reads show up without the retry patch.
+- **Success**: tags read with the stock driver and a latency close to the old repository's.
+- **If yes**: NFC leaves the set of modules to build (only camera and volume remain). **If no**: a signed module built in CI, with the retry patch sent upstream.
 
-## S2: quali patch kernel servono ancora su 7.2.x stock?
-- **Domanda**: dopo i rilasci recenti, quali delle 9 patch ai driver sono ancora necessarie?
-- **Metodo**: per ognuna, leggere il sorgente del kernel Fedora in uso e provare il comportamento con il modulo stock (`ov8865`: modo stale, pixel rate, gain, 800x600; `ov5693`: 30 fps; `intel_hid`).
-- **Successo**: elenco minimo di patch con motivazione e misura.
-- **Esito**: ogni patch non necessaria esce dal progetto.
+## S2: which kernel patches are still needed on stock 7.2.x?
+- **Question**: after recent releases, which of the 9 driver patches are still necessary?
+- **Method**: for each one, read the source of the Fedora kernel in use and try the behaviour with the stock module (`ov8865`: stale mode, pixel rate, gain, 800x600; `ov5693`: 30 fps; `intel_hid`).
+- **Success**: a minimal list of patches with a reason and a measurement.
+- **Outcome**: every unneeded patch leaves the project.
 
-## S3: valore marginale di ogni patch libcamera
-- **Domanda**: quali delle 12 patch cambiano davvero la qualità, e di quanto?
-- **Metodo**: ricostruire libcamera aggiungendo una patch alla volta, con gli strumenti di misura della vecchia repo (nitidezza dell'AF, stabilità della luminanza, crash nello stress test).
-- **Successo**: tabella patch → effetto misurato → livello (1, 2, 3).
+## S3: marginal value of each libcamera patch
+- **Question**: which of the 12 patches really change image quality, and by how much?
+- **Method**: rebuild libcamera adding one patch at a time, using the old repository's measurement tools (AF sharpness, luminance stability, crashes in the stress test).
+- **Success**: a table patch -> measured effect -> tier (1, 2, 3).
 
-## S4: calibrazione propria
-- **Domanda**: da misure nostre si ottiene lens shading e black level di qualità pari o migliore delle tabelle Microsoft?
-- **Metodo**: acquisire RAW dalla CIO2 (campo bianco e obiettivo coperto), stimare le griglie, applicarle e misurare luminanza e rapporti R/G e B/G al centro e ai bordi. Confronto privato con il vecchio tuning.
-- **Successo**: scarto del centro e dei bordi pari o minore della vecchia repo (luminanza: bordo 1,00 del centro ±3%; R/G e B/G entro ±2%).
-- **Esito**: se non basta si cerca un metodo migliore; le tabelle Microsoft non entrano comunque.
+## S4: own calibration
+- **Question**: from our own measurements, do we get lens shading and black level at least as good as the Microsoft tables?
+- **Method**: capture RAW from the CIO2 (white field and covered lens), estimate the grids, apply them and measure luminance and R/G and B/G ratios at the centre and edges. Private comparison with the old tuning.
+- **Success**: centre and edge deviation equal to or lower than the old repository (luminance: edge 1.00 of centre within 3%; R/G and B/G within 2%).
+- **Outcome**: if it is not enough we look for a better method; the Microsoft tables stay out regardless.
 
 ## S5: audio
-- **Domanda**: il volume basso e il microfono troppo sensibile si risolvono a livello ALSA/UCM/WirePlumber o serve la catena filter-chain?
-- **Metodo**: esaminare `amixer contents`, il profilo ALSA in uso e i limiti del codec; provare regole WirePlumber sui controlli del mixer.
-- **Successo**: volume udibile senza distorsione e microfono con guadagno ragionevole senza un dispositivo virtuale aggiuntivo.
+- **Question**: can the low volume and the over-sensitive microphone be solved at the ALSA/UCM/WirePlumber level, or is the filter-chain needed?
+- **Method**: inspect `amixer contents`, the ALSA profile in use and the codec limits; try WirePlumber rules on the mixer controls.
+- **Success**: audible volume without distortion and a sensible microphone gain without an extra virtual device.
 
-## S6: ponte tra KCM e `forged`
-- **Domanda**: qual è il modo minimo per far parlare una pagina di Impostazioni di Sistema con un servizio D-Bus?
-- **Metodo**: provare un KCM minimo con plugin C++ e verificare cosa è possibile in QML puro. Controllare anche come far comparire una voce in Impostazioni.
-- **Successo**: una pagina visibile in Impostazioni che mostra lo stato letto da D-Bus.
+## S6: bridge between the KCM and `overdrived`
+- **Question**: what is the minimum way to make a System Settings page talk to a D-Bus service?
+- **Method**: try a minimal KCM with a C++ plugin and check what pure QML allows. Also check how to make an entry show up in System Settings.
+- **Success**: a page visible in System Settings showing state read over D-Bus.
+
+## Baseline
+
+Before the tablet is wiped, a backup of the current camera configuration and a system snapshot exist outside the repository.
+A reference capture of the same scene with the old stack is worth taking for S3 and S4, so that comparisons have a "before".

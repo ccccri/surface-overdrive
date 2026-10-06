@@ -1,15 +1,15 @@
-# Surface Forge
+# Surface Overdrive
 
-Correzioni hardware autogestite, immagine di sistema e pannello di controllo per un **Surface Go (1824)** con **Fedora Kinoite** e Secure Boot attivo.
-Progetto personale: non è pensato per altri modelli né per altri utenti.
+Self-maintaining hardware fixes, a system image and a control panel for a **Surface Go (1824)** running **Fedora Kinoite** with Secure Boot on.
+A personal project: it is not meant for other models or other users.
 
-**Stato**: fase di progetto (M0). Non c'è ancora niente da installare.
+**Status**: design phase (M0). There is nothing to install yet.
 
-- Architettura: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
-- Verifiche da fare sul tablet prima di scrivere il codice: [`docs/SPIKES.md`](docs/SPIKES.md)
+- Architecture: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
+- Things to verify on the tablet before writing code: [`docs/SPIKES.md`](docs/SPIKES.md)
 
-Il predecessore, con le patch originali e la documentazione delle cause, è la repo `surface-go-kinoite`.
+Its predecessor, with the original patches and the write-up of root causes, is the `surface-go-kinoite` repository.
 
-## Licenza
+## License
 
-MIT per il codice originale. Le patch che derivano da altri progetti mantengono la loro licenza (libcamera LGPL-2.1+, kernel GPL-2.0).
+MIT for original code. Patches derived from other projects keep their license (libcamera LGPL-2.1+, kernel GPL-2.0).

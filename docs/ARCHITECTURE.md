@@ -1,185 +1,188 @@
-# Surface Forge: architettura (bozza v0, 2026-10-06)
+# Surface Overdrive: architecture (draft v0, 2026-10-06)
 
-Progetto personale per un Surface Go 1824 (Wi-Fi, 8 GB, NVMe) con Fedora Kinoite 44, poi 45, Secure Boot attivo.
-Non è pensato per altri modelli né per altri utenti. Ogni scelta è marcata **[DECISO]** oppure **[DA VERIFICARE]**
-(in quel caso c'è uno spike in `docs/SPIKES.md` che la conferma o la smentisce sul dispositivo).
+A personal project for one Surface Go 1824 (Wi-Fi, 8 GB, NVMe) running Fedora Kinoite 44, later 45, with Secure Boot on.
+It is not meant for other models or other users. Every decision is marked **[DECIDED]** or **[TO VERIFY]**
+(in which case a spike in `docs/SPIKES.md` confirms or rejects it on the device).
 
-## 1. Obiettivo
+## 1. Goal
 
-Su una Kinoite appena installata e aggiornata, un solo comando porta il tablet a un sistema in cui fotocamere, NFC, tasti volume,
-penna, tastiera e audio funzionano, e **continua a funzionare dopo gli aggiornamenti senza che l'utente ricompili nulla**.
-Se qualcosa si rompe, il sistema lo nota, lo dice e propone la riparazione.
+On a freshly installed and updated Kinoite, one command brings the tablet to a state where cameras, NFC, volume buttons,
+pen, keyboard cover and audio work, and **keeps working after updates without the user rebuilding anything**.
+When something breaks, the system notices, says so and offers a repair.
 
-Vincoli:
-- **Nessun dato Microsoft** nel progetto (né tabelle di calibrazione né derivati). La calibrazione delle camere si ricava da misure nostre.
-- Nessuna dipendenza dal clone locale della repo: tutto quello che serve a runtime viene dall'immagine di sistema.
-- Il tablet **non compila niente**. Si compila in CI.
-- Degradare con grazia: se un fix manca, il sistema si comporta come lo stock. Mai un boot rotto.
-- Il progetto serve a me, quindi niente compromessi per la portabilità. La qualità però deve essere quella di un progetto serio.
+Constraints:
+- **No Microsoft data** in the project (no calibration tables, no derivatives). Camera calibration comes from our own measurements.
+- No dependency on a local clone of the repository: everything needed at runtime ships in the system image.
+- The tablet **builds nothing**. Building happens in CI.
+- Degrade gracefully: if a fix is missing the system behaves like stock. Never a broken boot.
+- The project serves one device, so no compromises for portability. Quality should still be that of a serious project.
 
-## 2. Principi
+## 2. Principles
 
-1. **Ogni fix è una dichiarazione e una verifica.** Non una sequenza di comandi.
-2. **Tutto quello che arriva dalla vecchia repo è un'ipotesi**: si rimisura prima di fidarsi (vedi SPIKES).
-3. **Meno patch sono meglio.** Per ognuna: serve ancora? è un bug upstream? si può mandare a monte? Una patch accettata a monte è manutenzione che sparisce.
-4. **Si distingue la correttezza dalle funzioni.** Le patch che correggono bug vengono prima di quelle che aggiungono controlli.
-5. **Il sistema è osservabile.** Ogni componente scrive nel journal con un identificatore stabile e ha un comando di stato.
+1. **A fix is a declaration plus a check**, not a sequence of commands.
+2. **Everything inherited from the previous repository is a hypothesis**: it is re-measured before it is trusted (see SPIKES).
+3. **Fewer patches are better.** For each one: is it still needed? is it an upstream bug? can it go upstream? An accepted patch is maintenance that disappears.
+4. **Correctness comes before features.** Patches that fix bugs ship before patches that add controls.
+5. **The system is observable.** Every component logs to the journal under a stable identifier and has a status command.
 
-## 3. Mappa dei problemi
+## 3. Problem map
 
-| Problema | Soluzione | Dove vive | Stato |
+| Problem | Solution | Lives in | Status |
 |---|---|---|---|
-| Camera posteriore: strisce verdi (modo del sensore rimasto vecchio) | Patch al driver `ov8865` (già proposta a linux-surface) | modulo kernel | consolidata |
-| Esposizione sbagliata di 4× sulla posteriore (pixel rate), gain a gradini, modo 800x600 inutilizzabile | Patch al driver `ov8865` | modulo kernel | da rivalutare uno per uno (S2) |
-| Anteriore: frame rate oltre il limite del ricevitore | Patch a `ov5693` | modulo kernel | da verificare se serve ancora (S2) |
-| NFC: `NXP3001` non riconosciuto, letture NACK che bloccano il chip | Id aggiunto + retry; oppure binding del driver stock | modulo oppure regola udev | **S1** |
-| Tasti volume non si ripetono | Patch a `intel_hid` | modulo kernel | consolidata |
-| Crash di WirePlumber (`std::clamp`, frame in volo) | Patch a libcamera (bug upstream) | libcamera | consolidata, da proporre a monte |
-| Messa a fuoco instabile, AE/AGC, sensor delays, black level, flip della posteriore | Patch a libcamera (livello 1) | libcamera | consolidata, da rimisurare (S3) |
-| Vignettatura e dominante di colore | Calibrazione **propria** (lens shading e black level da misure) | `/var/lib/surface-forge/calibration/` | **S4** |
-| Controlli live (gamma, saturazione, denoise...) | Livello 3: rimandato | libcamera + pannello | dopo M5 |
-| Batteria penna sempre 0% | Programma HID-BPF | immagine | consolidata |
-| Trackpad della tastiera a volte assente | Regola udev e unità di recupero | immagine | consolidata |
-| Audio basso, microfono troppo sensibile | Catena filter-chain di PipeWire (come Asahi) oppure regole ALSA/WirePlumber | immagine | **S5** |
+| Rear camera: green stripes (sensor mode left stale) | Patch to the `ov8865` driver (already proposed to linux-surface) | kernel module | established |
+| Rear exposure wrong by 4x (pixel rate), stepped gain, unusable 800x600 mode | Patches to the `ov8865` driver | kernel module | re-evaluate one by one (S2) |
+| Front: frame rate above what the receiver accepts | Patch to `ov5693` | kernel module | check it is still needed (S2) |
+| NFC: `NXP3001` not recognised, NACKed reads that stall the chip | Added id plus retry; or bind the stock driver | module or udev rule | **S1** |
+| Volume buttons do not repeat when held | Patch to `intel_hid` | kernel module | established |
+| WirePlumber crashes (`std::clamp`, frames in flight) | libcamera patch (upstream bug) | libcamera | established, to send upstream |
+| Unstable autofocus, AE/AGC, sensor delays, black level, rear flip | libcamera patches (tier 1) | libcamera | established, re-measure (S3) |
+| Vignetting and colour cast | **Own** calibration (lens shading and black level from measurements) | `/var/lib/surface-overdrive/calibration/` | **S4** |
+| Live controls (gamma, saturation, denoise...) | Tier 3: deferred | libcamera + panel | after M5 |
+| Pen battery always 0% | HID-BPF program | image | established |
+| Keyboard-cover trackpad sometimes missing | udev rule and recovery unit | image | established |
+| Quiet speakers, over-sensitive microphone | PipeWire filter-chain (as Asahi does) or ALSA/WirePlumber rules | image | **S5** |
 
-Livelli delle patch libcamera: **1** correttezza (crash, AF, AGC, black level, flip, delays), **2** qualità (lens shading con tabelle nostre, tone curve),
-**3** funzioni (profilo live, denoise temporale, controlli del pannello). Si porta in produzione un livello alla volta.
+libcamera patch tiers: **1** correctness (crashes, AF, AGC, black level, flip, delays), **2** quality (lens shading with our own tables, tone curve),
+**3** features (live profile, temporal denoise, panel controls). One tier ships at a time.
 
-## 4. Distribuzione: immagine bootc personalizzata **[DECISO]**
+## 4. Distribution: a custom bootc image **[DECIDED]**
 
-Si parte da `quay.io/fedora-ostree-desktops/kinoite:44` (e `:45` appena c'è la base stabile) e si aggiunge solo quello che serve.
+Start from `quay.io/fedora-ostree-desktops/kinoite:44` (and `:45` once its stable base exists) and add only what is needed.
 
-Perché non script sul tablet o layering:
-- kernel e moduli viaggiano insieme: **non può esistere un kernel nuovo senza i moduli giusti**. Se la build fallisce, l'immagine non esce;
-- i moduli finiscono in `/usr/lib/modules/<kver>/updates/` con `depmod`, che il sistema preferisce a quelli stock. Quindi niente regole `install ... insmod`, niente `/var/lib/local-kmods`, niente marker, niente servizio dedicato per caricare l'NFC;
-- libcamera si sostituisce con un pacchetto ricostruito, senza `/usr/local` e senza `LD_LIBRARY_PATH`;
-- rollback e aggiornamenti sono quelli normali di ostree.
+Why not on-device scripts or layering:
+- kernel and modules travel together: **a new kernel cannot exist without its matching modules**. If the build fails, the image is not published;
+- modules land in `/usr/lib/modules/<kver>/updates/` with `depmod`, which the system prefers over the stock ones. No `install ... insmod` rules, no `/var/lib/local-kmods`, no markers, no dedicated service to load the NFC driver;
+- libcamera is replaced by a rebuilt package, with no `/usr/local` and no `LD_LIBRARY_PATH`;
+- rollback and updates are the normal ostree ones.
 
-### 4.1 Pipeline CI (GitHub Actions)
+### 4.1 CI pipeline (GitHub Actions)
 
-Trigger: ogni giorno, a ogni push e a mano. Matrice: Fedora 44 e 45 (la 45 resta "sperimentale" finché la base stabile non esiste).
+CI means *continuous integration*: an automatic service that builds and tests the project on every change. Here it also builds the image every day.
 
-1. **detect**: legge dal registry il digest della base e dai repo Fedora le versioni di kernel e libcamera. Se niente è cambiato e le patch sono le stesse, salta.
-2. **kmods**: scarica da Koji i `kernel-devel` **esatti** del kernel presente nella base (non quelli correnti del repo: potrebbero essere già più avanti) e il SRPM del kernel,
-   da cui estrae i soli sorgenti dei driver da patchare. Così il sorgente è quello del kernel che gira, non un tag upstream. Controllo di sicurezza: se una patch Fedora tocca
-   uno di quei file, il job fallisce e lo dice. Compila, firma con la chiave del progetto, produce un RPM `kmod-surface-forge`.
-3. **libcamera**: scarica il SRPM di Fedora, applica la serie di patch, ricostruisce con `mock`. Cache per (versione + hash delle patch).
-4. **image**: `Containerfile` = base + RPM + file di configurazione, unità systemd, regole udev, binari Rust, KCM. Test di fumo nel container.
-5. **sign + publish**: firma cosign, push su `ghcr.io/ccccri/surface-forge:<44|45>` e tag datato.
-6. **series-check** (job separato, indipendente): applica le serie di patch su Fedora 44, 45, `updates-testing` e Rawhide. È l'allarme anticipato: dice in anticipo che cosa si romperà.
-7. Se un job fallisce: apre una Issue con kernel, versioni, commit e coda del log, e ti avvisa GitHub. La correzione la facciamo insieme in una sessione di Claude Code. L'immagine precedente resta quella che il tablet scarica.
+Triggers: daily, on every push, and manually. Matrix: Fedora 44 and 45 (45 stays "experimental" until its stable base exists).
 
-Chiave di firma dei moduli: segreto del repo. Il certificato pubblico sta in `/usr/share/surface-forge/mok.der`. Va registrato nel firmware una volta (MOK).
+1. **detect**: reads the base digest from the registry and the kernel and libcamera versions from the Fedora repositories. If nothing changed and the patches are the same, skip.
+2. **kmods**: downloads from Koji the **exact** `kernel-devel` of the kernel in the base image (not the current repo one, which may already be newer) and the kernel SRPM,
+   from which it extracts only the sources of the drivers to patch. The source is thus that of the running kernel, not an upstream tag. Safety check: if a Fedora patch touches
+   one of those files the job fails and says so. It builds, signs with the project key and produces a `kmod-surface-overdrive` RPM.
+3. **libcamera**: downloads Fedora's SRPM, applies the patch series, rebuilds with `mock`. Cached by (version + patch hash).
+4. **image**: a `Containerfile` = base + RPMs + configuration files, systemd units, udev rules, Rust binaries, KCM. Smoke test inside the container.
+5. **sign + publish**: cosign signature, push to `ghcr.io/ccccri/surface-overdrive:<44|45>` and a dated tag.
+6. **series-check** (separate, independent job): applies the patch series on Fedora 44, 45, `updates-testing` and Rawhide. This is the early warning: it tells us in advance what will break.
+7. If a job fails: it opens an Issue with kernel, versions, commit and the log tail, and GitHub notifies you. We fix it together in a Claude Code session. The tablet keeps pulling the previous image.
 
-### 4.2 Aggiornamenti sul tablet
+Module signing key: a repository secret. The public certificate ships in `/usr/share/surface-overdrive/mok.der` and must be enrolled in the firmware once (MOK).
 
-Gli aggiornamenti automatici standard di Kinoite scaricano l'immagine nuova e la attivano al riavvio successivo.
-**Guardia di promozione [DECISO]**: `forged` controlla all'avvio che i fix critici funzionino sul nuovo deployment. Se non funzionano
-entro un numero di avvii prefissato, notifica e offre il rollback (`rpm-ostree rollback`), senza farlo da solo.
+### 4.2 Updates on the tablet
 
-## 5. Installazione **[DECISO]**
+Kinoite's standard automatic updates download the new image and activate it at the next reboot.
+**Promotion guard [DECIDED]**: on boot, `overdrived` checks that the critical fixes work on the new deployment. If they do not,
+within a set number of boots it notifies and offers rollback (`rpm-ostree rollback`) without doing it on its own.
 
-**Fase 0: bootstrap** (sulla Kinoite stock, senza dipendenze grafiche che potrebbero mancare). Uno script shell breve e leggibile, scaricato da una release con checksum:
-1. controlli (modello da DMI, Kinoite, rete, spazio);
-2. scrive in `/etc/containers` la policy e la chiave per verificare l'immagine firmata;
-3. mette in coda la registrazione MOK con una password casuale che mostra a schermo;
-4. `rpm-ostree rebase ostree-image-signed:docker://ghcr.io/ccccri/surface-forge:44`;
-5. riavvio. Passi che richiedono root passano da `pkexec` (la finestra della password di Plasma), non da `sudo` nel terminale.
+## 5. Installation **[DECIDED]**
 
-Un solo riavvio: la schermata blu della MOK compare prima del boot nella nuova immagine. Il bootstrap non esiste come Flatpak: una app in sandbox non può cambiare il sistema operativo.
+**Phase 0: bootstrap** (on stock Kinoite, with no graphical dependencies that might be missing). A short, readable shell script downloaded from a release with a checksum:
+1. checks (model from DMI, Kinoite, network, space);
+2. writes the policy and key for verifying the signed image into `/etc/containers`;
+3. queues the MOK enrolment with a random password it shows on screen;
+4. `rpm-ostree rebase ostree-image-signed:docker://ghcr.io/ccccri/surface-overdrive:44`;
+5. reboot. Steps that need root go through `pkexec` (Plasma's password dialog), not `sudo` in a terminal.
 
-**Fase 1: assistente al primo avvio** (dentro l'immagine, con Qt/KDE già disponibili): verifica dei fix, calibrazione guidata delle camere (§8), riepilogo.
-Quest'ultima richiede un lavoro dell'utente (schermo bianco, copertura dell'obiettivo), quindi non è automatizzabile del tutto.
+One reboot only: the blue MOK screen appears before the boot into the new image. The bootstrap is not a Flatpak: a sandboxed app cannot change the operating system.
+
+**Phase 1: first-boot assistant** (inside the image, with Qt/KDE available): checks the fixes, guided camera calibration (§8), summary.
+The calibration needs the user's help (white screen, covered lens), so it cannot be fully automated.
 
 ## 6. Runtime
 
-Componenti, ognuno con un compito solo:
+Components, each with a single job:
 
-| Componente | Cosa fa | Linguaggio |
+| Component | What it does | Language |
 |---|---|---|
-| `forged` | servizio di sistema: legge il manifest dei fix, esegue i controlli, orchestra le riparazioni, espone lo stato su D-Bus; azioni privilegiate protette da polkit | Rust |
-| `surface-nfcd` | lettore NFC sempre attivo, parla con il kernel via netlink (nessun neard) | Rust |
-| `forge-notify` | agente di sessione: notifiche con pulsanti, apre la pagina giusta di Impostazioni | Rust o C++ |
-| KCM `Surface Forge` | pagina in Impostazioni di Sistema: stato, riparazioni, calibrazione | C++ + QML |
-| `forgectl` | CLI per stato, verifica, riparazione, raccolta dei log | Rust |
-| strumenti offline | calibrazione e analisi delle immagini, script di CI | Python |
+| `overdrived` | system service: reads the fix manifest, runs checks, orchestrates repairs, exposes state on D-Bus; privileged actions are guarded by polkit | Rust |
+| `overdrive-nfcd` | always-on NFC reader, talks to the kernel over netlink (no neard) | Rust |
+| `overdrive-notify` | session agent: notifications with buttons, opens the right System Settings page | Rust or C++ |
+| `Surface Overdrive` KCM | a System Settings page: status, repairs, calibration | C++ + QML |
+| `overdrivectl` | CLI for status, verification, repair, log collection | Rust |
+| offline tools | calibration and image analysis, CI scripts | Python |
 
-Rust per i demoni: binari piccoli, poca memoria, niente interprete da tenere sveglio su un Pentium, buon supporto per D-Bus (`zbus`) e netlink.
-Il KCM deve essere C++: **un KCM in QML puro non può chiamare D-Bus** (**[DA VERIFICARE, S6]**: forse basta un piccolo plugin).
+Rust for the daemons: small binaries, low memory, no interpreter kept awake on a Pentium, good support for D-Bus (`zbus`) and netlink.
+The KCM has to be C++: **a pure QML KCM cannot call D-Bus** (**[TO VERIFY, S6]**: a small plugin may be enough).
 
-### 6.1 Manifest dei fix
+### 6.1 Fix manifest
 
-Ogni fix è una cartella `fixes/<id>/` con un `fix.toml`:
+Each fix is a folder `fixes/<id>/` with a `fix.toml`:
 ```toml
 id = "camera-rear"
-title = "Fotocamera posteriore"
+title = "Rear camera"
 class = "kernel"            # kernel | userspace | calibration | config
 requires = ["mok", "module:ov8865"]
 match.dmi = { product_name = "Surface Go" }
 check = ["module-loaded ov8865 updates", "node pipewire LNK0"]
 repair = ["recalibrate", "restart wireplumber"]
 ```
-Stati: `ok`, `degraded` (riparabile da solo), `needs-reboot`, `needs-user` (MOK, calibrazione), `unsupported`.
-I controlli sono dati, non codice: si possono testare senza il tablet.
+States: `ok`, `degraded` (self-repairable), `needs-reboot`, `needs-user` (MOK, calibration), `unsupported`.
+Checks are data, not code: they can be tested without the tablet.
 
 ### 6.2 Monitor
 
-Eventi che lo avviano: avvio, cambio di deployment (`rpm-ostreed`), timer giornaliero, richiesta manuale. Silenzio quando tutto è `ok`.
-Una notifica solo per ciò che richiede l'utente (riavvio, MOK, calibrazione, rollback). Riparazione in background per ciò che è `degraded`.
-**Non esiste più la ricompilazione sul tablet**: le uniche riparazioni sono ripristinare configurazione, rifare la calibrazione e tornare al deployment precedente.
+Triggers: boot, deployment change (`rpm-ostreed`), a daily timer, a manual request. Silence while everything is `ok`.
+One notification only for what needs the user (reboot, MOK, calibration, rollback). Background repair for what is `degraded`.
+**There is no on-device rebuild any more**: the only repairs are restoring configuration, redoing the calibration and going back to the previous deployment.
 
-## 7. Esperienza utente
+## 7. User experience
 
-Il portale principale è **Impostazioni di Sistema**: una voce "Surface" con pagine Stato, Fotocamere, NFC, Audio, Aggiornamenti.
-Le notifiche di Plasma servono solo a portarti lì: il pulsante di una notifica apre direttamente la pagina giusta (`kcmshell6`).
-Gli extra del vecchio pannello (equalizzatore con import AutoEQ, vista 3D, test della penna e della tastiera) restano **fuori dal nucleo**: arrivano dopo, come funzioni opzionali.
+The main portal is **System Settings**: a "Surface" entry with Status, Cameras, NFC, Audio and Updates pages.
+Plasma notifications only lead you there: a notification button opens the right page directly (`kcmshell6`).
+The extras of the old panel (equaliser with AutoEQ import, 3D view, pen and keyboard tests) stay **outside the core**: they come later as optional features.
 
-## 8. Calibrazione propria delle camere **[DA VERIFICARE, S4]**
+## 8. Own camera calibration **[TO VERIFY, S4]**
 
-Obiettivo: ottenere lens shading e black level senza usare dati Microsoft, e meglio: per l'esemplare del tablet.
-- **Black level**: fotogrammi RAW con l'obiettivo coperto, a gain diversi, per canale.
-- **Lens shading**: fotogrammi RAW di un campo bianco uniforme (schermo del desktop a schermo intero con l'obiettivo vicino, come già fatto), stima di una griglia per canale con correzione del contributo dell'illuminante.
-- Risultato in `/var/lib/surface-forge/calibration/<sensore>.json`. Un'unità di sistema lo trasforma nel file di tuning di libcamera in `/etc/libcamera/ipa/ipu3/`.
-- L'immagine porta un tuning generico di partenza, derivato dalle **mie** misure (dato proprio, quindi includibile).
-- Le tabelle Microsoft si possono confrontare **in privato** per controllare che le nostre siano plausibili, ma non entrano mai nella repo.
+Goal: get lens shading and black level without any Microsoft data, and better: specific to this unit.
+- **Black level**: RAW frames with the lens covered, at several gains, per channel.
+- **Lens shading**: RAW frames of a uniform white field (the desktop screen in full screen with the lens close to it, as done before), estimating a grid per channel and correcting for the illuminant.
+- The result goes to `/var/lib/surface-overdrive/calibration/<sensor>.json`. A system unit turns it into libcamera's tuning file in `/etc/libcamera/ipa/ipu3/`.
+- The image ships a generic starting tuning derived from **my own** measurements (own data, so it can be included).
+- Microsoft's tables can be compared **privately** to check that ours are plausible, but never enter the repository.
 
-CCM e white balance vincolato all'illuminante restano fuori dal primo giro (nella vecchia repo la matrice peggiorava gli errori del bilanciamento).
-Alternativa studiata e scartata per ora: SoftISP di libcamera. Ha CCM e lens shading ma lavora in software: su un Pentium 4415Y toglierebbe il vantaggio dell'ImgU.
+CCM and illuminant-constrained white balance stay out of the first pass (in the old repository the matrix amplified white-balance errors).
+Studied and rejected for now: libcamera's SoftISP. It has CCM and lens shading but runs in software: on a Pentium 4415Y it would give up the ImgU hardware advantage.
 
-## 9. Test
+## 9. Testing
 
-- **Unit**: logica del manifest, macchina a stati, parser NFC, matematica della calibrazione.
-- **CI**: serie di patch su più versioni, build, test di fumo dell'immagine in container.
-- **Hardware**: `forgectl verify` sul tablet; gli esperimenti puntuali sono gli spike.
-- **Ciclo di sviluppo veloce**: per provare un binario o un file senza aspettare la CI si usa `rpm-ostree usroverlay` (scrivibile fino al riavvio). La CI conferma dopo.
+- **Unit**: manifest logic, state machine, NFC parser, calibration maths.
+- **CI**: patch series on several versions, build, image smoke test.
+- **Hardware**: `overdrivectl verify` on the tablet; one-off experiments are the spikes.
+- **Fast development loop**: to try a binary or a file without waiting for CI, use `rpm-ostree usroverlay` (writable until reboot). CI confirms afterwards.
+- **Tests behave like a real user**: on the tablet we log in with the real password, keep autologin and use `sudo` with the password as a user would, with no disabled sudo and no SSH tricks.
 
-## 10. Fuori scopo
+## 10. Out of scope
 
-Camera IR (non esposta da libcamera), altri modelli di Surface, filtri GPU e camera virtuale, SoftISP, chiavi di firma condivise tra più utenti.
+IR camera (not exposed by libcamera), other Surface models, GPU filters and a virtual camera, SoftISP, signing keys shared between several users.
 
-## 11. Rischi aperti
+## 11. Open risks
 
-- Le patch libcamera dipendono dalla versione: la CI avvisa, ma il riadattamento è lavoro.
-- Chi controlla la CI controlla il codice che il kernel accetta: la chiave di firma è nei segreti del repo. Accettabile per un uso personale.
-- La MOK va confermata a mano una volta, nella schermata blu (e di nuovo dopo una cancellazione delle chiavi del firmware).
-- Se la CI si ferma per giorni, il tablet resta sull'ultima immagine che funziona ma non riceve aggiornamenti di sicurezza.
-- Il KCM richiede C++: aggiunge competenze e tempo (S6).
+- libcamera patches depend on the version: CI warns, but porting is work.
+- Whoever controls CI controls the code the kernel accepts: the signing key is in repository secrets. Acceptable for personal use.
+- MOK has to be confirmed by hand once, on the blue screen (and again after the firmware keys are cleared).
+- If CI stops for days, the tablet stays on the last working image but receives no security updates.
+- The KCM needs C++: extra skills and time (S6).
 
-## 12. Piano
+## 12. Plan
 
-| Tappa | Contenuto | Fatto quando |
+| Milestone | Content | Done when |
 |---|---|---|
-| M0 | Repo, documenti, spike S1-S6 sul tablet | ogni spike ha una risposta scritta |
-| M1 | CI: moduli kernel firmati + immagine minima che si avvia sul Surface | cameras e NFC funzionano da immagine |
-| M2 | libcamera da SRPM con patch livello 1; prova su Fedora 45 | nessun crash, AF stabile, misure ripetibili |
-| M3 | Bootstrap + MOK + rebase con un solo riavvio, da installazione pulita | prova da zero sul tablet |
-| M4 | `forged` + manifest + monitor + notifiche + `forgectl` | un guasto provocato viene rilevato e riparato |
-| M5 | Calibrazione propria + KCM + assistente | colori e vignettatura pari o migliori della vecchia repo |
-| M6 | Audio, penna, tastiera, volume spostati nell'immagine | tutti i controlli verdi |
-| M7 | Extra opzionali (livello 3, equalizzatore, test) | a scelta |
+| M0 | Repo, documents, spikes S1-S6 on the tablet | every spike has a written answer |
+| M1 | CI: signed kernel modules + a minimal image that boots on the Surface | cameras and NFC work from the image |
+| M2 | libcamera from SRPM with tier-1 patches; trial on Fedora 45 | no crashes, stable AF, repeatable measurements |
+| M3 | Bootstrap + MOK + rebase with a single reboot, from a clean install | from-scratch trial on the tablet |
+| M4 | `overdrived` + manifest + monitor + notifications + `overdrivectl` | a provoked fault is detected and repaired |
+| M5 | Own calibration + KCM + assistant | colour and vignetting equal to or better than the old repo |
+| M6 | Audio, pen, keyboard cover, volume moved into the image | all checks green |
+| M7 | Optional extras (tier 3, equaliser, tests) | as chosen |
 
-## 13. Riuso dalla vecchia repo (`surface-go-kinoite`, conservata a parte)
+## 13. Reuse from the old repository (`surface-go-kinoite`, kept separately)
 
-Come **specifica e riferimento**, non come codice da copiare: patch dei driver e di libcamera (rimisurate una a una), documento delle cause radice, strumenti
-di misura (`tools/focus-test/`), logica del daemon NFC (riscritta), lista dei problemi noti (`Gotchas`, `Tried and rejected`). Quel che non passa:
-`~/mok` e password fissa, tabelle derivate da Microsoft, regole `modprobe install`, `/usr/local/libcamera-patched`, wizard basato su output di script.
+As **specification and reference**, not as code to copy: driver and libcamera patches (re-measured one by one), the document of root causes, the measurement tools
+(`tools/focus-test/`), the NFC daemon logic (rewritten), the list of known problems (`Gotchas`, `Tried and rejected`). What does not carry over:
+`~/mok` and the fixed password, Microsoft-derived tables, `modprobe install` rules, `/usr/local/libcamera-patched`, a wizard based on script output.
