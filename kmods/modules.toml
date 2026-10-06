@@ -1,0 +1,56 @@
+# Out-of-tree kernel modules built against the exact kernel of the base image.
+#
+# `sources` keep their path inside the kernel tree, so relative includes keep working. Patches live in
+# `patches/kernel/<patches>/` and are applied in file name order with `git apply -p1` at the tree root.
+# `build_dir` is the directory handed to Kbuild (M=); `kbuild` is the content of the Kbuild file written there.
+
+[[module]]
+name = "ov8865"
+description = "Rear camera sensor: stale-mode fix, real pixel rate, fine analogue gain, no unusable 800x600 mode"
+sources = ["drivers/media/i2c/ov8865.c"]
+patches = "ov8865"
+build_dir = "drivers/media/i2c"
+kbuild = ["obj-m += ov8865.o"]
+modules = ["ov8865"]
+
+[[module]]
+name = "ov5693"
+description = "Front camera sensor: default timing capped at 30 fps"
+sources = ["drivers/media/i2c/ov5693.c"]
+patches = "ov5693"
+build_dir = "drivers/media/i2c"
+kbuild = ["obj-m += ov5693.o"]
+modules = ["ov5693"]
+
+[[module]]
+name = "nxp-nci"
+description = "NFC controller: ACPI id NXP3001, I2C read retry, shorter polling period"
+sources = [
+    "drivers/nfc/nxp-nci/core.c",
+    "drivers/nfc/nxp-nci/firmware.c",
+    "drivers/nfc/nxp-nci/i2c.c",
+    "drivers/nfc/nxp-nci/nxp-nci.h",
+]
+patches = "nxp-nci"
+build_dir = "drivers/nfc/nxp-nci"
+kbuild = [
+    "obj-m += nxp-nci.o nxp-nci_i2c.o",
+    "nxp-nci-y := core.o firmware.o",
+    "nxp-nci_i2c-y := i2c.o",
+]
+modules = ["nxp-nci", "nxp-nci_i2c"]
+
+[[module]]
+name = "intel-hid"
+description = "Button array: volume buttons report press and release so that holding them repeats"
+sources = [
+    "drivers/platform/x86/intel/hid.c",
+    "drivers/platform/x86/dual_accel_detect.h",
+]
+patches = "intel-hid"
+build_dir = "drivers/platform/x86/intel"
+kbuild = [
+    "obj-m += intel_hid.o",
+    "intel_hid-y := hid.o",
+]
+modules = ["intel_hid"]
