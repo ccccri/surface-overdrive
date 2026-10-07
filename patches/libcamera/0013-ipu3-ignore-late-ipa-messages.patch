@@ -1,0 +1,66 @@
+diff --git a/src/libcamera/pipeline/ipu3/frames.cpp b/src/libcamera/pipeline/ipu3/frames.cpp
+index 2400a37..0ce1298 100644
+--- a/src/libcamera/pipeline/ipu3/frames.cpp
++++ b/src/libcamera/pipeline/ipu3/frames.cpp
+@@ -133,6 +133,25 @@ IPU3Frames::Info *IPU3Frames::find(unsigned int id)
+ 	return nullptr;
+ }
+ 
++/**
++ * \brief Find the tracking information of a frame, if it is still tracked
++ * \param[in] id The frame number
++ *
++ * Messages from the IPA can arrive after the camera was stopped and its frames cleared. Unlike find(), a frame that is no longer
++ * tracked is not an error here: the caller ignores the message.
++ *
++ * \return The tracking information, or nullptr if the frame is not tracked any more
++ */
++IPU3Frames::Info *IPU3Frames::findIfPresent(unsigned int id)
++{
++	const auto &itInfo = frameInfo_.find(id);
++
++	if (itInfo != frameInfo_.end())
++		return &itInfo->second;
++
++	return nullptr;
++}
++
+ IPU3Frames::Info *IPU3Frames::find(FrameBuffer *buffer)
+ {
+ 	for (auto &[id, info] : frameInfo_) {
+diff --git a/src/libcamera/pipeline/ipu3/frames.h b/src/libcamera/pipeline/ipu3/frames.h
+index 36a23b9..422f3d5 100644
+--- a/src/libcamera/pipeline/ipu3/frames.h
++++ b/src/libcamera/pipeline/ipu3/frames.h
+@@ -49,6 +49,7 @@ public:
+ 	bool tryComplete(Info *info);
+ 
+ 	Info *find(unsigned int id);
++	Info *findIfPresent(unsigned int id);
+ 	Info *find(FrameBuffer *buffer);
+ 
+ 	Signal<> bufferAvailable;
+diff --git a/src/libcamera/pipeline/ipu3/ipu3.cpp b/src/libcamera/pipeline/ipu3/ipu3.cpp
+index 9914975..eddbd42 100644
+--- a/src/libcamera/pipeline/ipu3/ipu3.cpp
++++ b/src/libcamera/pipeline/ipu3/ipu3.cpp
+@@ -1319,7 +1319,8 @@ void IPU3CameraData::setSensorControls([[maybe_unused]] unsigned int id,
+ 
+ void IPU3CameraData::paramsComputed(unsigned int id)
+ {
+-	IPU3Frames::Info *info = frameInfos_.find(id);
++	/* Late IPA messages (after stop()) refer to frames that are gone: ignore them. */
++	IPU3Frames::Info *info = frameInfos_.findIfPresent(id);
+ 	if (!info)
+ 		return;
+ 
+@@ -1340,7 +1341,8 @@ void IPU3CameraData::paramsComputed(unsigned int id)
+ 
+ void IPU3CameraData::metadataReady(unsigned int id, const ControlList &metadata)
+ {
+-	IPU3Frames::Info *info = frameInfos_.find(id);
++	/* Late IPA messages (after stop()) refer to frames that are gone: ignore them. */
++	IPU3Frames::Info *info = frameInfos_.findIfPresent(id);
+ 	if (!info)
+ 		return;
+ 

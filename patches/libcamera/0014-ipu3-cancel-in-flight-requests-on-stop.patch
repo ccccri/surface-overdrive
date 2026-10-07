@@ -1,0 +1,90 @@
+diff --git a/src/libcamera/pipeline/ipu3/frames.cpp b/src/libcamera/pipeline/ipu3/frames.cpp
+index 0ce1298..33bcbad 100644
+--- a/src/libcamera/pipeline/ipu3/frames.cpp
++++ b/src/libcamera/pipeline/ipu3/frames.cpp
+@@ -152,6 +152,24 @@ IPU3Frames::Info *IPU3Frames::findIfPresent(unsigned int id)
+ 	return nullptr;
+ }
+ 
++/**
++ * \brief Get the requests of all frames that are still tracked
++ *
++ * A frame is tracked from the moment its request is queued until the request is completed, so these are the requests that
++ * are in flight inside the pipeline.
++ *
++ * \return The requests of the tracked frames
++ */
++std::vector<Request *> IPU3Frames::trackedRequests() const
++{
++	std::vector<Request *> requests;
++
++	for (const auto &[id, info] : frameInfo_)
++		requests.push_back(info.request);
++
++	return requests;
++}
++
+ IPU3Frames::Info *IPU3Frames::find(FrameBuffer *buffer)
+ {
+ 	for (auto &[id, info] : frameInfo_) {
+diff --git a/src/libcamera/pipeline/ipu3/frames.h b/src/libcamera/pipeline/ipu3/frames.h
+index 422f3d5..50bde1e 100644
+--- a/src/libcamera/pipeline/ipu3/frames.h
++++ b/src/libcamera/pipeline/ipu3/frames.h
+@@ -50,6 +50,7 @@ public:
+ 
+ 	Info *find(unsigned int id);
+ 	Info *findIfPresent(unsigned int id);
++	std::vector<Request *> trackedRequests() const;
+ 	Info *find(FrameBuffer *buffer);
+ 
+ 	Signal<> bufferAvailable;
+diff --git a/src/libcamera/pipeline/ipu3/ipu3.cpp b/src/libcamera/pipeline/ipu3/ipu3.cpp
+index eddbd42..ea6abe3 100644
+--- a/src/libcamera/pipeline/ipu3/ipu3.cpp
++++ b/src/libcamera/pipeline/ipu3/ipu3.cpp
+@@ -75,6 +75,7 @@ public:
+ 	void statBufferReady(FrameBuffer *buffer);
+ 	void queuePendingRequests();
+ 	void cancelPendingRequests();
++	void cancelTrackedRequests();
+ 	void frameStart(uint32_t sequence);
+ 
+ 	CIO2Device cio2_;
+@@ -881,9 +882,36 @@ void PipelineHandlerIPU3::stopDevice(Camera *camera)
+ 	if (ret)
+ 		LOG(IPU3, Warning) << "Failed to stop camera " << camera->id();
+ 
++	/*
++	 * Requests that were still in flight cannot complete any more: the IPA is stopped and will not report their metadata,
++	 * and the ImgU has given back the buffers. Complete them as cancelled, as stopDevice() must, before the frame tracking
++	 * is cleared. Otherwise PipelineHandler::stop() finds requests that never complete and aborts.
++	 */
++	data->cancelTrackedRequests();
++
+ 	freeBuffers(camera);
+ }
+ 
++/*
++ * Complete as cancelled every request still tracked by the frame bookkeeping: buffers the pipeline still owns are cancelled
++ * and given back to the request, then the request is completed.
++ */
++void IPU3CameraData::cancelTrackedRequests()
++{
++	for (Request *request : frameInfos_.trackedRequests()) {
++		for (const auto &[stream, buffer] : request->buffers()) {
++			/* A buffer that already went through completeBuffer() is no longer attached to its request. */
++			if (!buffer->request())
++				continue;
++
++			buffer->_d()->cancel();
++			pipe()->completeBuffer(request, buffer);
++		}
++
++		pipe()->completeRequest(request);
++	}
++}
++
+ void IPU3CameraData::cancelPendingRequests()
+ {
+ 	processingRequests_ = {};

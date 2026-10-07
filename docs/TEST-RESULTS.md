@@ -44,3 +44,24 @@ Rebase from a second OCI archive, one reboot, no MOK screen (key already enrolle
 | Colour | still a pink centre with green/blue edges: no lens shading yet (own calibration, S4) |
 
 Open: which of the 12 patches are really needed (S3), lens shading and black level from our own measurements (S4), autofocus behaviour in a controlled scene, noise.
+
+## Test 3 (2026-10-07): WirePlumber crashes when a camera stops or the camera is switched
+
+Reported symptom: switching between the cameras, or toggling Kamoso's mirror option (which stops and restarts the stream), aborts WirePlumber every time.
+Two separate defects in libcamera's IPU3 pipeline, both found from the core dumps (`coredumpctl info`):
+
+1. `IPU3Frames::find(id)` ends in `LOG(Fatal)` when a frame is not tracked. After stop() clears the tracking, a late `paramsComputed` / `metadataReady` message from the IPA
+   arrives and the process aborts. Fixed by `0013-ipu3-ignore-late-ipa-messages.patch` (those two callbacks use a lookup that ignores frames that are gone).
+2. `PipelineHandler::stop()` aborts on `assertion "data->queuedRequests_.empty()" failed` when requests were in flight: the IPU3 `stopDevice()` only cancelled the requests it had not started,
+   while the others wait for IPA metadata that never comes after the stop. Fixed by `0014-ipu3-cancel-in-flight-requests-on-stop.patch` (cancel and complete the requests still tracked).
+
+`tools/dev/camera_stress.sh` starts and stops the two cameras through PipeWire at random sizes, alone, switching and overlapping.
+
+| Image | Result |
+|---|---|
+| 12 patches | crashes at once when a camera stops (`find()` Fatal) |
+| + 0013 | crashes at cycle 2 (`queuedRequests_` assertion) |
+| + 0013 + 0014 | **40 of 40 cycles, 0 crashes** |
+
+Open: the rear camera picture is reported as mirrored. The sensor's HFLIP control reads 1 while streaming (checked through the subdevice), so the hardware flip is applied; whether the picture is
+really mirrored needs a real text in front of the lens. Colour (magenta centre) waits for our own calibration.
