@@ -123,3 +123,31 @@ Fix: `0017-ipu3-agc-ignore-blank-frames-settle-check.patch`.
 **Stray black frame.** Dropping two raw frames removed the black frame at position 2 only some of the time: it now shows up at position 1, 2 or 3 of a restart in about one start out of three
 (Y plane all zero, UV exactly 128). Fix: `0018-ipu3-conceal-blank-frames.patch`: an output frame whose sampled luma is all zero is replaced by the previous good frame
 (kept across sessions; discarded if the resolution changed). Frames that are black at the very start of a cold start, before any good frame exists, are not covered.
+
+## Test 7 (2026-10-07, evening): dim room, black level, gradual AGC start
+
+The room was much darker than in the earlier tests (ambient light ~31 lux), which exposed a real problem: with no `black:` key in the tuning the BLC patch subtracts a default of 64
+(10 bit), so in a dim scene all the signal ends up below zero. Frames were then really black (every sampled luma byte 0) and the blank-frame concealment of test 6 replaced
+almost every one of them (117 events in 150 frames) with the previous good frame: a frozen picture, and a luma series that looked flat only because it was a repeated frame.
+
+Changes:
+- **Black level in the tuning** (`image/rootfs/usr/share/libcamera/ipa/ipu3/*.yaml`): our own measurements with the lens covered, rear `[1, 5, 1, 1]`, front `[9, 18, 9, 9]`.
+- `0019-ipu3-blank-frame-handling-refinements.patch`: before the first valid frame of a session the AGC climbs to more light by doubling the exposure value per frame
+  (it used to wait 30 frames, which left the picture black for a second in the dark); blank frames after the first valid one are ignored; the concealment replaces at most
+  three consecutive blank frames, so a really dark scene can never freeze the picture.
+
+| Same dim room | Test 6 | Test 7 |
+|---|---|---|
+| rear, steady luma | 55 | 74-76 |
+| front, steady luma | 77 | 110-115 |
+| black frames on a restart | none, but most frames were repeats | none |
+| rear, first start after boot | 40 black frames, then settled at 55 | ~10 black frames, settled at 75 after ~25 frames |
+| front, first start after boot | 11 dark frames | 9 dark frames, settled at 115 after ~30 frames |
+| stress test | 0 crashes in 25 cycles | 0 crashes in 25 cycles |
+
+Left over: the first second after the first start of a camera since boot still has dark and uneven frames (the sensor warming up). A restart does not.
+The front camera shows a small periodic wobble (110 / 115) in this lighting, probably the beat of the room lamp against the frame rate.
+
+## Tooling
+
+`tools/dev/deploy_to_surface.sh` installs an image the way a user would (OCI archive, rebase, one reboot, login typed through a virtual keyboard); `tools/dev/luma_series.py` prints the mean luma per frame.
