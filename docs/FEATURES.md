@@ -15,8 +15,8 @@ What the previous project (`surface-go-kinoite`) did, and where each piece stand
 | 9 | Plasma volume: up to 150%, 5% steps | **done** |
 | 10 | Plymouth scale 1, GRUB 3 s countdown | Plymouth done; GRUB `user.cfg` needs a first-boot step |
 | 11 | Sensors: allow the settings page to raise the accelerometer/gyro rate | not yet (needed by the sensors page) |
-| 12 | Health monitor with explanations, repair and an update guard | not yet |
-| 13 | Settings page in System Settings: Overview | not yet |
+| 12 | Health monitor with explanations (`overdrivectl status`) | **done**; notifications, repair actions and the update guard are not yet |
+| 13 | Settings page in System Settings: Overview (health, switches) | **done**: C++ KCM + QML under Input & Output, runs `overdrivectl` |
 | 14 | Cameras page: live preview, live editor, per-camera presets, manual focus, rainbow | not yet |
 | 15 | Audio page: volume, 10-band equaliser per output, microphone enhancer, tests | not yet |
 | 16 | NFC page: tags shown in the window, reader test | not yet |

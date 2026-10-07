@@ -60,6 +60,14 @@ RUN set -eux; mkdir -p /out/usr/lib/overdrive/bpf /tmp/obj; \
         bpftool gen object "/out/usr/lib/overdrive/bpf/$b.bpf.o" "/tmp/obj/$b.o"; \
     done; ls -la /out/usr/lib/overdrive/bpf
 
+# ---- The System Settings page, compiled against the exact KDE Frameworks of the base image
+FROM ${BASE} AS kcm
+RUN dnf5 -y install --setopt=install_weak_deps=False cmake ninja-build gcc-c++ extra-cmake-modules \
+        kf6-kcmutils-devel kf6-ki18n-devel kf6-kcoreaddons-devel qt6-qtdeclarative-devel && dnf5 clean all
+COPY kcm /src/kcm
+RUN cmake -S /src/kcm -B /build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr -DKDE_INSTALL_USE_QT_SYS_PATHS=ON \
+    && cmake --build /build && DESTDIR=/out cmake --install /build && find /out -type f
+
 # ---- Stage 4: the image
 # Layer order matters for updates: the tablet pulls only the layers that changed. What changes rarely (kernel modules, the initramfs, libcamera)
 # comes first, what changes often (our files and the Python package) last.
@@ -91,6 +99,7 @@ RUN set -eux; \
 COPY ci/patch_acp_mic.py /tmp/patch_acp_mic.py
 RUN python3 /tmp/patch_acp_mic.py && rm /tmp/patch_acp_mic.py
 COPY --from=hidbpf /out/ /
+COPY --from=kcm /out/ /
 COPY image/rootfs/ /
 COPY src/ /usr/lib/overdrive/python/
 LABEL org.opencontainers.image.title="Surface Overdrive" \

@@ -2,6 +2,7 @@
 
 Reading a state needs no privileges; changing one asks for the administrator password through polkit.
 """
+import json
 import subprocess
 import sys
 
@@ -29,7 +30,9 @@ def change(name, value):
 def show_status(args):
     checks = health.run_all()
     if "--json" in args:
-        print(health.as_json(checks))
+        data = json.loads(health.as_json(checks))
+        data["settings"] = {"volume_hold": read_state("volume-hold"), "stylus_filter": read_state("stylus-filter")}
+        print(json.dumps(data, indent=2))
         return 0 if health.overall(checks) != health.FAIL else 1
     verbose = "-v" in args or "--verbose" in args
     group = None
