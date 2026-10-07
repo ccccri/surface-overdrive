@@ -1,0 +1,10 @@
+[Unit]
+Description=Surface Overdrive: keep the GRUB overrides in /boot up to date
+ConditionPathExists=/boot/grub2
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/overdrive/bootconfig
+
+[Install]
+WantedBy=multi-user.target

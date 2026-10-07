@@ -1,0 +1,2 @@
+kcmutils_add_qml_kcm(kcm_overdrive_sensors SOURCES page_sensors.cpp)
+target_link_libraries(kcm_overdrive_sensors PRIVATE overdrive_common)

@@ -1,0 +1,2 @@
+kcmutils_add_qml_kcm(kcm_overdrive_nfc SOURCES page_nfc.cpp)
+target_link_libraries(kcm_overdrive_nfc PRIVATE overdrive_common)

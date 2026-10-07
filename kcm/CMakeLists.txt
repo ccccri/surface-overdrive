@@ -16,7 +16,7 @@ set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 # Back end shared by every page of the "Surface Control" group
-add_library(overdrive_common STATIC common/overdrivekcm.cpp common/overdrivekcm.h common/preview.cpp common/preview.h common/penmonitor.cpp common/penmonitor.h)
+add_library(overdrive_common STATIC common/overdrivekcm.cpp common/overdrivekcm.h common/preview.cpp common/preview.h common/penmonitor.cpp common/penmonitor.h common/nfcmonitor.cpp common/nfcmonitor.h)
 target_include_directories(overdrive_common PUBLIC common)
 target_link_libraries(overdrive_common PUBLIC Qt6::Core Qt6::Qml Qt6::Quick KF6::CoreAddons KF6::I18n KF6::KCMUtilsQuick)
 
@@ -25,3 +25,5 @@ add_subdirectory(overview)
 add_subdirectory(pen)
 add_subdirectory(cameras)
 add_subdirectory(sound)
+add_subdirectory(nfc)
+add_subdirectory(sensors)

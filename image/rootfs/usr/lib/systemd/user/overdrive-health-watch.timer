@@ -1,0 +1,9 @@
+[Unit]
+Description=Surface Overdrive: check the health of the fixes now and then
+
+[Timer]
+OnStartupSec=3min
+OnUnitActiveSec=15min
+
+[Install]
+WantedBy=timers.target

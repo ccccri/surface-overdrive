@@ -1,0 +1,7 @@
+[Unit]
+Description=Surface Overdrive: tell the user when a fix stops working
+After=graphical-session.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/overdrive/health-watch

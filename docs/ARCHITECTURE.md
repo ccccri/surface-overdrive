@@ -78,7 +78,7 @@ Module signing key: a repository secret. The public certificate ships in `/usr/s
 Small settings that are not about the hardware fixes but belong to the final build:
 - **Plymouth scaling**: `DeviceScale=1` in `/etc/plymouth/plymouthd.conf` (`image/rootfs/etc/plymouth/plymouthd.conf`). Plymouth's configuration is copied into the initramfs
   (checked on the tablet: `lsinitrd` lists `etc/plymouth/plymouthd.conf`), so the image build has to **regenerate the initramfs** with `dracut` after adding the file.
-- **GRUB countdown**: `set timeout_style=countdown` and `set timeout=3` (`image/boot/grub2/user.cfg`). On Kinoite `grub.cfg` is static and lives in `/boot`, which is **not** part of the image;
+- **GRUB countdown**: `set timeout_style=countdown` and `set timeout=3` (`image/rootfs/usr/share/overdrive/grub-user.cfg`, merged into the file by `overdrive-bootconfig.service`). On Kinoite `grub.cfg` is static and lives in `/boot`, which is **not** part of the image;
   it sources `/boot/grub2/user.cfg` after its own `timeout_style=menu` and `timeout=1`, so a first-boot step writes that file idempotently (the bootstrap does it too).
   The countdown lasts 3 seconds (chosen by the owner).
 

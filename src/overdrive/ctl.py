@@ -6,7 +6,7 @@ import json
 import subprocess
 import sys
 
-from . import camera, health, helper, pen
+from . import camera, health, helper, pen, sensors
 from .audio import eq, mic, pw, sounds
 
 HELPER = "/usr/libexec/overdrive/helper"
@@ -18,6 +18,8 @@ USAGE = """usage: overdrivectl <command>
   pen                      state of the pen, digitizer and Bluetooth pen battery, in JSON
   audio describe | eq ... | mic ... | play <kind> | record | stop | volume <sink|source> <0-1.5>
          | mute <sink|source>                                  output equaliser, microphone, test sounds, in JSON
+  nfc                      state of the NFC reader and its services, in JSON
+  sensors                  battery, light sensor, motion and device facts, in JSON
   camera <front|rear> describe | set <key> <value> | reset [<key>] | ui <key> <value>
          | preset save|apply|rename|delete|duplicate <args>    live camera settings, answers in JSON
 """
@@ -180,6 +182,14 @@ def main(argv=None):
     argv = list(sys.argv[1:] if argv is None else argv)
     if argv and argv[0] == "status":
         return show_status(argv[1:])
+    if argv and argv[0] == "nfc":
+        print(json.dumps(sensors.nfc_info()))
+        return 0
+    if argv and argv[0] == "sensors":
+        if argv[1:2] == ["rate"] and len(argv) == 3:
+            sensors.set_rate(argv[2])
+        print(json.dumps(sensors.describe()))
+        return 0
     if argv and argv[0] == "audio":
         return audio_command(argv[1:])
     if argv and argv[0] == "pen":

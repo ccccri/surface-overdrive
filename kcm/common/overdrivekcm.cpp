@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 #include "overdrivekcm.h"
 
+#include "nfcmonitor.h"
 #include "penmonitor.h"
 #include "preview.h"
 
@@ -17,6 +18,7 @@ OverdriveKCM::OverdriveKCM(QObject *parent, const KPluginMetaData &data)
     std::call_once(registered, []() {
         qmlRegisterType<PreviewItem>("org.surfaceoverdrive.kcm", 1, 0, "PreviewItem");
         qmlRegisterType<PenMonitor>("org.surfaceoverdrive.kcm", 1, 0, "PenMonitor");
+        qmlRegisterType<NfcMonitor>("org.surfaceoverdrive.kcm", 1, 0, "NfcMonitor");
     });
     refresh();
 }
