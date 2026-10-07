@@ -1,0 +1,59 @@
+diff --git a/src/ipa/ipu3/algorithms/agc.cpp b/src/ipa/ipu3/algorithms/agc.cpp
+index f9b8969..466efe8 100644
+--- a/src/ipa/ipu3/algorithms/agc.cpp
++++ b/src/ipa/ipu3/algorithms/agc.cpp
+@@ -37,6 +37,8 @@ namespace ipa::ipu3::algorithms {
+  * back from a completely blown out image. Keep the initial exposure and gain for this many frames.
+  */
+ static constexpr uint32_t kAgcSkipFrames = 8;
++/* Frames after which the exposure of a session counts as settled and is remembered for the next one (about a second at 30 fps). */
++static constexpr uint32_t kAgcSettledFrames = kAgcSkipFrames + 22;
+ 
+ /**
+  * \class Agc
+@@ -121,6 +123,13 @@ int Agc::configure(IPAContext &context,
+ 	activeState.agc.gain = minAnalogueGain_;
+ 	activeState.agc.exposure = 10ms / configuration.sensor.lineDuration;
+ 
++	/* Start from what the previous session settled on, within the limits of this sensor mode. */
++	if (haveSettled_) {
++		activeState.agc.gain = std::clamp(settledAnalogueGain_, minAnalogueGain_, maxAnalogueGain_);
++		activeState.agc.exposure = std::clamp(settledExposureTime_, minExposureTime_, maxExposureTime_)
++					 / configuration.sensor.lineDuration;
++	}
++
+ 	context.activeState.agc.constraintMode = constraintModes().begin()->first;
+ 	context.activeState.agc.exposureMode = exposureModeHelpers().begin()->first;
+ 
+@@ -272,6 +281,12 @@ void Agc::process(IPAContext &context, const uint32_t frame,
+ 	activeState.agc.exposure = newExposureTime / context.configuration.sensor.lineDuration;
+ 	activeState.agc.gain = aGain;
+ 
++	if (frame >= kAgcSettledFrames) {
++		haveSettled_ = true;
++		settledExposureTime_ = newExposureTime;
++		settledAnalogueGain_ = aGain;
++	}
++
+ 	metadata.set(controls::AnalogueGain, frameContext.sensor.gain);
+ 	metadata.set(controls::ExposureTime, exposureTime.get<std::micro>());
+ 
+diff --git a/src/ipa/ipu3/algorithms/agc.h b/src/ipa/ipu3/algorithms/agc.h
+index c0d1173..0ec8d02 100644
+--- a/src/ipa/ipu3/algorithms/agc.h
++++ b/src/ipa/ipu3/algorithms/agc.h
+@@ -59,6 +59,14 @@ private:
+ 	ipu3_uapi_grid_config bdsGrid_;
+ 	std::unique_ptr<LiveProfile> profile_;
+ 	std::vector<std::tuple<uint8_t, uint8_t, uint8_t>> rgbTriples_;
++
++	/*
++	 * Exposure and gain the previous streaming session settled on. A new session starts from them instead of from a
++	 * fixed default, so that stopping and restarting the camera (switching cameras, mirroring) does not flash.
++	 */
++	bool haveSettled_ = false;
++	utils::Duration settledExposureTime_;
++	double settledAnalogueGain_ = 1.0;
+ };
+ 
+ } /* namespace ipa::ipu3::algorithms */

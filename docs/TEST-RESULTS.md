@@ -65,3 +65,23 @@ Two separate defects in libcamera's IPU3 pipeline, both found from the core dump
 
 Open: the rear camera picture is reported as mirrored. The sensor's HFLIP control reads 1 while streaming (checked through the subdevice), so the hardware flip is applied; whether the picture is
 really mirrored needs a real text in front of the lens. Colour (magenta centre) waits for our own calibration.
+
+## Test 4 (2026-10-07): the brightness "flash" when a camera starts
+
+Reported: the picture flashes whenever the camera is switched or Kamoso's mirror option is toggled (the stream stops and restarts).
+Measured with the mean luma of each frame (`GRAY8` 640x480 through PipeWire, 75 frames per start). Before: the first ~30 frames of every start were erratic
+(rear: 8 near-black frames, a jump to ~200, then ~25 frames to settle; front: steps between 77, 119 and 166).
+
+Cause: `Agc::configure()` resets the exposure to a fixed 10 ms at minimum gain on every start (black in a dim room), then the algorithm ignores 8 frames and takes one large first step.
+
+Fix: `0015-ipu3-agc-start-from-settled-exposure.patch`. Each camera remembers the exposure and gain it had settled on after about a second of streaming
+(`kAgcSettledFrames`) and the next start begins there, clamped to the limits of the new sensor mode.
+
+| Start | Result |
+|---|---|
+| first start of a camera after boot | still rough (nothing to remember yet): rear starts black and takes ~40 frames to settle |
+| any later start (switching cameras, mirror toggle) | flat from the first valid frame (front 111 on every frame, rear 112-120) |
+| stress test, 25 cycles | 0 crashes |
+
+Left over: **one black frame at position 2 of every start**, on both cameras. No kernel error is logged; WirePlumber logs `Zero sequence expected for first frame (got 1)` and
+`Obtained an uninitialised FrameContext`, so the frame numbering of the first frames is shifted by one between the CIO2 and the IPA. To investigate.
