@@ -1,13 +1,23 @@
 // SPDX-License-Identifier: MIT
 #include "overdrivekcm.h"
 
+#include "penmonitor.h"
+#include "preview.h"
+
 #include <QProcess>
+#include <QQmlEngine>
+#include <mutex>
 
 static const QString s_ctl = QStringLiteral("/usr/bin/overdrivectl");
 
 OverdriveKCM::OverdriveKCM(QObject *parent, const KPluginMetaData &data)
     : KQuickConfigModule(parent, data)
 {
+    static std::once_flag registered;
+    std::call_once(registered, []() {
+        qmlRegisterType<PreviewItem>("org.surfaceoverdrive.kcm", 1, 0, "PreviewItem");
+        qmlRegisterType<PenMonitor>("org.surfaceoverdrive.kcm", 1, 0, "PenMonitor");
+    });
     refresh();
 }
 
@@ -59,4 +69,22 @@ void OverdriveKCM::changeSetting(const QString &name, const QString &value)
         refresh();
     });
     process->start(s_ctl, {name, value});
+}
+
+void OverdriveKCM::call(const QString &tag, const QStringList &args)
+{
+    auto *process = new QProcess(this);
+    connect(process, &QProcess::finished, this, [this, process, tag](int code, QProcess::ExitStatus status) {
+        const QString out = QString::fromUtf8(process->readAllStandardOutput());
+        const QString err = QString::fromUtf8(process->readAllStandardError()).trimmed();
+        process->deleteLater();
+        Q_EMIT callFinished(tag, code == 0 && status == QProcess::NormalExit, out, err);
+    });
+    connect(process, &QProcess::errorOccurred, this, [this, process, tag](QProcess::ProcessError error) {
+        if (error == QProcess::FailedToStart) {
+            process->deleteLater();
+            Q_EMIT callFinished(tag, false, {}, QStringLiteral("Could not run overdrivectl"));
+        }
+    });
+    process->start(s_ctl, args);
 }

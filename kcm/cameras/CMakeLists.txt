@@ -1,0 +1,2 @@
+kcmutils_add_qml_kcm(kcm_overdrive_cameras SOURCES page_cameras.cpp)
+target_link_libraries(kcm_overdrive_cameras PRIVATE overdrive_common)

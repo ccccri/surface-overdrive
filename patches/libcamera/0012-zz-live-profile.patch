@@ -13,7 +13,7 @@ new file mode 100644
 + * <dir>/<sensor model>.session   settings of one application: first line "pid <N>", ignored once process N is gone
 + *
 + * Both are text files, one "key value value ..." per line, '#' starts a comment. The session file wins over the profile.
-+ * <dir> is $LIBCAMERA_SURFACE_PROFILE_DIR, else $XDG_CONFIG_HOME/surface-suite/camera, else $HOME/.config/surface-suite/camera.
++ * <dir> is $LIBCAMERA_SURFACE_PROFILE_DIR, else $XDG_CONFIG_HOME/surface-overdrive/camera, else $HOME/.config/surface-overdrive/camera.
 + * poll() looks at the files at most every 200 ms (modification time), so a change shows up within a fraction of a second.
 + */
 +
@@ -43,9 +43,9 @@ new file mode 100644
 +		if (d && *d)
 +			dir = d;
 +		else if (x && *x)
-+			dir = std::string(x) + "/surface-suite/camera";
++			dir = std::string(x) + "/surface-overdrive/camera";
 +		else if (h && *h)
-+			dir = std::string(h) + "/.config/surface-suite/camera";
++			dir = std::string(h) + "/.config/surface-overdrive/camera";
 +		if (!dir.empty()) {
 +			profilePath_ = dir + "/" + model + ".profile";
 +			sessionPath_ = dir + "/" + model + ".session";

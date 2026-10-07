@@ -1,0 +1,17 @@
+{
+    "KPlugin": {
+        "Authors": [
+            {
+                "Name": "ccccri"
+            }
+        ],
+        "Description": "Live preview and adjustments of the front and rear camera",
+        "Icon": "camera-photo",
+        "Id": "kcm_overdrive_cameras",
+        "Name": "Cameras"
+    },
+    "X-KDE-KeepAlive": true,
+    "X-KDE-Keywords": "surface,camera,focus,exposure,colour,preset",
+    "X-KDE-System-Settings-Parent-Category": "surface-control",
+    "X-KDE-Weight": 30
+}

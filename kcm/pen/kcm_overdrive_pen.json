@@ -5,13 +5,13 @@
                 "Name": "ccccri"
             }
         ],
-        "Description": "Volume buttons and the pen battery",
-        "Icon": "input-tablet",
-        "Id": "kcm_overdrive_input",
-        "Name": "Buttons and pen"
+        "Description": "Surface Pen test, battery and settings",
+        "Icon": "draw-freehand",
+        "Id": "kcm_overdrive_pen",
+        "Name": "Pen"
     },
     "X-KDE-KeepAlive": true,
-    "X-KDE-Keywords": "surface,volume,buttons,pen,stylus,battery",
+    "X-KDE-Keywords": "surface,pen,stylus,battery,pressure,tilt",
     "X-KDE-System-Settings-Parent-Category": "surface-control",
     "X-KDE-Weight": 20
 }

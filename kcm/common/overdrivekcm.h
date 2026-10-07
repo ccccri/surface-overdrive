@@ -27,11 +27,14 @@ public:
     Q_INVOKABLE void refresh();
     /** Change a setting, for example ("volume-hold", "off"), then read the state again. */
     Q_INVOKABLE void changeSetting(const QString &name, const QString &value);
+    /** Run `overdrivectl <args>` without privileges; the answer (usually JSON) comes back through callFinished with the same tag. */
+    Q_INVOKABLE void call(const QString &tag, const QStringList &args);
 
 Q_SIGNALS:
     void statusChanged();
     void busyChanged();
     void changeFinished(bool ok, const QString &message);
+    void callFinished(const QString &tag, bool ok, const QString &output, const QString &error);
 
 private:
     void setBusy(bool busy);
