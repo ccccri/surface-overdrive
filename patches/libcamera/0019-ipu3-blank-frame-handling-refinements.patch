@@ -1,0 +1,105 @@
+diff --git a/src/ipa/ipu3/algorithms/agc.cpp b/src/ipa/ipu3/algorithms/agc.cpp
+index 841af3c..d75abbf 100644
+--- a/src/ipa/ipu3/algorithms/agc.cpp
++++ b/src/ipa/ipu3/algorithms/agc.cpp
+@@ -49,8 +49,6 @@ static constexpr uint32_t kSettledFrames = 10;
+  * seconds to decay.
+  */
+ static constexpr double kBlankMean = 1.0;
+-/* A scene that stays blank this long without ever having produced a valid frame is taken as really dark. */
+-static constexpr uint32_t kBlankGraceFrames = 30;
+ 
+ /**
+  * \class Agc
+@@ -136,7 +134,6 @@ int Agc::configure(IPAContext &context,
+ 	activeState.agc.exposure = 10ms / configuration.sensor.lineDuration;
+ 
+ 	haveValidFrame_ = false;
+-	blankFrames_ = 0;
+ 	stableFrames_ = 0;
+ 
+ 	/* Start from what the previous session settled on, within the limits of this sensor mode. */
+@@ -252,13 +249,24 @@ void Agc::process(IPAContext &context, const uint32_t frame,
+ 
+ 	Histogram hist = parseStatistics(stats, context.configuration.grid.bdsGrid);
+ 
+-	/* Ignore blank frames: keep the current exposure and wait for a valid one. */
++	/*
++	 * A blank frame says nothing about the scene. Once the session has produced a valid frame, stray blank ones are ignored. Before
++	 * that the sensor is still powering up or the scene is dark: climb towards more light one step at a time (twice the exposure value
++	 * per frame) instead of asking the filter for the impossible, until a valid frame shows up.
++	 */
+ 	if (hist.interQuantileMean(0.0, 1.0) < kBlankMean) {
+-		if (haveValidFrame_ || ++blankFrames_ <= kBlankGraceFrames)
+-			return;
+-	} else {
+-		haveValidFrame_ = true;
++		if (!haveValidFrame_) {
++			IPAActiveState &state = context.activeState;
++			if (state.agc.gain * 2 <= maxAnalogueGain_) {
++				state.agc.gain *= 2;
++			} else {
++				const utils::Duration exposureTime = state.agc.exposure * context.configuration.sensor.lineDuration;
++				state.agc.exposure = std::min(exposureTime * 2, maxExposureTime_) / context.configuration.sensor.lineDuration;
++			}
++		}
++		return;
+ 	}
++	haveValidFrame_ = true;
+ 
+ 	rGain_ = context.activeState.awb.gains.red;
+ 	gGain_ = context.activeState.awb.gains.blue;
+diff --git a/src/ipa/ipu3/algorithms/agc.h b/src/ipa/ipu3/algorithms/agc.h
+index 4ba97e7..b8254be 100644
+--- a/src/ipa/ipu3/algorithms/agc.h
++++ b/src/ipa/ipu3/algorithms/agc.h
+@@ -66,9 +66,8 @@ private:
+ 	 */
+ 	bool haveSettled_ = false;
+ 
+-	/* Per streaming session: blank frames seen before the first valid one, and frames the exposure has been stable. */
++	/* Per streaming session: whether a valid (not blank) frame was seen, and for how many frames the exposure has been stable. */
+ 	bool haveValidFrame_ = false;
+-	uint32_t blankFrames_ = 0;
+ 	uint32_t stableFrames_ = 0;
+ 	utils::Duration settledExposureTime_;
+ 	double settledAnalogueGain_ = 1.0;
+diff --git a/src/libcamera/pipeline/ipu3/ipu3.cpp b/src/libcamera/pipeline/ipu3/ipu3.cpp
+index f2520de..f15e914 100644
+--- a/src/libcamera/pipeline/ipu3/ipu3.cpp
++++ b/src/libcamera/pipeline/ipu3/ipu3.cpp
+@@ -54,6 +54,8 @@ LOG_DEFINE_CATEGORY(IPU3)
+ 
+ /* Raw frames dropped at the start of every streaming session (see IPU3CameraData::cio2BufferReady()). */
+ static constexpr unsigned int kStartupFramesToDrop = 2;
++/* A blank frame is replaced by the previous good one only if it is isolated: a longer run is taken as a really dark scene. */
++static constexpr unsigned int kMaxConcealedFrames = 3;
+ 
+ static const ControlInfoMap::Map IPU3Controls = {
+ 	{ &controls::draft::PipelineDepth, ControlInfo(2, 3) },
+@@ -101,6 +103,7 @@ public:
+ 	 * first frames after a restart are the ones that can come out blank. The size check in concealBlankFrame() discards it after a resolution change.
+ 	 */
+ 	std::map<const Stream *, std::vector<uint8_t>> lastGoodFrame_;
++	std::map<const Stream *, unsigned int> blankStreak_;
+ 
+ 	Rectangle cropRegion_;
+ 
+@@ -1529,9 +1532,15 @@ bool IPU3CameraData::concealBlankFrame(const Stream *stream, FrameBuffer *buffer
+ 		return false;
+ 
+ 	/* Blank: every sampled luma byte is zero. */
+-	for (size_t i = 0; i < ySize; i += 97)
+-		if (y[i])
++	for (size_t i = 0; i < ySize; i += 97) {
++		if (y[i]) {
++			blankStreak_[stream] = 0;
+ 			return false;
++		}
++	}
++
++	if (blankStreak_[stream]++ >= kMaxConcealedFrames)
++		return false;
+ 
+ 	std::copy(last->second.begin(), last->second.begin() + ySize, y);
+ 	std::copy(last->second.begin() + ySize, last->second.end(), uv);

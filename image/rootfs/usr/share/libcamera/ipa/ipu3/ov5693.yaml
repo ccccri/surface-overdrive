@@ -23,5 +23,7 @@ algorithms:
             yTarget: [ 0, 0.18 ]
   - Awb:
   - BlackLevelCorrection:
+      # Black level of Gr, R, B, Gb: our own measurement with the lens covered (the patch default of 64 swallows every dim scene)
+      black: [ 9, 18, 9, 9 ]
   - ToneMapping:
 ...
