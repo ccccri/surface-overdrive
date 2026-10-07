@@ -1,0 +1,17 @@
+{
+    "KPlugin": {
+        "Authors": [
+            {
+                "Name": "ccccri"
+            }
+        ],
+        "Description": "Speaker boost and equaliser, microphone improvement, volume buttons",
+        "Icon": "audio-speakers",
+        "Id": "kcm_overdrive_sound",
+        "Name": "Sound Tuning"
+    },
+    "X-KDE-KeepAlive": true,
+    "X-KDE-Keywords": "surface,sound,audio,equalizer,eq,microphone,speaker,boost,volume,buttons,headphones",
+    "X-KDE-System-Settings-Parent-Category": "input-devices",
+    "X-KDE-Weight": 45
+}

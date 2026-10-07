@@ -1,0 +1,2 @@
+kcmutils_add_qml_kcm(kcm_overdrive_sound SOURCES page_sound.cpp)
+target_link_libraries(kcm_overdrive_sound PRIVATE overdrive_common)

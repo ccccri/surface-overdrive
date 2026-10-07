@@ -24,3 +24,4 @@ target_link_libraries(overdrive_common PUBLIC Qt6::Core Qt6::Qml Qt6::Quick KF6:
 add_subdirectory(overview)
 add_subdirectory(pen)
 add_subdirectory(cameras)
+add_subdirectory(sound)

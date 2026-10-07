@@ -10,8 +10,9 @@ import os
 import re
 import subprocess
 
-CONFIG = os.environ.get("OVERDRIVE_CONFIG_DIR") or os.path.join(
-    os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config"), "surface-overdrive")
+from . import userconfig
+
+CONFIG = userconfig.CONFIG
 PROFILE_DIR = os.environ.get("LIBCAMERA_SURFACE_PROFILE_DIR") or os.path.join(CONFIG, "camera")
 PRESET_DIR = os.path.join(CONFIG, "presets")
 UI_FILE = os.path.join(CONFIG, "ui.json")

@@ -1,0 +1,12 @@
+[Unit]
+Description=Surface Overdrive equaliser: apply the saved settings of the active output (speakers or headphone jack)
+After=pipewire.service pipewire-pulse.service wireplumber.service graphical-session.target
+PartOf=graphical-session.target
+
+[Service]
+ExecStart=/usr/libexec/overdrive/audio-route
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=graphical-session.target

@@ -17,10 +17,10 @@ What the previous project (`surface-go-kinoite`) did, and where each piece stand
 | 11 | Sensors: allow the settings page to raise the accelerometer/gyro rate | not yet (needed by the sensors page) |
 | 12 | Health monitor with explanations (`overdrivectl status`) | **done**; notifications, repair actions and the update guard are not yet |
 | 13 | Settings page in System Settings: Overview (health, switches) | **done**: C++ KCM + QML under Input & Output, runs `overdrivectl` |
-| 14 | Cameras page: live preview, live editor, per-camera presets, manual focus, rainbow | not yet |
-| 15 | Audio page: volume, 10-band equaliser per output, microphone enhancer, tests | not yet |
+| 14 | Cameras page: live preview, live editor, per-camera presets, manual focus, rainbow | **done** (`overdrivectl camera`, page "Cameras"); needs the user to judge the looks |
+| 15 | Sound Tuning page: volume buttons switch, test sounds, speaker boost, 10-band equaliser per output (presets, APO/AutoEQ import and export), microphone enhancer | **done** (`overdrivectl audio`, user service `overdrive-audio-route`); headphones and microphone not yet tried by the user |
 | 16 | NFC page: tags shown in the window, reader test | not yet |
-| 17 | Pen and touch page: pen test, Bluetooth pen battery, filter switch | not yet |
+| 17 | Pen page: pen test (pressure, tilt, buttons), Bluetooth pen battery, filter switch | **done**; the pen itself not yet tried by the user |
 | 18 | Sensors and battery page: light, accelerometer/gyro 3D view, battery, about this tablet | not yet |
 | 19 | Updates and log; export/import of presets | not yet |
 | 20 | Installer wizard | replaced by the bootstrap (not yet) |

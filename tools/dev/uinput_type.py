@@ -28,6 +28,7 @@ for i, c in enumerate("1234567890"):
     KEYS[c] = 2 + i
 KEYS.update({" ": 57, "-": 12, ".": 52, ",": 51})
 KEY_LEFTSHIFT = 42
+SPECIAL = {"pagedown": 109, "pageup": 104, "tab": 15, "down": 108, "up": 103, "end": 107, "home": 102}
 
 # linux/uinput.h
 UI_SET_EVBIT = 0x40045564
@@ -60,6 +61,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--enter", action="store_true", help="press Enter after the text")
     ap.add_argument("--backspaces", type=int, default=0, help="press Backspace this many times before typing (to clear a field)")
+    ap.add_argument("--key", action="append", default=[], choices=sorted(SPECIAL), help="press this key (repeatable), after the text")
     ap.add_argument("--delay", type=float, default=1.0, help="seconds to wait after the device is created, so the session picks it up")
     args = ap.parse_args()
     text = sys.stdin.readline().rstrip("\n")
@@ -69,7 +71,7 @@ def main():
 
     fd = os.open("/dev/uinput", os.O_WRONLY | os.O_NONBLOCK)
     fcntl.ioctl(fd, UI_SET_EVBIT, EV_KEY)
-    for code in list(KEYS.values()) + [KEY_ENTER, KEY_LEFTSHIFT, KEY_BACKSPACE]:
+    for code in list(KEYS.values()) + list(SPECIAL.values()) + [KEY_ENTER, KEY_LEFTSHIFT, KEY_BACKSPACE]:
         fcntl.ioctl(fd, UI_SET_KEYBIT, code)
     setup = struct.pack("HHHH80sI", 0x03, 0x1209, 0x0001, 1, b"Surface Overdrive virtual keyboard", 0)
     fcntl.ioctl(fd, UI_DEV_SETUP, setup)
@@ -80,6 +82,8 @@ def main():
             tap(fd, KEY_BACKSPACE)
         for c in text:
             tap(fd, KEYS[c.lower()], shift=c.isupper())
+        for name in args.key:
+            tap(fd, SPECIAL[name])
         if args.enter:
             tap(fd, KEY_ENTER)
         time.sleep(0.2)
