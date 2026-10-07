@@ -23,6 +23,6 @@ What the previous project (`surface-go-kinoite`) did, and where each piece stand
 | 17 | Pen page: pen test (pressure, tilt, buttons), Bluetooth pen battery, filter switch | **done**; the pen itself not yet tried by the user |
 | 18 | Sensors and Battery page: battery, light, accelerometer/gyro bars, about this tablet | **done** (2D bars, the old 3D model view was not ported) |
 | 19 | Updates and log; export/import of presets | not yet |
-| 20 | Installer wizard | replaced by the bootstrap (not yet) |
+| 20 | Installer wizard | replaced by `bootstrap.sh` (one command, one reboot, MOK enrolment); untested until the first CI image exists |
 | 21 | Own colour calibration (lens shading) | not yet |
-| 22 | CI that rebuilds the image daily | not yet |
+| 22 | CI that rebuilds the image daily | workflow written (`.github/workflows/build-image.yml`), waits for the push permission and the signing secrets |
