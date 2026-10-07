@@ -53,6 +53,7 @@ COPY --from=kmods /out/ /
 COPY --from=libcamera /out/rpms /tmp/libcamera-rpms
 COPY --from=libcamera /libcamera-packages /tmp/libcamera-packages
 COPY image/rootfs/ /
+COPY src/ /usr/lib/overdrive/python/
 RUN set -eux; \
     test "$(ls /usr/lib/modules)" = "$KVER"; \
     depmod -a "$KVER"; \

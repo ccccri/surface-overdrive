@@ -1,0 +1,8 @@
+#!/usr/bin/python3
+# Launcher: the Python package lives in /usr/lib/overdrive/python.
+import sys
+
+sys.path.insert(0, "/usr/lib/overdrive/python")
+from overdrive.nfc.daemon import main
+
+main()

@@ -1,0 +1,17 @@
+[Unit]
+Description=Surface Overdrive NFC tag reader
+# Only on a tablet with the NXP3001 controller (Surface Go). The driver loads by itself through its ACPI alias.
+ConditionPathExists=/sys/bus/acpi/devices/NXP3001:00
+After=local-fs.target
+
+[Service]
+ExecStart=/usr/libexec/overdrive/nfcd
+# the socket directory for the desktop notifier, recreated at every start
+RuntimeDirectory=overdrive-nfc
+RuntimeDirectoryMode=0755
+# neither a crash nor a driver hiccup should leave the reader dead
+Restart=always
+RestartSec=1
+
+[Install]
+WantedBy=multi-user.target

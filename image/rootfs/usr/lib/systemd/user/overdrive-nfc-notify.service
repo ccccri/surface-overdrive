@@ -1,0 +1,13 @@
+[Unit]
+Description=Surface Overdrive NFC notifications (sound and desktop notification)
+ConditionPathExists=/sys/bus/acpi/devices/NXP3001:00
+After=graphical-session.target
+PartOf=graphical-session.target
+
+[Service]
+ExecStart=/usr/libexec/overdrive/nfc-notify
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=graphical-session.target
