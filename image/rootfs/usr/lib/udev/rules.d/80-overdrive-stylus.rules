@@ -1,0 +1,11 @@
+# Surface Go pen: the ELAN digitizer creates a battery that always reads 0% and discharging. A HID-BPF program turns the "Battery Strength"
+# usage of its report descriptor into "Undefined", so the kernel creates no power supply. The real pen battery is the Bluetooth one.
+#
+# To switch the filter off, mask this file with an empty one of the same name in /etc/udev/rules.d/ (overdrivectl stylus-filter off).
+ACTION!="add|remove", GOTO="overdrive_stylus_end"
+SUBSYSTEM!="hid", GOTO="overdrive_stylus_end"
+
+ACTION=="add", ENV{MODALIAS}=="hid:b0018g*v000004F3p0000261A", RUN{program}+="/usr/bin/udev-hid-bpf add $sys$devpath /usr/lib/overdrive/bpf/surface-go-stylus-battery.bpf.o"
+ACTION=="remove", ENV{MODALIAS}=="hid:b0018g*v000004F3p0000261A", RUN{program}+="/usr/bin/udev-hid-bpf remove $sys$devpath"
+
+LABEL="overdrive_stylus_end"

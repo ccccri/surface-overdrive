@@ -1,0 +1,8 @@
+#!/usr/bin/python3
+# Privileged helper, started through polkit (see /usr/share/polkit-1/actions/org.surfaceoverdrive.policy).
+import sys
+
+sys.path.insert(0, "/usr/lib/overdrive/python")
+from overdrive.helper import main
+
+sys.exit(main())

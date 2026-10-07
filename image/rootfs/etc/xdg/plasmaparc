@@ -1,0 +1,5 @@
+# Defaults for the Plasma volume applet and keys on this tablet (a user's own ~/.config/plasmaparc wins).
+# Allow up to 150% and move 5% per step.
+[General]
+RaiseMaximumVolume=true
+VolumeStep=5

@@ -46,21 +46,40 @@ COPY ci/build_libcamera.sh /src/ci/build_libcamera.sh
 COPY patches/libcamera /src/patches/libcamera
 RUN /src/ci/build_libcamera.sh "$(cat /libcamera-nvr)" /src/patches/libcamera /out/rpms
 
+# ---- HID-BPF programs (compiled with the headers of the udev-hid-bpf release that Fedora ships)
+FROM registry.fedoraproject.org/fedora:44 AS hidbpf
+ARG UHB_TAG=2.2.0-20251121
+RUN dnf -y install --setopt=install_weak_deps=False clang llvm bpftool libbpf-devel curl tar gzip && dnf clean all
+RUN mkdir /uhb && curl -fsSL "https://gitlab.freedesktop.org/libevdev/udev-hid-bpf/-/archive/${UHB_TAG}/udev-hid-bpf-${UHB_TAG}.tar.gz" \
+    | tar xz -C /uhb --strip-components=1
+COPY bpf/ /src/bpf/
+RUN set -eux; mkdir -p /out/usr/lib/overdrive/bpf /tmp/obj; \
+    for f in /src/bpf/*.bpf.c; do \
+        b=$(basename "$f" .bpf.c); \
+        clang -g -O2 -target bpf -D__TARGET_ARCH_x86 -I/uhb/src/bpf -c "$f" -o "/tmp/obj/$b.o"; \
+        bpftool gen object "/out/usr/lib/overdrive/bpf/$b.bpf.o" "/tmp/obj/$b.o"; \
+    done; ls -la /out/usr/lib/overdrive/bpf
+
 # ---- Stage 4: the image
+# Layer order matters for updates: the tablet pulls only the layers that changed. What changes rarely (kernel modules, the initramfs, libcamera)
+# comes first, what changes often (our files and the Python package) last.
 FROM ${BASE}
 ARG KVER
 COPY --from=kmods /out/ /
-COPY --from=libcamera /out/rpms /tmp/libcamera-rpms
-COPY --from=libcamera /libcamera-packages /tmp/libcamera-packages
-COPY image/rootfs/ /
-COPY src/ /usr/lib/overdrive/python/
+COPY image/rootfs/etc/plymouth/ /etc/plymouth/
 RUN set -eux; \
     test "$(ls /usr/lib/modules)" = "$KVER"; \
     depmod -a "$KVER"; \
     for m in ov8865 ov5693 nxp_nci nxp_nci_i2c intel_hid; do \
         modinfo -k "$KVER" -F filename "$m" | grep -q '/updates/' || { echo "$m does not resolve to updates/"; exit 1; }; \
     done
+# Plymouth's configuration is copied into the initramfs: regenerate it so image/rootfs/etc/plymouth/plymouthd.conf takes effect.
+RUN set -eux; \
+    DRACUT_NO_XATTR=1 dracut --no-hostonly --kver "$KVER" --reproducible --add ostree -f "/usr/lib/modules/$KVER/initramfs.img"; \
+    chmod 0600 "/usr/lib/modules/$KVER/initramfs.img"
 # Replace the stock libcamera packages (only the ones the base image has) with the rebuilt ones.
+COPY --from=libcamera /out/rpms /tmp/libcamera-rpms
+COPY --from=libcamera /libcamera-packages /tmp/libcamera-packages
 RUN set -eux; \
     files=""; \
     for name in $(cat /tmp/libcamera-packages); do \
@@ -69,9 +88,10 @@ RUN set -eux; \
     dnf5 -y install --allowerasing $files; \
     rpm -q libcamera libcamera-ipa | grep -q overdrive; \
     rm -rf /tmp/libcamera-rpms /tmp/libcamera-packages; dnf5 clean all
-# Plymouth's configuration is copied into the initramfs: regenerate it so image/rootfs/etc/plymouth/plymouthd.conf takes effect.
-RUN set -eux; \
-    DRACUT_NO_XATTR=1 dracut --no-hostonly --kver "$KVER" --reproducible --add ostree -f "/usr/lib/modules/$KVER/initramfs.img"; \
-    chmod 0600 "/usr/lib/modules/$KVER/initramfs.img"
+COPY ci/patch_acp_mic.py /tmp/patch_acp_mic.py
+RUN python3 /tmp/patch_acp_mic.py && rm /tmp/patch_acp_mic.py
+COPY --from=hidbpf /out/ /
+COPY image/rootfs/ /
+COPY src/ /usr/lib/overdrive/python/
 LABEL org.opencontainers.image.title="Surface Overdrive" \
       org.opencontainers.image.source="https://github.com/ccccri/surface-overdrive"

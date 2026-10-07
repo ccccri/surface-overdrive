@@ -16,6 +16,10 @@ stamp=$(date +%H%M%S)
 mkdir -p build
 tar --owner=0 --group=0 -C image/rootfs -cf build/overlay.tar usr etc
 tar --owner=0 --group=0 --transform 's#^#usr/lib/overdrive/python/#' -C src -rf build/overlay.tar overdrive --exclude='__pycache__'
+# programs compiled in the image build (see the hidbpf stage of the Containerfile) can be dropped into build/overlay-extra to try them here
+if [ -d build/overlay-extra ]; then
+    tar --owner=0 --group=0 -C build/overlay-extra -rf build/overlay.tar .
+fi
 scp -q "${opts[@]}" build/overlay.tar "$host:/tmp/overlay-$stamp.tar"
 
 ssh "${opts[@]}" "$host" "SURFACE_PW='$SURFACE_PW' bash -s" <<REMOTE
@@ -23,7 +27,7 @@ set -e
 run() { echo "\$SURFACE_PW" | sudo -S -p '' "\$@"; }
 # usroverlay fails when it is already active: that is fine
 run rpm-ostree usroverlay 2>&1 | tail -1 || true
-run sh -c "tar -C / -xmf /tmp/overlay-$stamp.tar --no-same-owner --no-overwrite-dir && restorecon -R /usr/libexec/overdrive /usr/lib/overdrive /usr/lib/systemd /usr/share/libcamera 2>/dev/null; rm -f /tmp/overlay-$stamp.tar"
+run sh -c "tar -C / -xmf /tmp/overlay-$stamp.tar --no-same-owner --no-overwrite-dir && restorecon -R /usr/libexec/overdrive /usr/lib/overdrive /usr/lib/systemd /usr/lib/udev /usr/share/libcamera /usr/share/polkit-1 /usr/bin/overdrivectl 2>/dev/null; rm -f /tmp/overlay-$stamp.tar"
 run systemctl daemon-reload
 for unit in \$(ls /usr/lib/systemd/system/multi-user.target.wants 2>/dev/null | grep '^overdrive-'); do run systemctl restart "\$unit" || true; done
 export XDG_RUNTIME_DIR=/run/user/\$(id -u)
