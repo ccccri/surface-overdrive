@@ -1,5 +1,5 @@
 diff --git a/src/libcamera/pipeline/ipu3/ipu3.cpp b/src/libcamera/pipeline/ipu3/ipu3.cpp
-index fd38cd8..5f62332 100644
+index fd38cd8..f2520de 100644
 --- a/src/libcamera/pipeline/ipu3/ipu3.cpp
 +++ b/src/libcamera/pipeline/ipu3/ipu3.cpp
 @@ -72,6 +72,8 @@ public:
@@ -74,7 +74,7 @@ index fd38cd8..5f62332 100644
 +	if (cfg.pixelFormat != formats::NV12)
 +		return;
 +
-+	MappedFrameBuffer mapped(buffer, MappedFrameBuffer::MapFlag::ReadOnly);
++	MappedFrameBuffer mapped(buffer, MappedFrameBuffer::MapFlag::Read);
 +	if (!mapped.isValid() || mapped.planes().size() < 2)
 +		return;
 +
