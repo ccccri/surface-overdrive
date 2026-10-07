@@ -5,9 +5,10 @@
 #
 # `ci/detect.sh` prints the build arguments. KVER must be exactly the kernel of BASE (label `ostree.linux`).
 ARG BASE=quay.io/fedora-ostree-desktops/kinoite:44
+ARG FEDORA=44
 
 # ---- Stage 1: download the exact kernel sources and headers (cached while KVER does not change)
-FROM registry.fedoraproject.org/fedora:44 AS kernel-src
+FROM registry.fedoraproject.org/fedora:${FEDORA} AS kernel-src
 ARG KVER
 RUN dnf -y install --setopt=install_weak_deps=False curl cpio rpm xz && dnf clean all
 RUN set -eux; \
@@ -21,7 +22,7 @@ RUN set -eux; \
     rm /dl/kernel.src.rpm
 
 # ---- Stage 2: build and sign the modules
-FROM registry.fedoraproject.org/fedora:44 AS kmods
+FROM registry.fedoraproject.org/fedora:${FEDORA} AS kmods
 ARG KVER
 COPY --from=kernel-src /dl /dl
 RUN dnf -y install --setopt=install_weak_deps=False gcc make git kmod openssl elfutils-libelf-devel dwarves python3 /dl/kernel-devel-$KVER.rpm \
@@ -39,7 +40,7 @@ RUN --mount=type=secret,id=modkey --mount=type=secret,id=modcert \
 FROM ${BASE} AS probe
 RUN rpm -q --qf '%{VERSION}-%{RELEASE}' libcamera > /libcamera-nvr && rpm -qa --qf '%{NAME}\n' | grep '^libcamera' | sort > /libcamera-packages
 
-FROM registry.fedoraproject.org/fedora:44 AS libcamera
+FROM registry.fedoraproject.org/fedora:${FEDORA} AS libcamera
 COPY --from=probe /libcamera-nvr /libcamera-packages /
 RUN dnf -y install --setopt=install_weak_deps=False rpm-build dnf-plugins-core python3 curl && dnf clean all
 COPY ci/build_libcamera.sh /src/ci/build_libcamera.sh
@@ -47,7 +48,7 @@ COPY patches/libcamera /src/patches/libcamera
 RUN /src/ci/build_libcamera.sh "$(cat /libcamera-nvr)" /src/patches/libcamera /out/rpms
 
 # ---- HID-BPF programs (compiled with the headers of the udev-hid-bpf release that Fedora ships)
-FROM registry.fedoraproject.org/fedora:44 AS hidbpf
+FROM registry.fedoraproject.org/fedora:${FEDORA} AS hidbpf
 ARG UHB_TAG=2.2.0-20251121
 RUN dnf -y install --setopt=install_weak_deps=False clang llvm bpftool libbpf-devel curl tar gzip && dnf clean all
 RUN mkdir /uhb && curl -fsSL "https://gitlab.freedesktop.org/libevdev/udev-hid-bpf/-/archive/${UHB_TAG}/udev-hid-bpf-${UHB_TAG}.tar.gz" \
@@ -102,5 +103,9 @@ COPY --from=hidbpf /out/ /
 COPY --from=kcm /out/ /
 COPY image/rootfs/ /
 COPY src/ /usr/lib/overdrive/python/
+ARG BASE_DIGEST=unknown
+ARG SOURCE_SHA=unknown
 LABEL org.opencontainers.image.title="Surface Overdrive" \
+      org.surfaceoverdrive.base-digest="${BASE_DIGEST}" \
+      org.surfaceoverdrive.source-sha="${SOURCE_SHA}" \
       org.opencontainers.image.source="https://github.com/ccccri/surface-overdrive"
