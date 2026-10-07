@@ -1,0 +1,86 @@
+diff --git a/src/ipa/ipu3/algorithms/agc.cpp b/src/ipa/ipu3/algorithms/agc.cpp
+index 466efe8..841af3c 100644
+--- a/src/ipa/ipu3/algorithms/agc.cpp
++++ b/src/ipa/ipu3/algorithms/agc.cpp
+@@ -37,8 +37,20 @@ namespace ipa::ipu3::algorithms {
+  * back from a completely blown out image. Keep the initial exposure and gain for this many frames.
+  */
+ static constexpr uint32_t kAgcSkipFrames = 8;
+-/* Frames after which the exposure of a session counts as settled and is remembered for the next one (about a second at 30 fps). */
+-static constexpr uint32_t kAgcSettledFrames = kAgcSkipFrames + 22;
++/*
++ * An exposure counts as settled, and is remembered for the next session, once the exposure the algorithm asks for stays within
++ * kSettledTolerance of the one that was applied for kSettledFrames frames in a row.
++ */
++static constexpr double kSettledTolerance = 0.03;
++static constexpr uint32_t kSettledFrames = 10;
++/*
++ * A frame whose mean luminance is below this (in histogram bins) is treated as blank. The sensor delivers blank frames while it powers up and
++ * now and then at the start of a session; they say nothing about the scene and made the algorithm ask for an enormous gain, which then took
++ * seconds to decay.
++ */
++static constexpr double kBlankMean = 1.0;
++/* A scene that stays blank this long without ever having produced a valid frame is taken as really dark. */
++static constexpr uint32_t kBlankGraceFrames = 30;
+ 
+ /**
+  * \class Agc
+@@ -123,6 +135,10 @@ int Agc::configure(IPAContext &context,
+ 	activeState.agc.gain = minAnalogueGain_;
+ 	activeState.agc.exposure = 10ms / configuration.sensor.lineDuration;
+ 
++	haveValidFrame_ = false;
++	blankFrames_ = 0;
++	stableFrames_ = 0;
++
+ 	/* Start from what the previous session settled on, within the limits of this sensor mode. */
+ 	if (haveSettled_) {
+ 		activeState.agc.gain = std::clamp(settledAnalogueGain_, minAnalogueGain_, maxAnalogueGain_);
+@@ -235,6 +251,15 @@ void Agc::process(IPAContext &context, const uint32_t frame,
+ 	}
+ 
+ 	Histogram hist = parseStatistics(stats, context.configuration.grid.bdsGrid);
++
++	/* Ignore blank frames: keep the current exposure and wait for a valid one. */
++	if (hist.interQuantileMean(0.0, 1.0) < kBlankMean) {
++		if (haveValidFrame_ || ++blankFrames_ <= kBlankGraceFrames)
++			return;
++	} else {
++		haveValidFrame_ = true;
++	}
++
+ 	rGain_ = context.activeState.awb.gains.red;
+ 	gGain_ = context.activeState.awb.gains.blue;
+ 	bGain_ = context.activeState.awb.gains.green;
+@@ -281,7 +306,14 @@ void Agc::process(IPAContext &context, const uint32_t frame,
+ 	activeState.agc.exposure = newExposureTime / context.configuration.sensor.lineDuration;
+ 	activeState.agc.gain = aGain;
+ 
+-	if (frame >= kAgcSettledFrames) {
++	/* Remember the exposure only once it has really settled. */
++	const utils::Duration requestedEv = newExposureTime * aGain;
++	if (std::abs(requestedEv / effectiveExposureValue - 1.0) < kSettledTolerance)
++		stableFrames_++;
++	else
++		stableFrames_ = 0;
++
++	if (stableFrames_ >= kSettledFrames) {
+ 		haveSettled_ = true;
+ 		settledExposureTime_ = newExposureTime;
+ 		settledAnalogueGain_ = aGain;
+diff --git a/src/ipa/ipu3/algorithms/agc.h b/src/ipa/ipu3/algorithms/agc.h
+index 0ec8d02..4ba97e7 100644
+--- a/src/ipa/ipu3/algorithms/agc.h
++++ b/src/ipa/ipu3/algorithms/agc.h
+@@ -65,6 +65,11 @@ private:
+ 	 * fixed default, so that stopping and restarting the camera (switching cameras, mirroring) does not flash.
+ 	 */
+ 	bool haveSettled_ = false;
++
++	/* Per streaming session: blank frames seen before the first valid one, and frames the exposure has been stable. */
++	bool haveValidFrame_ = false;
++	uint32_t blankFrames_ = 0;
++	uint32_t stableFrames_ = 0;
+ 	utils::Duration settledExposureTime_;
+ 	double settledAnalogueGain_ = 1.0;
+ };

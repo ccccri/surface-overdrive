@@ -1,0 +1,116 @@
+diff --git a/src/libcamera/pipeline/ipu3/ipu3.cpp b/src/libcamera/pipeline/ipu3/ipu3.cpp
+index fd38cd8..5f62332 100644
+--- a/src/libcamera/pipeline/ipu3/ipu3.cpp
++++ b/src/libcamera/pipeline/ipu3/ipu3.cpp
+@@ -72,6 +72,8 @@ public:
+ 	void imguOutputBufferReady(FrameBuffer *buffer);
+ 	void temporalDenoise(const Stream *stream, FrameBuffer *buffer);
+ 	void colourGrade(const Stream *stream, FrameBuffer *buffer);
++	bool concealBlankFrame(const Stream *stream, FrameBuffer *buffer);
++	void rememberFrame(const Stream *stream, FrameBuffer *buffer);
+ 	std::unique_ptr<LiveProfile> profile_;
+ 	void cio2BufferReady(FrameBuffer *buffer);
+ 	void paramBufferReady(FrameBuffer *buffer);
+@@ -94,6 +96,12 @@ public:
+ 	/* Raw frames still to drop after the stream started: see cio2BufferReady(). */
+ 	unsigned int startupFramesToDrop_ = 0;
+ 
++	/*
++	 * Last frame of each output stream that was not blank, to show again in place of a blank one. Kept across streaming sessions: the
++	 * first frames after a restart are the ones that can come out blank. The size check in concealBlankFrame() discards it after a resolution change.
++	 */
++	std::map<const Stream *, std::vector<uint8_t>> lastGoodFrame_;
++
+ 	Rectangle cropRegion_;
+ 
+ 	std::unique_ptr<DelayedControls> delayedCtrls_;
+@@ -1493,6 +1501,75 @@ void IPU3CameraData::temporalDenoise(const Stream *stream, FrameBuffer *buffer)
+  * small coring so that it does not amplify the sensor noise. Done after temporalDenoise(), whose filter memory
+  * therefore stays free of the grading. Costs nothing when every value is neutral.
+  */
++/*
++ * Now and then the ImgU hands back a frame that is entirely black (luma 0, neutral chroma): it processed a raw frame that held no
++ * light, which shows as a flash. Show the previous good frame again instead, which nobody notices. Returns true when the frame was
++ * replaced; with no previous good frame there is nothing to show and the frame is left alone.
++ */
++bool IPU3CameraData::concealBlankFrame(const Stream *stream, FrameBuffer *buffer)
++{
++	const StreamConfiguration &cfg = stream->configuration();
++	if (cfg.pixelFormat != formats::NV12)
++		return false;
++
++	auto last = lastGoodFrame_.find(stream);
++	if (last == lastGoodFrame_.end())
++		return false;
++
++	MappedFrameBuffer mapped(buffer, MappedFrameBuffer::MapFlag::ReadWrite);
++	if (!mapped.isValid() || mapped.planes().size() < 2)
++		return false;
++
++	const size_t ySize = static_cast<size_t>(cfg.stride) * cfg.size.height;
++	const size_t uvSize = ySize / 2;
++	uint8_t *y = mapped.planes()[0].data();
++	uint8_t *uv = mapped.planes()[1].data();
++	if (mapped.planes()[0].size() < ySize || mapped.planes()[1].size() < uvSize ||
++	    last->second.size() != ySize + uvSize)
++		return false;
++
++	/* Blank: every sampled luma byte is zero. */
++	for (size_t i = 0; i < ySize; i += 97)
++		if (y[i])
++			return false;
++
++	std::copy(last->second.begin(), last->second.begin() + ySize, y);
++	std::copy(last->second.begin() + ySize, last->second.end(), uv);
++	LOG(IPU3, Debug) << "Blank frame replaced by the previous one";
++
++	return true;
++}
++
++/* Keep a copy of the finished frame for concealBlankFrame(). */
++void IPU3CameraData::rememberFrame(const Stream *stream, FrameBuffer *buffer)
++{
++	const StreamConfiguration &cfg = stream->configuration();
++	if (cfg.pixelFormat != formats::NV12)
++		return;
++
++	MappedFrameBuffer mapped(buffer, MappedFrameBuffer::MapFlag::ReadOnly);
++	if (!mapped.isValid() || mapped.planes().size() < 2)
++		return;
++
++	const size_t ySize = static_cast<size_t>(cfg.stride) * cfg.size.height;
++	const size_t uvSize = ySize / 2;
++	if (mapped.planes()[0].size() < ySize || mapped.planes()[1].size() < uvSize)
++		return;
++
++	/* A blank frame must not become the reference. */
++	const uint8_t *y = mapped.planes()[0].data();
++	bool blank = true;
++	for (size_t i = 0; i < ySize && blank; i += 97)
++		blank = y[i] == 0;
++	if (blank)
++		return;
++
++	std::vector<uint8_t> &frame = lastGoodFrame_[stream];
++	frame.resize(ySize + uvSize);
++	std::copy(y, y + ySize, frame.begin());
++	std::copy(mapped.planes()[1].data(), mapped.planes()[1].data() + uvSize, frame.begin() + ySize);
++}
++
+ void IPU3CameraData::colourGrade(const Stream *stream, FrameBuffer *buffer)
+ {
+ 	if (!profile_)
+@@ -1583,8 +1660,11 @@ void IPU3CameraData::imguOutputBufferReady(FrameBuffer *buffer)
+ 
+ 	for (const auto &[stream, b] : request->buffers()) {
+ 		if (b == buffer) {
+-			temporalDenoise(stream, buffer);
+-			colourGrade(stream, buffer);
++			if (!concealBlankFrame(stream, buffer)) {
++				temporalDenoise(stream, buffer);
++				colourGrade(stream, buffer);
++				rememberFrame(stream, buffer);
++			}
+ 			break;
+ 		}
+ 	}

@@ -101,3 +101,25 @@ Fix: `0016-ipu3-drop-startup-frames.patch`: the first two raw frames of every se
 | stress test, 25 cycles | 0 crashes |
 
 Why the first start differs: WirePlumber keeps the sensors' subdevices open, so after the first start the sensor stays powered and configured; a cold start also has the sensor warming up.
+
+## Test 6 (2026-10-07): cold start of the AGC and a stray black frame
+
+Measured with the mean luma of each frame (3 starts per camera after a WirePlumber restart, then 25 stress cycles, 0 crashes).
+
+**The cold start was the real problem** (rear camera, first start after boot). The AGC log (`IPU3Agc:DEBUG`) showed why: the first statistics come from black frames, so the algorithm
+asked for an enormous gain (digital gain 8.4e7). libipa's filter then decays it by 20% a frame, so the picture stayed saturated for more than 80 frames (~3 s) with the analogue gain at 16x.
+The black frames that come back during the first second kept restarting it. A previous attempt, dropping 26 raw frames on the first start (`kColdStartFramesToDrop`), did not help:
+the algorithm does not run on frames that are dropped, so it simply started later from the same state. It was removed.
+
+Fix: `0017-ipu3-agc-ignore-blank-frames-settle-check.patch`.
+- `Agc::process()` ignores a frame whose mean luminance is below one histogram bin, unless no valid frame was ever seen in the first 30 frames (a really dark scene).
+- The exposure is remembered for the next session only after the requested exposure stayed within 3% of the applied one for 10 frames in a row (the first version remembered a saturated value).
+
+| Start | Before | After |
+|---|---|---|
+| rear, first start after boot | black for ~13 frames, then saturated at ~195 for the whole capture | black for ~10 frames, valid and settled at 120 after ~35 frames |
+| rear and front, restarts | flat after the first valid frame | flat (rear 119-124, front 128-130) |
+
+**Stray black frame.** Dropping two raw frames removed the black frame at position 2 only some of the time: it now shows up at position 1, 2 or 3 of a restart in about one start out of three
+(Y plane all zero, UV exactly 128). Fix: `0018-ipu3-conceal-blank-frames.patch`: an output frame whose sampled luma is all zero is replaced by the previous good frame
+(kept across sessions; discarded if the resolution changed). Frames that are black at the very start of a cold start, before any good frame exists, are not covered.
