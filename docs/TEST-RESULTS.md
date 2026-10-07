@@ -29,3 +29,18 @@ fixed 640x480 size, the missing autofocus work and the noise: those need the lib
 - The tablet logs in with a password (no autologin by choice), so tests type it through a virtual keyboard: `tools/dev/uinput_type.py` (root, `/dev/uinput`). Worked on the Plasma login screen.
 - `rpm-ostree` cannot read the archive from the home directory: it has to be in `/var/tmp`.
 - The deployment came from a different Kinoite composition than the installed one (the container image has `dnf5`, no `fedora-repos-ostree`); updates will come from our registry, not from Fedora's ostree remote.
+
+## Test 2 (2026-10-07): libcamera rebuilt from Fedora's SRPM with the 12 patches
+
+Image rebuilt with `libcamera-0.7.1-1.fc44.overdrive1` and `libcamera-ipa` replacing the stock packages (`ci/build_libcamera.sh`, `patches/libcamera/`), plus the base IPU3 tuning.
+Rebase from a second OCI archive, one reboot, no MOK screen (key already enrolled), login typed through `tools/dev/uinput_type.py`.
+
+| Check | Result |
+|---|---|
+| WirePlumber loads the system `libcamera` (no `LD_LIBRARY_PATH`, no `/usr/local`) | **ok** |
+| Build: Fedora's spec plus 12 patches applies and compiles | **ok** (needed `elfutils-devel`, which Fedora's spec does not declare) |
+| Rear camera | **ok**: 1536x1152 offered first, sharp, well exposed |
+| Front camera | **ok**: 1152x864, sharp, well exposed |
+| Colour | still a pink centre with green/blue edges: no lens shading yet (own calibration, S4) |
+
+Open: which of the 12 patches are really needed (S3), lens shading and black level from our own measurements (S4), autofocus behaviour in a controlled scene, noise.

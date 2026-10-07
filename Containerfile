@@ -34,10 +34,24 @@ RUN --mount=type=secret,id=modkey --mount=type=secret,id=modcert \
     python3 /src/ci/build_kmods.py --kver "$KVER" --srpm-dir /srpm \
         --key /run/secrets/modkey --cert /run/secrets/modcert --work /work --out /out
 
-# ---- Stage 3: the image
+# ---- Stage 3: libcamera rebuilt from Fedora's own package with our patches
+# The version installed in the base image decides which SRPM is rebuilt (same version = same ABI as the PipeWire plugin).
+FROM ${BASE} AS probe
+RUN rpm -q --qf '%{VERSION}-%{RELEASE}' libcamera > /libcamera-nvr && rpm -qa --qf '%{NAME}\n' | grep '^libcamera' | sort > /libcamera-packages
+
+FROM registry.fedoraproject.org/fedora:44 AS libcamera
+COPY --from=probe /libcamera-nvr /libcamera-packages /
+RUN dnf -y install --setopt=install_weak_deps=False rpm-build dnf-plugins-core python3 curl && dnf clean all
+COPY ci/build_libcamera.sh /src/ci/build_libcamera.sh
+COPY patches/libcamera /src/patches/libcamera
+RUN /src/ci/build_libcamera.sh "$(cat /libcamera-nvr)" /src/patches/libcamera /out/rpms
+
+# ---- Stage 4: the image
 FROM ${BASE}
 ARG KVER
 COPY --from=kmods /out/ /
+COPY --from=libcamera /out/rpms /tmp/libcamera-rpms
+COPY --from=libcamera /libcamera-packages /tmp/libcamera-packages
 COPY image/rootfs/ /
 RUN set -eux; \
     test "$(ls /usr/lib/modules)" = "$KVER"; \
@@ -45,6 +59,15 @@ RUN set -eux; \
     for m in ov8865 ov5693 nxp_nci nxp_nci_i2c intel_hid; do \
         modinfo -k "$KVER" -F filename "$m" | grep -q '/updates/' || { echo "$m does not resolve to updates/"; exit 1; }; \
     done
+# Replace the stock libcamera packages (only the ones the base image has) with the rebuilt ones.
+RUN set -eux; \
+    files=""; \
+    for name in $(cat /tmp/libcamera-packages); do \
+        f=$(ls /tmp/libcamera-rpms/"$name"-[0-9]*.rpm | head -1); files="$files $f"; \
+    done; \
+    dnf5 -y install --allowerasing $files; \
+    rpm -q libcamera libcamera-ipa | grep -q overdrive; \
+    rm -rf /tmp/libcamera-rpms /tmp/libcamera-packages; dnf5 clean all
 # Plymouth's configuration is copied into the initramfs: regenerate it so image/rootfs/etc/plymouth/plymouthd.conf takes effect.
 RUN set -eux; \
     DRACUT_NO_XATTR=1 dracut --no-hostonly --kver "$KVER" --reproducible --add ostree -f "/usr/lib/modules/$KVER/initramfs.img"; \
