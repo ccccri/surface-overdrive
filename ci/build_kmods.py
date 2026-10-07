@@ -134,6 +134,7 @@ def main():
     info.mkdir(parents=True, exist_ok=True)
     (info / "kmods.json").write_text(json.dumps(report, indent=2, sort_keys=True) + "\n")
     shutil.copy2(args.cert, info / "mok.der")
+    (info / "mok.der").chmod(0o644)      # a public certificate: the health check and mokutil read it without privileges
 
 
 if __name__ == "__main__":
