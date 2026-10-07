@@ -1,0 +1,17 @@
+{
+    "KPlugin": {
+        "Authors": [
+            {
+                "Name": "ccccri"
+            }
+        ],
+        "Description": "Health of the Surface fixes",
+        "Icon": "preferences-system-diagnostics",
+        "Id": "kcm_overdrive",
+        "Name": "Overview"
+    },
+    "X-KDE-KeepAlive": true,
+    "X-KDE-Keywords": "surface,overdrive,health,status",
+    "X-KDE-System-Settings-Parent-Category": "surface-control",
+    "X-KDE-Weight": 10
+}

@@ -13,6 +13,13 @@ include(KDECMakeSettings)
 include(KDECompilerSettings NO_POLICY_SCOPE)
 
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
+set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
-kcmutils_add_qml_kcm(kcm_overdrive SOURCES overdrivekcm.cpp overdrivekcm.h)
-target_link_libraries(kcm_overdrive PRIVATE Qt6::Core Qt6::Qml Qt6::Quick KF6::CoreAddons KF6::I18n KF6::KCMUtilsQuick)
+# Back end shared by every page of the "Surface Control" group
+add_library(overdrive_common STATIC common/overdrivekcm.cpp common/overdrivekcm.h)
+target_include_directories(overdrive_common PUBLIC common)
+target_link_libraries(overdrive_common PUBLIC Qt6::Core Qt6::Qml Qt6::Quick KF6::CoreAddons KF6::I18n KF6::KCMUtilsQuick)
+
+# One System Settings page = one directory with its own CMakeLists.txt, <plugin>.json, page_<name>.cpp and ui/main.qml
+add_subdirectory(overview)
+add_subdirectory(input)

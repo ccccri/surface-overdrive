@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Service
+X-KDE-System-Settings-Category=surface-control
+X-KDE-System-Settings-Parent-Category=
+X-KDE-Weight=18
+Icon=preferences-desktop-tablet
+Name=Surface Control
+Comment=Cameras, audio, NFC, pen and health of this Surface

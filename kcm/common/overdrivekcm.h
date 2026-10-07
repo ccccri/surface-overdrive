@@ -6,7 +6,7 @@
 class QProcess;
 
 /**
- * The Surface Overdrive page of System Settings.
+ * The shared back end of every page in the Surface Control group of System Settings.
  *
  * It does not do any work itself: it runs `overdrivectl` (which reads the system, or asks polkit for the administrator password when a
  * setting changes) and hands the result to the QML page.
