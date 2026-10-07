@@ -1,0 +1,50 @@
+diff --git a/src/libcamera/pipeline/ipu3/ipu3.cpp b/src/libcamera/pipeline/ipu3/ipu3.cpp
+index ea6abe3..fd38cd8 100644
+--- a/src/libcamera/pipeline/ipu3/ipu3.cpp
++++ b/src/libcamera/pipeline/ipu3/ipu3.cpp
+@@ -52,6 +52,9 @@ namespace libcamera {
+ 
+ LOG_DEFINE_CATEGORY(IPU3)
+ 
++/* Raw frames dropped at the start of every streaming session (see IPU3CameraData::cio2BufferReady()). */
++static constexpr unsigned int kStartupFramesToDrop = 2;
++
+ static const ControlInfoMap::Map IPU3Controls = {
+ 	{ &controls::draft::PipelineDepth, ControlInfo(2, 3) },
+ };
+@@ -88,6 +91,9 @@ public:
+ 	/* Previous filtered frame of each output stream, for the software temporal denoiser. */
+ 	std::map<const Stream *, std::vector<uint8_t>> tnrPrev_;
+ 
++	/* Raw frames still to drop after the stream started: see cio2BufferReady(). */
++	unsigned int startupFramesToDrop_ = 0;
++
+ 	Rectangle cropRegion_;
+ 
+ 	std::unique_ptr<DelayedControls> delayedCtrls_;
+@@ -842,6 +848,7 @@ int PipelineHandlerIPU3::start(Camera *camera, [[maybe_unused]] const ControlLis
+ 		goto error;
+ 
+ 	data->delayedCtrls_->reset();
++	data->startupFramesToDrop_ = kStartupFramesToDrop;
+ 
+ 	/*
+ 	 * Start the ImgU video devices, buffers will be queued to the
+@@ -1622,6 +1629,17 @@ void IPU3CameraData::cio2BufferReady(FrameBuffer *buffer)
+ 		return;
+ 	}
+ 
++	/*
++	 * The first frames the sensor delivers after the stream started are not usable: the second one comes out black (luma 0,
++	 * neutral chroma) on both cameras of the Surface Go, which showed as a flash every time a camera was started. Give the buffer
++	 * back to the CIO2 without processing it, so that the request is served by a later, valid frame.
++	 */
++	if (startupFramesToDrop_ > 0) {
++		startupFramesToDrop_--;
++		cio2_.queueBuffer(request, buffer);
++		return;
++	}
++
+ 	/*
+ 	 * Record the sensor's timestamp in the request metadata.
+ 	 *

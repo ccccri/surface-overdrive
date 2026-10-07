@@ -85,3 +85,19 @@ Fix: `0015-ipu3-agc-start-from-settled-exposure.patch`. Each camera remembers th
 
 Left over: **one black frame at position 2 of every start**, on both cameras. No kernel error is logged; WirePlumber logs `Zero sequence expected for first frame (got 1)` and
 `Obtained an uninitialised FrameContext`, so the frame numbering of the first frames is shifted by one between the CIO2 and the IPA. To investigate.
+
+## Test 5 (2026-10-07): the black frame at every start
+
+Mean luma per frame, 40-75 frames per start. Every start of both cameras had one black frame in second position (Y plane all zero, UV exactly 128: the ISP processed an
+all-black raw frame, so it is not the exposure, not the temporal denoise (switched off to check) and not a lost frame: timestamps are regular and carry no error flag).
+WirePlumber logs `Zero sequence expected for first frame (got 1)` on each video node: the first frames after the stream starts are unreliable.
+
+Fix: `0016-ipu3-drop-startup-frames.patch`: the first two raw frames of every session are given back to the CIO2 without processing, so the request is served by a later frame.
+
+| Start | Result |
+|---|---|
+| any restart of a camera (switching cameras, mirror toggle) | **flat from the first frame, no black frame** (front 131, rear 120-122) |
+| first start of each camera after boot | still rough: rear opens with ~13 near-black frames, front with a few steps (216 -> 178 -> 131) |
+| stress test, 25 cycles | 0 crashes |
+
+Why the first start differs: WirePlumber keeps the sensors' subdevices open, so after the first start the sensor stays powered and configured; a cold start also has the sensor warming up.
