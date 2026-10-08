@@ -113,6 +113,9 @@ RUN python3 /tmp/patch_lockscreen.py && rm /tmp/patch_lockscreen.py
 RUN dnf5 -y install --setopt=install_weak_deps=False ladspa-swh-plugins rnnoise && dnf5 clean all \
     && test -f /usr/lib64/ladspa/fast_lookahead_limiter_1913.so
 COPY --from=ladspa /out/ /
+# Fedora lists every AirPlay receiver of the network as a sound output (a Mac shows up as speakers). Those that ask for Apple's
+# pairing cannot play, and choosing one silences the tablet: no AirPlay outputs.
+RUN dnf5 -y remove pipewire-config-raop && dnf5 clean all && ! test -e /usr/share/pipewire/pipewire.conf.d/50-raop.conf
 RUN ldd /usr/lib64/ladspa/overdrive_denoise.so | grep -q "librnnoise.*=> /"
 COPY --from=hidbpf /out/ /
 COPY --from=kcm /out/ /

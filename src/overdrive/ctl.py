@@ -124,8 +124,7 @@ def audio_command(args):
                 if sub == "apply":
                     if a[1] not in eq.OUTPUTS:
                         raise KeyError(a[1])
-                    s = eq.preset_set(a[2])
-                    out["result"] = s is not None and eq.set_output(a[1], s)
+                    out["result"] = eq.apply_preset(a[1], a[2])
                 elif sub == "save":
                     out["result"] = eq.save_preset(a[1], eq.load()["sets"][a[2]])
                 elif sub == "delete":

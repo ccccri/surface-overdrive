@@ -131,7 +131,9 @@ def _user_presets(data):
 
 def presets():
     custom = _user_presets(store.load())
-    return [{"name": n, "builtin": True} for n in BUILTIN] + [{"name": n, "builtin": False} for n in sorted(custom, key=str.lower)]
+    now = settings()
+    names = [(n, True) for n in BUILTIN] + [(n, False) for n in sorted(custom, key=str.lower)]
+    return [{"name": n, "builtin": b, "current": _clean(preset_values(n) or {}) == now} for n, b in names]
 
 
 def preset_values(name):

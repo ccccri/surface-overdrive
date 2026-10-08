@@ -282,9 +282,37 @@ def _user_presets(data, kind="eq"):
     return store.section(store.section(data, "presets"), kind)
 
 
+def _same_sound(a, b):
+    """Two sets sound the same: pre-amplifier and bands equal (the boost is a volume setting, not part of a preset's character)."""
+    def band(x):
+        # a band that is off, or a peak or shelf at 0 dB, does nothing wherever it sits
+        if not x["on"] or (x["type"] in ("peak", "lowshelf", "highshelf") and abs(x["gain"]) < 0.05):
+            return None
+        return (x["type"], round(x["freq"]), round(x["gain"], 1), round(x["q"], 2))
+
+    def key(s):
+        return (round(s["preamp"], 2), [band(x) for x in s["bands"]])
+    return key(a) == key(b)
+
+
 def preset_names():
+    """Every preset, with the outputs whose set it equals now ("current": ["speaker"])."""
     user = _user_presets(store.load())
-    return [{"name": n, "builtin": True} for n in builtin_presets()] + [{"name": n, "builtin": False} for n in sorted(user, key=str.lower)]
+    sets = load()["sets"]
+    out = []
+    for name, builtin in [(n, True) for n in builtin_presets()] + [(n, False) for n in sorted(user, key=str.lower)]:
+        preset = preset_set(name)
+        out.append({"name": name, "builtin": builtin, "current": [o for o in OUTPUTS if preset and _same_sound(preset, sets[o])]})
+    return out
+
+
+def apply_preset(output, name):
+    """The preset's bands and pre-amplifier on this output; the boost of the output stays."""
+    preset = preset_set(name)
+    if preset is None:
+        return False
+    current = load()["sets"][_output(output)]
+    return set_output(output, dict(preset, boost=current["boost"]))
 
 
 def preset_set(name):

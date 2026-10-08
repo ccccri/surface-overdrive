@@ -12,14 +12,6 @@ Kirigami.Page {
     title: kcm.name
     padding: 0
 
-    // the two cameras as tabs, the way Power Management shows its three power states
-    header: Kirigami.NavigationTabBar {
-        actions: [
-            Kirigami.Action { text: i18n("Front Camera"); icon.name: "camera-web-symbolic"; checked: root.cam === "front"; onTriggered: root.cam = "front" },
-            Kirigami.Action { text: i18n("Rear Camera"); icon.name: "camera-photo-symbolic"; checked: root.cam === "rear"; onTriggered: root.cam = "rear" }
-        ]
-    }
-
     property string cam: "rear"
     property var d: ({ settings: {}, controls: [], presets: [], focus: {}, sizes: [], node: "" })
     property real peak: 1
@@ -216,6 +208,13 @@ Kirigami.Page {
         anchors.topMargin: Kirigami.Units.largeSpacing
         anchors.leftMargin: Kirigami.Units.largeSpacing     // none on the right: the scroll bar sits at the edge, as on the pages of Plasma
         spacing: Kirigami.Units.largeSpacing
+
+        Tabs {
+            Layout.rightMargin: Kirigami.Units.largeSpacing
+            model: [{ text: i18n("Front Camera"), icon: "camera-web-symbolic" }, { text: i18n("Rear Camera"), icon: "camera-photo-symbolic" }]
+            current: root.cam === "front" ? 0 : 1
+            onChosen: index => root.cam = index === 0 ? "front" : "rear"
+        }
 
         GridLayout {
             Layout.fillWidth: true

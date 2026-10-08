@@ -2,11 +2,13 @@
   <defs>
     <linearGradient id="card" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#48b9f2"/><stop offset="1" stop-color="#1d7fc4"/></linearGradient>
   </defs>
-  <rect x="3" y="3" width="26" height="26" rx="6" fill="url(#card)"/>
-  <g fill="none" stroke="#ffffff" stroke-width="2.4" stroke-linecap="round">
-    <path d="M11.5 20.5a6.4 6.4 0 0 0 0-9"/>
-    <path d="M15.6 23.5a10.6 10.6 0 0 0 0-15"/>
-    <path d="M19.7 26a14.2 14.2 0 0 0 0-20"/>
+  <!-- a badge: a card with the slot for its strap, and the contactless waves on it -->
+  <rect x="6" y="2.5" width="20" height="27" rx="3.5" fill="url(#card)"/>
+  <rect x="12.5" y="5" width="7" height="2.4" rx="1.2" fill="#ffffff" opacity="0.9"/>
+  <g fill="none" stroke="#ffffff" stroke-width="2" stroke-linecap="round">
+    <path d="M13.2 21.2a3.4 3.4 0 0 0 0-4.8"/>
+    <path d="M16.2 23.6a7 7 0 0 0 0-9.6"/>
+    <path d="M19.2 26a10.6 10.6 0 0 0 0-14.4"/>
   </g>
-  <circle cx="8.6" cy="16" r="1.9" fill="#ffffff"/>
+  <circle cx="10.6" cy="18.8" r="1.4" fill="#ffffff"/>
 </svg>

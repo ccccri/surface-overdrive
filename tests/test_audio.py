@@ -97,6 +97,19 @@ class EqTest(unittest.TestCase):
         self.assertEqual(eq.save_preset("  my \n set ", eq.new_set()), "ok")
         self.assertIn("my set", [p["name"] for p in eq.preset_names()])
 
+    def test_current_preset_and_boost_kept(self):
+        with mock.patch.object(eq, "apply"), mock.patch.object(eq.pw, "active_output", return_value="speaker"):
+            eq.set_output("speaker", eq.new_set(150))
+            self.assertEqual([p["name"] for p in eq.preset_names() if "speaker" in p["current"]], ["Flat"])
+            moved = eq.new_set(150)
+            moved["bands"][4].update(freq=700.0, q=0.8)                 # a band at 0 dB does nothing wherever it sits: still flat
+            eq.set_output("speaker", moved)
+            self.assertEqual([p["name"] for p in eq.preset_names() if "speaker" in p["current"]], ["Flat"])
+            self.assertTrue(eq.apply_preset("speaker", "Warm"))
+            self.assertFalse(eq.apply_preset("speaker", "Nope"))
+        self.assertEqual(eq.load()["sets"]["speaker"]["boost"], 150.0)
+        self.assertEqual([p["name"] for p in eq.preset_names() if "speaker" in p["current"]], ["Warm"])
+
     def test_presets(self):
         self.assertIn("Flat", [p["name"] for p in eq.preset_names()])
         self.assertEqual(eq.save_preset("Flat", eq.new_set()), "invalid")

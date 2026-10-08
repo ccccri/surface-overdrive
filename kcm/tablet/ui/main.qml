@@ -112,8 +112,10 @@ Kirigami.Page {
     function hideUnsupported(item, depth) {
         if (!item || depth > 9) return
         if (item.Kirigami.FormData.label.length > 0) {
+            // only an on/off setting counts (a slider that is greyed out until the pen wakes up stays), and it comes back by
+            // itself should the tablet ever support it
             const check = firstCheck(item, 0)
-            if (check && !check.enabled) item.visible = false
+            if (check && String(check).indexOf("CheckBox") >= 0) item.visible = Qt.binding(() => check.enabled)
             return
         }
         for (let i = 0; item.children && i < item.children.length; i++) hideUnsupported(item.children[i], depth + 1)
@@ -135,29 +137,30 @@ Kirigami.Page {
             if (!wrapper.penTab) return
             try { wrapper.hidePicture(kcm.stockPage.flickable.contentItem, 0) } catch (e) {}
             try { wrapper.shrinkCurve(kcm.stockPage.flickable.contentItem, 0) } catch (e) {}
+            try {
+                const f = kcm.stockPage.flickable
+                f.boundsBehavior = Flickable.StopAtBounds
+                f.interactive = Qt.binding(() => f.contentHeight > f.height + 1)
+            } catch (e) {}
             try { wrapper.hideUnsupported(kcm.stockPage.flickable.contentItem, 0) } catch (e) { console.warn("Surface Control: could not tidy the Pen tab:", e) }
         }
     }
     onPenTabChanged: tidy.restart()
 
-    // Our tabs look like the ones of Plasma (the bar Power Management has), and they press the hidden ones of the page.
-    Component { id: tabAction; Kirigami.Action { } }
-    function makeTabs() {
-        const list = []
-        const shown = tabs.length > 0 ? tabs : [{ text: i18n("Settings"), icon: "preferences-desktop-tablet", index: -1 }, { text: i18n("Pen Test"), icon: "draw-freehand", index: -2 }]
-        for (const t of shown) {
-            const action = tabAction.createObject(wrapper, { text: t.text })
-            action.icon.name = t.icon
-            const index = t.index
-            action.checked = Qt.binding(() => index === -2 ? wrapper.test : index === -1 ? !wrapper.test : (!wrapper.test && wrapper.stockTab === index))
-            action.triggered.connect(() => { if (index === -2) wrapper.test = true; else if (index === -1) wrapper.test = false; else wrapper.choose(index) })
-            list.push(action)
+    // Our own slim row of tabs; a click presses the hidden tab of the Plasma page.
+    readonly property var shownTabs: tabs.length > 0 ? tabs : [{ text: i18n("Settings"), icon: "preferences-desktop-tablet", index: -1 }, { text: i18n("Pen Test"), icon: "draw-freehand", index: -2 }]
+    header: QQC2.Control {
+        padding: Kirigami.Units.largeSpacing
+        bottomPadding: 0
+        contentItem: Tabs {
+            model: wrapper.shownTabs
+            current: Math.max(0, wrapper.shownTabs.findIndex(t => t.index === -2 ? wrapper.test : t.index === -1 ? !wrapper.test : (!wrapper.test && wrapper.stockTab === t.index)))
+            onChosen: i => {
+                const index = wrapper.shownTabs[i].index
+                if (index === -2) wrapper.test = true; else if (index === -1) wrapper.test = false; else wrapper.choose(index)
+            }
         }
-        tabBar.actions = list
     }
-    onTabsChanged: makeTabs()
-    Component.onDestruction: tabBar.actions = []
-    header: Kirigami.NavigationTabBar { id: tabBar; Component.onCompleted: wrapper.makeTabs() }
 
     // Display tab: the page of Plasma alone. Pen tab: its settings and our test side by side when the window has room for both,
     // else the settings alone (the test needs its width, and one part above the other would mean scrolling to reach it).
@@ -170,7 +173,7 @@ Kirigami.Page {
             visible: !wrapper.test
             Layout.fillWidth: true
             Layout.fillHeight: true
-            Layout.preferredWidth: Kirigami.Units.gridUnit * 34
+            Layout.preferredWidth: Kirigami.Units.gridUnit * 28
             readonly property Item page: kcm.stockPage
             onPageChanged: if (page) { page.parent = holder; page.anchors.fill = holder; page.visible = true; wrapper.adopt() }
             Kirigami.PlaceholderMessage {
@@ -182,11 +185,13 @@ Kirigami.Page {
                 explanation: kcm.stockError
             }
         }
+        Kirigami.Separator { Layout.fillHeight: true; Layout.topMargin: Kirigami.Units.largeSpacing; Layout.bottomMargin: Kirigami.Units.largeSpacing; visible: penTest.visible && holder.visible }
         PenTest {
+            id: penTest
             visible: wrapper.test || (wrapper.penTab && wrapper.wide)
             Layout.fillWidth: true
             Layout.fillHeight: true
-            Layout.preferredWidth: Kirigami.Units.gridUnit * 26
+            Layout.preferredWidth: Kirigami.Units.gridUnit * 28
         }
     }
 }

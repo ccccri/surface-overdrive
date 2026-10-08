@@ -18,15 +18,21 @@ ColumnLayout {
     property alias messagePart: message
     property alias speakerPart: speaker
     property alias micPart: microphone
+    // True once the page has put the list of presets into the "Profile" selector of the device row: the lists here then go.
+    property bool eqProfilesInRow: false
+    property bool micProfilesInRow: false
+    readonly property var eqPresets: d.presets
+    readonly property var micPresets: d.mic.presets
+    readonly property int eqCurrent: d.presets.findIndex(p => p.current && p.current.indexOf(editing) >= 0)
+    readonly property int micCurrent: d.mic.presets.findIndex(p => p.current === true)
+    function applyEqPreset(name) { audio("action", ["eq", "preset", "apply", editing, name]) }
+    function applyMicPreset(name) { audio("action", ["mic", "preset", "apply", name]) }
 
     property var d: ({ eq: { sync: true, swap: { speaker: false, headphones: true },
                              sets: { speaker: { boost: 120, preamp: 0, bands: [] }, headphones: { boost: 100, preamp: 0, bands: [] } } },
                        active: "speaker", presets: [], mic: { available: false, running: false, values: {}, ranges: {}, defaults: {}, presets: [] },
                        output: {}, input: {}, volume_hold: "on" })
     property string editing: "speaker"
-    property string wantedEqPreset: ""                 // a preset just saved: select it in the list when the answer arrives
-    property string wantedMicPreset: ""
-    function tidy(name) { return name.trim().replace(/\s+/g, " ") }
     property int sel: 4
     readonly property var cur: d.eq.sets[editing]
     readonly property var band: cur.bands[sel] || ({ type: "peak", freq: 1000, gain: 0, q: 1, on: true })
@@ -50,16 +56,14 @@ ColumnLayout {
             if (!r || !r.eq || !r.mic) return
             if (tag === "quiet" || tag === "set") {
                 // keep what the sliders show while the user is working: only what changes by itself is refreshed
-                root.d = Object.assign({}, root.d, { active: r.active, output: r.output, input: r.input, volume_hold: r.volume_hold,
-                                                     mic: Object.assign({}, root.d.mic, { available: r.mic.available, running: r.mic.running }) })
+                root.d = Object.assign({}, root.d, { active: r.active, output: r.output, input: r.input, volume_hold: r.volume_hold, presets: r.presets,
+                                                     mic: Object.assign({}, root.d.mic, { available: r.mic.available, running: r.mic.running, presets: r.mic.presets }) })
                 return
             }
             root.d = r
-            if (root.wantedEqPreset.length > 0) { presetBox.currentIndex = Math.max(0, r.presets.findIndex(p => p.name === root.wantedEqPreset)); root.wantedEqPreset = "" }
-            if (root.wantedMicPreset.length > 0) { micPreset.currentIndex = Math.max(0, r.mic.presets.findIndex(p => p.name === root.wantedMicPreset)); root.wantedMicPreset = "" }
             if (r.eq.sync) root.editing = "speaker"
             if (r.notes && r.notes.length > 0) message.text = r.notes.join("\n")
-            else if (r.result === "invalid") message.text = i18n("Please type a name that is not one of the built-in presets.")
+            else if (r.result === "invalid") message.text = i18n("Please type a name that is not one of the built-in profiles.")
             else if (r.result === false && tag === "action") message.text = i18n("That did not work.")
             else message.text = ""
         }
@@ -212,25 +216,20 @@ ColumnLayout {
         Section {
             title: i18n("Equalizer")
             Line {
-                Caption { text: i18n("Preset:") }
-                QQC2.ComboBox {
-                    id: presetBox
-                    width: Kirigami.Units.gridUnit * 14
-                    model: root.d.presets.map(p => p.name + (p.builtin ? "" : i18n("  (yours)")))
-                }
-                QQC2.Button {
-                    text: i18n("Apply"); icon.name: "dialog-ok-apply"
-                    enabled: root.presetAt(root.d.presets, presetBox.currentIndex) !== null
-                    onClicked: root.audio("action", ["eq", "preset", "apply", root.editing, root.d.presets[presetBox.currentIndex].name])
+                Caption { text: i18n("Profile:"); visible: !root.eqProfilesInRow }
+                ProfileBox {
+                    visible: !root.eqProfilesInRow
+                    presets: root.eqPresets; current: root.eqCurrent
+                    onChosen: name => root.applyEqPreset(name)
                 }
                 QQC2.Button {
                     text: i18n("Save As…"); icon.name: "document-save-as"
-                    onClicked: eqName.begin(i18n("Save the current equalizer as a preset"), n => { root.wantedEqPreset = root.tidy(n); root.audio("action", ["eq", "preset", "save", n, root.editing]) })
+                    onClicked: eqName.begin(i18n("Save the current equalizer as a profile"), n => root.audio("action", ["eq", "preset", "save", n, root.editing]))
                 }
                 QQC2.Button {
                     icon.name: "edit-delete"; display: QQC2.AbstractButton.IconOnly
-                    text: i18n("Delete your preset")
-                    readonly property var preset: root.presetAt(root.d.presets, presetBox.currentIndex)
+                    text: i18n("Delete This Profile")
+                    readonly property var preset: root.presetAt(root.d.presets, root.eqCurrent)
                     enabled: preset !== null && !preset.builtin
                     onClicked: root.audio("action", ["eq", "preset", "delete", preset.name])
                     QQC2.ToolTip.text: text; QQC2.ToolTip.visible: hovered; QQC2.ToolTip.delay: Kirigami.Units.toolTipDelay
@@ -321,25 +320,20 @@ ColumnLayout {
                 enabled: root.d.mic.available
                 spacing: Kirigami.Units.smallSpacing
                 Line {
-                    Caption { text: i18n("Preset:") }
-                    QQC2.ComboBox {
-                        id: micPreset
-                        width: Kirigami.Units.gridUnit * 14
-                        model: root.d.mic.presets.map(p => p.name + (p.builtin ? "" : i18n("  (yours)")))
-                    }
-                    QQC2.Button {
-                        text: i18n("Apply"); icon.name: "dialog-ok-apply"
-                        enabled: root.presetAt(root.d.mic.presets, micPreset.currentIndex) !== null
-                        onClicked: root.audio("action", ["mic", "preset", "apply", root.d.mic.presets[micPreset.currentIndex].name])
+                    Caption { text: i18n("Profile:"); visible: !root.micProfilesInRow }
+                    ProfileBox {
+                        visible: !root.micProfilesInRow
+                        presets: root.micPresets; current: root.micCurrent
+                        onChosen: name => root.applyMicPreset(name)
                     }
                     QQC2.Button {
                         text: i18n("Save As…"); icon.name: "document-save-as"
-                        onClicked: micName.begin(i18n("Save the microphone settings as a preset"), n => { root.wantedMicPreset = root.tidy(n); root.audio("action", ["mic", "preset", "save", n]) })
+                        onClicked: micName.begin(i18n("Save the microphone settings as a profile"), n => root.audio("action", ["mic", "preset", "save", n]))
                     }
                     QQC2.Button {
                         icon.name: "edit-delete"; display: QQC2.AbstractButton.IconOnly
-                        text: i18n("Delete your preset")
-                        readonly property var preset: root.presetAt(root.d.mic.presets, micPreset.currentIndex)
+                        text: i18n("Delete This Profile")
+                        readonly property var preset: root.presetAt(root.d.mic.presets, root.micCurrent)
                         enabled: preset !== null && !preset.builtin
                         onClicked: root.audio("action", ["mic", "preset", "delete", preset.name])
                         QQC2.ToolTip.text: text; QQC2.ToolTip.visible: hovered; QQC2.ToolTip.delay: Kirigami.Units.toolTipDelay
