@@ -24,6 +24,9 @@ ColumnLayout {
                        active: "speaker", presets: [], mic: { available: false, running: false, values: {}, ranges: {}, defaults: {}, presets: [] },
                        output: {}, input: {}, volume_hold: "on" })
     property string editing: "speaker"
+    property string wantedEqPreset: ""                 // a preset just saved: select it in the list when the answer arrives
+    property string wantedMicPreset: ""
+    function tidy(name) { return name.trim().replace(/\s+/g, " ") }
     property int sel: 4
     readonly property var cur: d.eq.sets[editing]
     readonly property var band: cur.bands[sel] || ({ type: "peak", freq: 1000, gain: 0, q: 1, on: true })
@@ -52,6 +55,8 @@ ColumnLayout {
                 return
             }
             root.d = r
+            if (root.wantedEqPreset.length > 0) { presetBox.currentIndex = Math.max(0, r.presets.findIndex(p => p.name === root.wantedEqPreset)); root.wantedEqPreset = "" }
+            if (root.wantedMicPreset.length > 0) { micPreset.currentIndex = Math.max(0, r.mic.presets.findIndex(p => p.name === root.wantedMicPreset)); root.wantedMicPreset = "" }
             if (r.eq.sync) root.editing = "speaker"
             if (r.notes && r.notes.length > 0) message.text = r.notes.join("\n")
             else if (r.result === "invalid") message.text = i18n("Please type a name that is not one of the built-in presets.")
@@ -213,7 +218,7 @@ ColumnLayout {
                 }
                 QQC2.Button {
                     text: i18n("Save As…"); icon.name: "document-save-as"
-                    onClicked: eqName.begin(i18n("Save the current equalizer as a preset"), n => root.audio("action", ["eq", "preset", "save", n, root.editing]))
+                    onClicked: eqName.begin(i18n("Save the current equalizer as a preset"), n => { root.wantedEqPreset = root.tidy(n); root.audio("action", ["eq", "preset", "save", n, root.editing]) })
                 }
                 QQC2.Button {
                     icon.name: "edit-delete"; display: QQC2.AbstractButton.IconOnly
@@ -328,7 +333,7 @@ ColumnLayout {
                     }
                     QQC2.Button {
                         text: i18n("Save As…"); icon.name: "document-save-as"
-                        onClicked: micName.begin(i18n("Save the microphone settings as a preset"), n => root.audio("action", ["mic", "preset", "save", n]))
+                        onClicked: micName.begin(i18n("Save the microphone settings as a preset"), n => { root.wantedMicPreset = root.tidy(n); root.audio("action", ["mic", "preset", "save", n]) })
                     }
                     QQC2.Button {
                         icon.name: "edit-delete"; display: QQC2.AbstractButton.IconOnly

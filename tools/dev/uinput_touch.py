@@ -3,6 +3,7 @@
 
 usage: uinput_touch.py SCREEN_W SCREEN_H    then commands on standard input, one per line, coordinates in screen pixels:
   tap X Y               a short tap
+  hold X Y SECONDS      a finger that stays down that long
   swipe X1 Y1 X2 Y2     a drag lasting about a third of a second
   wait SECONDS
 """
@@ -87,6 +88,10 @@ def main():
             numbers = [float(w) for w in words[1:]]
             if words[0] == "tap":
                 finger.tap(*numbers)
+            elif words[0] == "hold":
+                finger.down(numbers[0], numbers[1])
+                time.sleep(numbers[2])
+                finger.up()
             elif words[0] == "swipe":
                 finger.swipe(*numbers)
             elif words[0] == "wait":

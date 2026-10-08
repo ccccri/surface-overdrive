@@ -30,14 +30,7 @@ def enabled():
 
 
 def settings():
-    out = dict(DEFAULTS)
-    saved = store.load().get("mic", {})
-    for k in DEFAULTS:
-        try:
-            out[k] = float(saved[k])
-        except (KeyError, TypeError, ValueError):
-            pass
-    return out
+    return _clean(store.section(store.load(), "mic"))
 
 
 def controls(v):
@@ -70,16 +63,10 @@ def graph_text(v):
 
 
 def _clean(v):
-    out = {}
-    for k in DEFAULTS:
-        try:
-            x = float(v.get(k, DEFAULTS[k]))
-        except (TypeError, ValueError):
-            x = DEFAULTS[k]
-        if x != x:                                      # not a number
-            x = DEFAULTS[k]
-        out[k] = float(max(RANGES[k][0], min(RANGES[k][1], x)))
-    return out
+    """Every setting as a number in its range; what is missing or not a number becomes the default."""
+    if not isinstance(v, dict):
+        v = {}
+    return {k: store.number(v.get(k, DEFAULTS[k]), DEFAULTS[k], RANGES[k][0], RANGES[k][1]) for k in DEFAULTS}
 
 
 def _store(key, value):
@@ -105,7 +92,7 @@ def set_one(key, value):
     if key not in DEFAULTS:
         raise KeyError(key)
     v = settings()
-    v[key] = float(value)
+    v[key] = float(value)                               # a text that is no number is an error of the caller: say so
     return set_all(v)
 
 
@@ -135,13 +122,21 @@ def migrate():
     return found
 
 
+MAX_NAME = 60
+
+
+def _user_presets(data):
+    return store.section(store.section(data, "presets"), "input")
+
+
 def presets():
-    custom = store.load().get("presets", {}).get("input", {})
+    custom = _user_presets(store.load())
     return [{"name": n, "builtin": True} for n in BUILTIN] + [{"name": n, "builtin": False} for n in sorted(custom, key=str.lower)]
 
 
 def preset_values(name):
-    return BUILTIN.get(name) or store.load().get("presets", {}).get("input", {}).get(name)
+    values = BUILTIN.get(name) or _user_presets(store.load()).get(name)
+    return values if isinstance(values, dict) else None
 
 
 def apply_preset(name):
@@ -150,11 +145,13 @@ def apply_preset(name):
 
 
 def save_preset(name):
-    name = name.strip()
-    if not name or name in BUILTIN:
+    name = " ".join(str(name).split())
+    if not name or len(name) > MAX_NAME or name.lower() in [b.lower() for b in BUILTIN]:
         return "invalid"
     d = store.load()
-    d.setdefault("presets", {}).setdefault("input", {})[name] = settings()
+    presets = dict(store.section(d, "presets"))
+    presets["input"] = dict(_user_presets(d), **{name: settings()})
+    d["presets"] = presets
     store.save(d)
     return "ok"
 
@@ -163,8 +160,9 @@ def delete_preset(name):
     if name in BUILTIN:
         return
     d = store.load()
-    d.get("presets", {}).get("input", {}).pop(name, None)
-    store.save(d)
+    if name in _user_presets(d):
+        del d["presets"]["input"][name]
+        store.save(d)
 
 
 def describe():

@@ -92,26 +92,40 @@ def magnitude_db(bands, freq, rate=RATE):
 
 
 def _normalise(s):
-    """A set from the file or a caller: right number of bands, valid types, numbers in range."""
-    out = {"boost": float(max(100, min(180, s.get("boost", 120)))), "preamp": float(max(-24, min(12, s.get("preamp", 0.0)))), "bands": []}
-    bands = list(s.get("bands", []))[:N]
-    for i, b in enumerate(bands):
-        out["bands"].append({"type": b.get("type") if b.get("type") in kinds(i) else "peak",
-                             "freq": float(max(20, min(20000, b.get("freq", 1000)))), "gain": float(max(-24, min(24, b.get("gain", 0)))),
-                             "q": float(max(0.1, min(20, b.get("q", 1.0)))), "on": bool(b.get("on", True))})
+    """A set from the file or a caller: right number of bands, valid types, numbers in range. Anything that is not what it should
+    be (a text where a number goes, a band that is not a band) becomes the neutral value."""
+    if not isinstance(s, dict):
+        s = {}
+    out = {"boost": store.number(s.get("boost"), DEFAULT_BOOST, 100, 180), "preamp": store.number(s.get("preamp"), 0.0, -24, 12), "bands": []}
     flat = flat_bands()
+    given = s.get("bands")
+    bands = list(given)[:N] if isinstance(given, (list, tuple)) else []
+    for i, b in enumerate(bands):
+        if not isinstance(b, dict):
+            out["bands"].append(dict(flat[i]))
+            continue
+        kind = b.get("type") if b.get("type") in kinds(i) else "peak"
+        out["bands"].append({"type": kind, "freq": store.number(b.get("freq"), flat[i]["freq"], 20, 20000),
+                             "gain": store.number(b.get("gain"), 0.0, -24, 24), "q": store.number(b.get("q"), 1.0, 0.1, 20),
+                             "on": bool(b.get("on", True))})
     while len(out["bands"]) < N:
         out["bands"].append(dict(flat[len(out["bands"])]))
     return out
 
 
+def _output(name):
+    if name not in OUTPUTS:
+        raise KeyError(name)
+    return name
+
+
 # ---- state ----
 def load():
-    eq = store.load().get("eq", {})
-    sets = eq.get("sets", {})
-    speaker = _normalise(sets["speaker"]) if "speaker" in sets else new_set(DEFAULT_BOOST)
-    headphones = _normalise(sets["headphones"]) if "headphones" in sets else new_set(100)
-    swap = {o: bool(eq.get("swap", {}).get(o, DEFAULT_SWAP[o])) for o in OUTPUTS}
+    eq = store.section(store.load(), "eq")
+    sets = store.section(eq, "sets")
+    speaker = _normalise(sets["speaker"]) if isinstance(sets.get("speaker"), dict) else new_set(DEFAULT_BOOST)
+    headphones = _normalise(sets["headphones"]) if isinstance(sets.get("headphones"), dict) else new_set(100)
+    swap = {o: bool(store.section(eq, "swap").get(o, DEFAULT_SWAP[o])) for o in OUTPUTS}
     return {"sync": bool(eq.get("sync", True)), "swap": swap, "sets": {"speaker": speaker, "headphones": headphones}}
 
 
@@ -210,7 +224,7 @@ def apply_active():
 def set_output(output, s):
     """A change from the panel: store it and apply it now if this output (or the synced one) is playing."""
     state = load()
-    state["sets"][output] = _normalise(s)
+    state["sets"][_output(output)] = _normalise(s)
     _store(state)
     if state["sync"] or pw.active_output() == output:
         apply_state(state, pw.active_output())
@@ -220,22 +234,20 @@ def set_output(output, s):
 def reset_bands(output):
     """All ten bands back to flat; boost and pre-amplifier stay."""
     state = load()
-    state["sets"][output]["bands"] = flat_bands()
+    state["sets"][_output(output)]["bands"] = flat_bands()
     return set_output(output, state["sets"][output])
 
 
 def set_sync(on):
     state = load()
-    state["sync"] = bool(on)
-    if on:
-        state["sets"]["headphones"] = dict(state["sets"]["speaker"])
+    state["sync"] = bool(on)                            # the headphones keep their own set for when this is turned off again
     _store(state)
     apply_state(state, pw.active_output())
 
 
 def set_swap(output, on):
     state = load()
-    state["swap"][output] = bool(on)
+    state["swap"][_output(output)] = bool(on)
     _store(state)
     apply_state(state, pw.active_output())
 
@@ -263,8 +275,15 @@ def builtin_presets():
     }
 
 
+MAX_NAME = 60
+
+
+def _user_presets(data, kind="eq"):
+    return store.section(store.section(data, "presets"), kind)
+
+
 def preset_names():
-    user = store.load().get("presets", {}).get("eq", {})
+    user = _user_presets(store.load())
     return [{"name": n, "builtin": True} for n in builtin_presets()] + [{"name": n, "builtin": False} for n in sorted(user, key=str.lower)]
 
 
@@ -272,16 +291,18 @@ def preset_set(name):
     b = builtin_presets()
     if name in b:
         return b[name]
-    s = store.load().get("presets", {}).get("eq", {}).get(name)
-    return _normalise(s) if s else None
+    s = _user_presets(store.load()).get(name)
+    return _normalise(s) if isinstance(s, dict) else None
 
 
 def save_preset(name, s):
-    name = name.strip()
-    if not name or name in builtin_presets():
+    name = " ".join(str(name).split())
+    if not name or len(name) > MAX_NAME or name.lower() in [b.lower() for b in builtin_presets()]:
         return "invalid"
     d = store.load()
-    d.setdefault("presets", {}).setdefault("eq", {})[name] = _normalise(s)
+    presets = dict(store.section(d, "presets"))
+    presets["eq"] = dict(_user_presets(d), **{name: _normalise(s)})
+    d["presets"] = presets
     store.save(d)
     return "ok"
 
@@ -290,8 +311,9 @@ def delete_preset(name):
     if name in builtin_presets():
         return
     d = store.load()
-    d.get("presets", {}).get("eq", {}).pop(name, None)
-    store.save(d)
+    if name in _user_presets(d):
+        del d["presets"]["eq"][name]
+        store.save(d)
 
 
 # ---- Equalizer APO / AutoEQ text files ("Preamp: -6 dB", "Filter 1: ON PK Fc 105 Hz Gain -2.5 dB Q 0.70") ----

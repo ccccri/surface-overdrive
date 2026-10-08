@@ -117,17 +117,17 @@ def controls(cam):
             {"key": "blackShift", "adv": True, "label": "Black point", "min": -8, "max": 24, "step": 1, "default": 0, "unit": "",
              "desc": "The level the sensor calls black. Higher gives deeper blacks and a slightly darker picture; too high crushes the shadows."},
         ]},
-        {"group": "Colour", "items": [
+        {"group": "Color", "items": [
             {"key": "saturation", "label": "Saturation", "min": 0, "max": 2, "step": 0.05, "default": 1, "unit": "",
-             "desc": "How vivid the colours are. 0 is black and white, 1 is the natural picture."},
+             "desc": "How vivid the colors are. 0 is black and white, 1 is the natural picture."},
             {"key": "temperature", "label": "Temperature", "min": -1, "max": 1, "step": 0.05, "default": 0, "unit": "",
-             "desc": "Moves the colours towards blue (negative, cooler) or orange (positive, warmer)."},
+             "desc": "Moves the colors towards blue (negative, cooler) or orange (positive, warmer)."},
             {"key": "tint", "label": "Tint", "min": -1, "max": 1, "step": 0.05, "default": 0, "unit": "",
-             "desc": "Moves the colours towards green (negative) or magenta (positive). Corrects fluorescent light or a cast on skin."},
+             "desc": "Moves the colors towards green (negative) or magenta (positive). Corrects fluorescent light or a cast on skin."},
             {"key": "hue", "label": "Hue shift", "min": -180, "max": 180, "step": 1, "default": 0, "unit": "°",
-             "desc": "Rotates all the colours around the colour wheel. A creative effect."},
+             "desc": "Rotates all the colors around the color wheel. A creative effect."},
             {"key": "hue_spin", "label": "Rainbow", "min": -360, "max": 360, "step": 5, "default": 0, "unit": "°/s",
-             "desc": "Keeps turning the colour wheel: the number is the speed in degrees per second, negative turns the other way, 0 is off."},
+             "desc": "Keeps turning the color wheel: the number is the speed in degrees per second, negative turns the other way, 0 is off."},
         ]},
         {"group": "Detail", "items": [
             {"key": "sharpness", "label": "Sharpness", "min": 0, "max": 3, "step": 0.1, "default": 0, "unit": "",

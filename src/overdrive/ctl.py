@@ -122,6 +122,8 @@ def audio_command(args):
             elif action == "preset":
                 sub = a[0]
                 if sub == "apply":
+                    if a[1] not in eq.OUTPUTS:
+                        raise KeyError(a[1])
                     s = eq.preset_set(a[2])
                     out["result"] = s is not None and eq.set_output(a[1], s)
                 elif sub == "save":
@@ -176,7 +178,7 @@ def audio_command(args):
         elif verb != "describe":
             print(USAGE, file=sys.stderr)
             return 2
-    except (KeyError, IndexError, ValueError, OSError) as e:
+    except (KeyError, IndexError, ValueError, OSError, TypeError, AttributeError) as e:
         print("error: %s" % e, file=sys.stderr)
         return 2
     out.update(audio_describe())

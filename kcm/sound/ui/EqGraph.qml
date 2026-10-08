@@ -14,12 +14,17 @@ Item {
     signal bandSelected(int index)
     implicitHeight: Kirigami.Units.gridUnit * 14
 
-    function xOf(f) { return Math.log(f / fmin) / Math.log(fmax / fmin) * width }
-    function fOf(x) { return fmin * Math.pow(fmax / fmin, Math.max(0, Math.min(1, x / width))) }
-    function yOf(db) { return height / 2 - db / dbRange * height / 2 }
-    function dbOf(y) { return Math.max(-dbRange, Math.min(dbRange, (height / 2 - y) / (height / 2) * dbRange)) }
-    // a handle never leaves the graph, whatever the band holds (an imported set may go beyond what the graph shows)
-    function inside(v, size) { return Math.max(0, Math.min(size, v)) }
+    // The curve and the handles live in the graph minus a margin of half a handle, so that a handle at the very edge of the
+    // frequency or gain range still sits wholly inside the graph.
+    readonly property real handle: Kirigami.Units.gridUnit * 1.8
+    readonly property real pad: handle / 2
+    readonly property real plotWidth: Math.max(1, width - 2 * pad)
+    readonly property real plotHeight: Math.max(1, height - 2 * pad)
+    function clamp(v, low, high) { return Math.max(low, Math.min(high, v)) }
+    function xOf(f) { return pad + Math.log(clamp(f, fmin, fmax) / fmin) / Math.log(fmax / fmin) * plotWidth }
+    function fOf(x) { return fmin * Math.pow(fmax / fmin, clamp((x - pad) / plotWidth, 0, 1)) }
+    function yOf(db) { return pad + plotHeight / 2 - clamp(db, -dbRange, dbRange) / dbRange * plotHeight / 2 }
+    function dbOf(y) { return clamp((pad + plotHeight / 2 - y) / (plotHeight / 2) * dbRange, -dbRange, dbRange) }
 
     // RBJ cookbook biquad: the same maths as the filter chain
     function coef(b) {
@@ -80,9 +85,9 @@ Item {
             c.strokeStyle = Kirigami.Theme.highlightColor
             c.lineWidth = 2
             c.beginPath()
-            for (let x = 0; x <= width; x += 2) {
-                const y = Math.max(0, Math.min(height, g.yOf(g.responseDb(cs, g.fOf(x)))))
-                if (x === 0) c.moveTo(x, y); else c.lineTo(x, y)
+            for (let x = g.pad; x <= width - g.pad; x += 2) {
+                const y = g.yOf(g.responseDb(cs, g.fOf(x)))
+                if (x === g.pad) c.moveTo(x, y); else c.lineTo(x, y)
             }
             c.stroke()
         }
@@ -94,9 +99,9 @@ Item {
         delegate: Rectangle {
             id: h
             readonly property var b: g.bands[index] || ({ freq: 1000, gain: 0, on: false })
-            width: Kirigami.Units.gridUnit * 1.8; height: width; radius: width / 2
-            x: g.inside(g.xOf(b.freq), g.width) - width / 2
-            y: g.inside(g.yOf(b.gain), g.height) - height / 2
+            width: g.handle; height: width; radius: width / 2
+            x: g.xOf(b.freq) - width / 2
+            y: g.yOf(b.gain) - height / 2
             color: index === g.selected ? Kirigami.Theme.highlightColor : Kirigami.Theme.backgroundColor
             opacity: b.on ? 1 : 0.4
             border.width: 2
@@ -110,7 +115,7 @@ Item {
                 onPositionChanged: mouse => {
                     if (!pressed) return
                     const p = mapToItem(g, mouse.x, mouse.y)
-                    g.bandMoved(index, Math.max(20, Math.min(20000, g.fOf(p.x))), g.dbOf(p.y))
+                    g.bandMoved(index, g.fOf(p.x), g.dbOf(p.y))
                 }
             }
         }

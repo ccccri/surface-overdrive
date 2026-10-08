@@ -46,7 +46,7 @@ ColumnLayout {
     }
 
     Section {
-        title: i18n("Light sensor")
+        title: i18n("Light Sensor")
         visible: root.s.lux !== null
         HelpLabel { text: i18n("%1 lux", root.s.lux); font.pointSize: Kirigami.Theme.defaultFont.pointSize * 1.6; help: i18n("Cover the sensor, near the front camera, or point the tablet at a lamp to see it change. Automatic brightness uses this value.") }
     }

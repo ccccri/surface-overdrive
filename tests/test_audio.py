@@ -69,6 +69,34 @@ class EqTest(unittest.TestCase):
         self.assertEqual(st["sets"]["speaker"]["preamp"], -3.0)
         self.assertEqual(eq.effective(st, "headphones"), st["sets"]["headphones"])
 
+    def test_nonsense_input_becomes_neutral_values(self):
+        for bad in ([], None, "x", {"boost": "loud", "preamp": None}, {"bands": "x"}, {"bands": [1, None, "b"]}, {"boost": float("nan")}):
+            s = eq._normalise(bad)
+            self.assertEqual(len(s["bands"]), eq.N)
+            self.assertEqual(s["boost"], float(eq.DEFAULT_BOOST))
+        self.assertEqual(eq._normalise({"boost": 1e99, "preamp": -1e99})["boost"], 180.0)
+        with mock.patch.object(eq, "apply"), mock.patch.object(eq.pw, "active_output", return_value="speaker"):
+            for call in (lambda: eq.set_output("bogus", {}), lambda: eq.reset_bands("bogus"), lambda: eq.set_swap("bogus", True)):
+                with self.assertRaises(KeyError):
+                    call()
+        self.assertEqual(sorted(eq.load()["sets"]), ["headphones", "speaker"])
+
+    def test_a_damaged_settings_file_reads_as_defaults(self):
+        for text in ("{broken", "[1, 2]", '{"eq": 5, "mic": "x", "presets": [], "mic_on": 1}', '{"eq": {"sets": {"speaker": 3}, "swap": 7}}'):
+            with open(store.path(), "w") as f:
+                f.write(text)
+            self.assertEqual(eq.load()["sets"]["speaker"], eq.new_set())
+            self.assertEqual(mic.settings(), mic.DEFAULTS)
+            self.assertEqual([p["name"] for p in eq.preset_names()], list(eq.builtin_presets()))
+            self.assertEqual(eq.save_preset("Mine", eq.new_set()), "ok")
+            eq.delete_preset("Mine")
+
+    def test_preset_names_are_tidied_and_limited(self):
+        self.assertEqual(eq.save_preset("x" * 61, eq.new_set()), "invalid")
+        self.assertEqual(eq.save_preset("   ", eq.new_set()), "invalid")
+        self.assertEqual(eq.save_preset("  my \n set ", eq.new_set()), "ok")
+        self.assertIn("my set", [p["name"] for p in eq.preset_names()])
+
     def test_presets(self):
         self.assertIn("Flat", [p["name"] for p in eq.preset_names()])
         self.assertEqual(eq.save_preset("Flat", eq.new_set()), "invalid")

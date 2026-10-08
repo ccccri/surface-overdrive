@@ -12,6 +12,14 @@ Kirigami.Page {
     title: kcm.name
     padding: 0
 
+    // the two cameras as tabs, the way Power Management shows its three power states
+    header: Kirigami.NavigationTabBar {
+        actions: [
+            Kirigami.Action { text: i18n("Front Camera"); icon.name: "camera-web-symbolic"; checked: root.cam === "front"; onTriggered: root.cam = "front" },
+            Kirigami.Action { text: i18n("Rear Camera"); icon.name: "camera-photo-symbolic"; checked: root.cam === "rear"; onTriggered: root.cam = "rear" }
+        ]
+    }
+
     property string cam: "rear"
     property var d: ({ settings: {}, controls: [], presets: [], focus: {}, sizes: [], node: "" })
     property real peak: 1
@@ -78,19 +86,6 @@ Kirigami.Page {
     onVisibleChanged: if (!visible) preview.stop()
     Timer { interval: 300; repeat: true; running: preview.running && root.cam === "rear"; onTriggered: root.cmd("poll", ["describe"]) }
 
-    // A line with a switch; the explanation is a tooltip like the one of a slider (hover, or a tap on the name)
-    component Toggle: RowLayout {
-        id: toggle
-        Layout.fillHeight: false          // a layout inside a layout would stretch by default
-        property string label
-        property string help
-        property bool on: false
-        signal flipped(bool value)
-        Layout.fillWidth: true
-        HelpLabel { text: toggle.label; help: toggle.help; font.bold: true; Layout.fillWidth: true }
-        QQC2.Switch { checked: toggle.on; onToggled: toggle.flipped(checked) }
-    }
-
     component NameDialog: QQC2.Dialog {
         id: nd
         property string mode: "save"
@@ -101,7 +96,7 @@ Kirigami.Page {
         standardButtons: QQC2.Dialog.Ok | QQC2.Dialog.Cancel
         contentItem: ColumnLayout {
             QQC2.Label { text: i18n("Name:") }
-            QQC2.TextField { id: nameField; Layout.fillWidth: true; Layout.minimumWidth: Kirigami.Units.gridUnit * 18; onAccepted: nd.accept() }
+            QQC2.TextField { id: nameField; Layout.fillWidth: true; Layout.minimumWidth: Kirigami.Units.gridUnit * 18; maximumLength: 60; onAccepted: nd.accept() }
         }
         function begin(m, id, initial) { mode = m; targetId = id; nameField.text = initial; open(); nameField.forceActiveFocus(); nameField.selectAll() }
         onAccepted: {
@@ -148,7 +143,7 @@ Kirigami.Page {
                     }
                     QQC2.Button {
                         Layout.fillWidth: true
-                        text: i18n("Save as..."); icon.name: "document-save-as"
+                        text: i18n("Save As…"); icon.name: "document-save-as"
                         onClicked: nameDialog.begin("save", "", "")
                     }
                     QQC2.Button {
@@ -159,18 +154,18 @@ Kirigami.Page {
                             id: moreMenu
                             readonly property var p: root.d.presets.length > 0 ? root.d.presets[Math.min(root.presetIndex, root.d.presets.length - 1)] : ({ id: "", name: "" })
                             QQC2.MenuItem {
-                                text: i18n("Update with the current settings..."); icon.name: "document-save"
+                                text: i18n("Update with the Current Settings…"); icon.name: "document-save"
                                 onTriggered: {
                                     confirmDialog.text = i18n("Replace the settings stored in \"%1\" with the current ones?", moreMenu.p.name)
                                     confirmDialog.run = () => root.cmd("action", ["preset", "save", moreMenu.p.name, "overwrite"])
                                     confirmDialog.open()
                                 }
                             }
-                            QQC2.MenuItem { text: i18n("Rename..."); icon.name: "edit-rename"; onTriggered: nameDialog.begin("rename", moreMenu.p.id, moreMenu.p.name) }
-                            QQC2.MenuItem { text: i18n("Duplicate..."); icon.name: "edit-copy"; onTriggered: nameDialog.begin("duplicate", moreMenu.p.id, i18n("%1 copy", moreMenu.p.name)) }
+                            QQC2.MenuItem { text: i18n("Rename…"); icon.name: "edit-rename"; onTriggered: nameDialog.begin("rename", moreMenu.p.id, moreMenu.p.name) }
+                            QQC2.MenuItem { text: i18n("Duplicate…"); icon.name: "edit-copy"; onTriggered: nameDialog.begin("duplicate", moreMenu.p.id, i18n("%1 copy", moreMenu.p.name)) }
                             QQC2.MenuSeparator {}
                             QQC2.MenuItem {
-                                text: i18n("Delete..."); icon.name: "edit-delete"
+                                text: i18n("Delete…"); icon.name: "edit-delete"
                                 onTriggered: {
                                     confirmDialog.text = i18n("Delete the preset \"%1\"? This cannot be undone.", moreMenu.p.name)
                                     confirmDialog.run = () => root.cmd("action", ["preset", "delete", moreMenu.p.id])
@@ -215,25 +210,6 @@ Kirigami.Page {
             showCloseButton: true
         }
 
-        RowLayout {
-            Layout.fillWidth: true
-            Layout.rightMargin: Kirigami.Units.largeSpacing
-            Repeater {
-                model: [{ t: i18n("Front camera"), c: "front", i: "camera-web-symbolic" }, { t: i18n("Rear camera"), c: "rear", i: "camera-photo-symbolic" }]
-                delegate: QQC2.Button {
-                    Layout.fillWidth: true
-                    Layout.preferredWidth: 1          // equal halves whatever the text
-                    text: modelData.t
-                    icon.name: modelData.i
-                    checkable: true
-                    checked: root.cam === modelData.c
-                    autoExclusive: true
-                    highlighted: checked
-                    onClicked: root.cam = modelData.c
-                }
-            }
-        }
-
         GridLayout {
             Layout.fillWidth: true
             Layout.fillHeight: true
@@ -268,7 +244,7 @@ Kirigami.Page {
                         wrapMode: Text.WordWrap
                         color: "white"
                         visible: !preview.hasFrame
-                        text: preview.error.length > 0 ? preview.error : (preview.running ? i18n("Starting the camera...") : i18n("Live preview is off"))
+                        text: preview.error.length > 0 ? preview.error : (preview.running ? i18n("Starting the camera…") : i18n("Live preview is off"))
                     }
                     QQC2.RoundButton {
                         anchors { right: parent.right; bottom: parent.bottom; margins: Kirigami.Units.smallSpacing }
@@ -291,7 +267,6 @@ Kirigami.Page {
                 Layout.maximumWidth: root.wide ? Kirigami.Units.gridUnit * 28 : -1
                 contentWidth: availableWidth
                 QQC2.ScrollBar.horizontal.policy: QQC2.ScrollBar.AlwaysOff
-                QQC2.ScrollBar.vertical.policy: QQC2.ScrollBar.AlwaysOff     // the bar of a scroll area of ours does not look like the ones of Plasma: none
 
                 ColumnLayout {
                     width: scroll.availableWidth - Kirigami.Units.largeSpacing     // a gap between the cards and the scroll bar
@@ -303,11 +278,11 @@ Kirigami.Page {
                     Section {
                         title: i18n("Focus")
                         visible: root.cam === "rear"
-                        Toggle {
-                            label: i18n("Manual focus")
+                        Check {
+                            text: i18n("Manual focus")
                             help: i18n("Off: the camera focuses by itself. On: the lens stays where you put it, in every app, starting from where the autofocus is now.")
-                            on: root.s.focusManual === true
-                            onFlipped: value => { root.setLocal("focusManual", value); root.cmd("action", ["set", "focusManual", value ? "1" : "0"]) }
+                            checked: root.s.focusManual === true
+                            onToggled: { const value = checked; root.setLocal("focusManual", value); root.cmd("action", ["set", "focusManual", value ? "1" : "0"]) }
                         }
                         Adjust {
                             id: focus
@@ -366,23 +341,23 @@ Kirigami.Page {
 
                     Section {
                         title: i18n("Geometry")
-                        Toggle {
-                            label: i18n("Mirror (left-right)")
+                        Check {
+                            text: i18n("Mirror (left-right)")
                             help: i18n("Done in the sensor, so it costs nothing. It is read when a camera starts: open apps must reopen the camera.")
-                            on: root.s.mirror === true
-                            onFlipped: value => { preview.stop(); root.setLocal("mirror", value); root.cmd("set", ["set", "mirror", value ? "1" : "0"]); restartPreview.restart() }
+                            checked: root.s.mirror === true
+                            onToggled: { const value = checked; preview.stop(); root.setLocal("mirror", value); root.cmd("set", ["set", "mirror", value ? "1" : "0"]); restartPreview.restart() }
                         }
-                        Toggle {
-                            label: i18n("Flip (upside-down)")
+                        Check {
+                            text: i18n("Flip (upside-down)")
                             help: i18n("Done in the sensor, so it costs nothing. It is read when a camera starts: open apps must reopen the camera.")
-                            on: root.s.flip === true
-                            onFlipped: value => { preview.stop(); root.setLocal("flip", value); root.cmd("set", ["set", "flip", value ? "1" : "0"]); restartPreview.restart() }
+                            checked: root.s.flip === true
+                            onToggled: { const value = checked; preview.stop(); root.setLocal("flip", value); root.cmd("set", ["set", "flip", value ? "1" : "0"]); restartPreview.restart() }
                         }
                     }
 
                     QQC2.Button {
                         Layout.fillWidth: true
-                        text: i18n("Reset all adjustments to the tuned defaults")
+                        text: i18n("Reset All Adjustments")
                         icon.name: "edit-undo"
                         enabled: root.s.dirty === true
                         onClicked: root.cmd("action", ["reset"])
@@ -390,7 +365,7 @@ Kirigami.Page {
                     QQC2.Label {
                         Layout.fillWidth: true; wrapMode: Text.WordWrap; opacity: 0.6
                         font.pointSize: Kirigami.Theme.defaultFont.pointSize - 1
-                        text: i18n("Changes apply to every app that uses the camera. Tap the name of a setting to read what it does.")
+                        text: i18n("Changes apply to every app that uses the camera.")
                         bottomPadding: Kirigami.Units.largeSpacing
                     }
                 }

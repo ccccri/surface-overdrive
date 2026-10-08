@@ -74,7 +74,6 @@ Kirigami.Page {
             Layout.fillHeight: true
             contentWidth: availableWidth
             QQC2.ScrollBar.horizontal.policy: QQC2.ScrollBar.AlwaysOff
-            QQC2.ScrollBar.vertical.policy: QQC2.ScrollBar.AlwaysOff
             Item {
                 id: belowContent
                 width: below.availableWidth

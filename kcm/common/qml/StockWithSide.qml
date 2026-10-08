@@ -52,7 +52,6 @@ Kirigami.Page {
             Layout.preferredHeight: wrapper.wide ? -1 : wrapper.height * 0.5
             contentWidth: availableWidth
             QQC2.ScrollBar.horizontal.policy: QQC2.ScrollBar.AlwaysOff
-            QQC2.ScrollBar.vertical.policy: QQC2.ScrollBar.AlwaysOff
             Item {
                 width: scroll.availableWidth
                 implicitHeight: sideColumn.implicitHeight + 2 * Kirigami.Units.largeSpacing

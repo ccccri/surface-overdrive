@@ -140,39 +140,24 @@ Kirigami.Page {
     }
     onPenTabChanged: tidy.restart()
 
-    header: QQC2.Control {
-        padding: Kirigami.Units.largeSpacing
-        bottomPadding: Kirigami.Units.smallSpacing
-        contentItem: RowLayout {
-            spacing: Kirigami.Units.smallSpacing
-            Repeater {
-                model: wrapper.tabs.length > 0 ? wrapper.tabs : [{ text: i18n("Settings"), icon: "preferences-desktop-tablet", index: -1 }]
-                delegate: QQC2.Button {
-                    Layout.fillWidth: true
-                    Layout.preferredWidth: 1
-                    text: modelData.text
-                    icon.name: modelData.icon
-                    checkable: true
-                    autoExclusive: true
-                    checked: !wrapper.test && (modelData.index < 0 || wrapper.stockTab === modelData.index)
-                    highlighted: checked
-                    onClicked: modelData.index < 0 ? wrapper.test = false : wrapper.choose(modelData.index)
-                }
-            }
-            QQC2.Button {
-                visible: wrapper.tabs.length === 0
-                Layout.fillWidth: true
-                Layout.preferredWidth: 1
-                text: i18n("Pen test")
-                icon.name: "draw-freehand"
-                checkable: true
-                autoExclusive: true
-                checked: wrapper.test
-                highlighted: checked
-                onClicked: wrapper.test = true
-            }
+    // Our tabs look like the ones of Plasma (the bar Power Management has), and they press the hidden ones of the page.
+    Component { id: tabAction; Kirigami.Action { } }
+    function makeTabs() {
+        const list = []
+        const shown = tabs.length > 0 ? tabs : [{ text: i18n("Settings"), icon: "preferences-desktop-tablet", index: -1 }, { text: i18n("Pen Test"), icon: "draw-freehand", index: -2 }]
+        for (const t of shown) {
+            const action = tabAction.createObject(wrapper, { text: t.text })
+            action.icon.name = t.icon
+            const index = t.index
+            action.checked = Qt.binding(() => index === -2 ? wrapper.test : index === -1 ? !wrapper.test : (!wrapper.test && wrapper.stockTab === index))
+            action.triggered.connect(() => { if (index === -2) wrapper.test = true; else if (index === -1) wrapper.test = false; else wrapper.choose(index) })
+            list.push(action)
         }
+        tabBar.actions = list
     }
+    onTabsChanged: makeTabs()
+    Component.onDestruction: tabBar.actions = []
+    header: Kirigami.NavigationTabBar { id: tabBar; Component.onCompleted: wrapper.makeTabs() }
 
     // Display tab: the page of Plasma alone. Pen tab: its settings and our test side by side when the window has room for both,
     // else the settings alone (the test needs its width, and one part above the other would mean scrolling to reach it).

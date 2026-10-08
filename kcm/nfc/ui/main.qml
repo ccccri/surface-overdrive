@@ -63,70 +63,99 @@ KCM.SimpleKCM {
         }
     }
 
+    readonly property bool ready: n.device && n.daemon === "active"
+    readonly property var last: tags.length > 0 ? tags[0] : null
+    readonly property string lastLink: {
+        const value = last && last.records && last.records[0] ? String(last.records[0].value || "") : ""
+        return /^(https?:|mailto:|tel:)/.test(value) ? value : ""
+    }
+    // the sections bring their own margins, like the headings of the Plasma pages
+    leftPadding: 0
+    rightPadding: 0
+    topPadding: 0
+
     ColumnLayout {
-        spacing: Kirigami.Units.largeSpacing
+        spacing: 0
 
         Kirigami.InlineMessage {
             Layout.fillWidth: true
-            visible: true
-            type: root.n.device && root.n.daemon === "active" ? Kirigami.MessageType.Positive : Kirigami.MessageType.Warning
+            Layout.margins: Kirigami.Units.largeSpacing
+            visible: !root.ready
+            type: Kirigami.MessageType.Warning
             text: !root.n.device ? i18n("NFC chip not found: the nxp_nci modules are not loaded for this kernel.")
-                  : root.n.daemon !== "active" ? i18n("NFC chip found but the reader service is %1.", root.n.daemon)
-                  : i18n("NFC reader ready. Touch a tag to the back of the tablet, at the right corner of the screen. While this page is open, tags show up here instead of as desktop notifications.")
+                                 : i18n("NFC chip found, but the reader service is %1.", root.n.daemon)
         }
 
-        Kirigami.Heading { level: 3; text: i18n("Last tag"); visible: root.tags.length > 0 }
-        Kirigami.AbstractCard {
-            Layout.fillWidth: true
-            visible: root.tags.length > 0
-            contentItem: ColumnLayout {
-                spacing: Kirigami.Units.smallSpacing
-                QQC2.Label { text: root.tags.length > 0 ? root.describe(root.tags[0]) : ""; font.bold: true; wrapMode: Text.WordWrap; Layout.fillWidth: true }
-                Kirigami.FormLayout {
-                    Layout.fillWidth: true
-                    QQC2.Label { Kirigami.FormData.label: i18n("Type:"); text: root.tags.length > 0 ? root.tags[0].type : "" }
-                    QQC2.Label { Kirigami.FormData.label: i18n("UID:"); text: root.tags.length > 0 ? root.tags[0].uid : "" }
-                    QQC2.Label { Kirigami.FormData.label: i18n("Time:"); text: root.tags.length > 0 ? root.tags[0].when : "" }
-                    QQC2.Label { Kirigami.FormData.label: i18n("Read from the tag in:"); text: root.tags.length > 0 && root.tags[0].read_ms >= 0 ? root.tags[0].read_ms + " ms" : i18n("n/a") }
-                    QQC2.Label { Kirigami.FormData.label: i18n("Delivered to this page in:"); text: root.tags.length > 0 ? root.tags[0].deliverMs + " ms" : "" }
-                }
-                QQC2.Button {
-                    visible: root.tags.length > 0 && /^(https?:|mailto:|tel:)/.test((root.tags[0].records && root.tags[0].records[0] && root.tags[0].records[0].value) || "")
-                    text: i18n("Open"); icon.name: "document-open"
-                    onClicked: Qt.openUrlExternally(root.tags[0].records[0].value)
-                }
-            }
-        }
-
-        Kirigami.Heading { level: 3; text: i18n("Reader test") }
-        QQC2.Label {
-            Layout.fillWidth: true; wrapMode: Text.WordWrap; opacity: 0.7
-            text: i18n("Touch the same tag several times, lifting it each time. The test shows how fast and how reliably it is read: minimum / average / maximum of the time to read the tag and of the time to reach this page.")
-        }
-        RowLayout {
-            QQC2.Button {
-                text: root.testing ? i18n("Stop test") : i18n("Start test (10 taps)")
-                icon.name: root.testing ? "media-playback-stop" : "media-playback-start"
-                onClicked: {
-                    if (root.testing) root.testTarget = 0
-                    else { root.testStart = Date.now() / 1000; root.testTarget = 10 }
-                }
-            }
-            QQC2.Label { visible: root.testTarget > 0; text: i18n("%1 / %2 taps", root.testTags.length, root.testTarget) + (root.testing ? "" : i18n(" - done")) }
-        }
-        Kirigami.FormLayout {
-            Layout.fillWidth: true
-            visible: root.testTarget > 0
-            QQC2.Label { Kirigami.FormData.label: i18n("Read from the tag (min / avg / max):"); text: root.stats("read_ms") }
-            QQC2.Label { Kirigami.FormData.label: i18n("Delivered here (min / avg / max):"); text: root.stats("deliverMs") }
-        }
-
-        Kirigami.Heading { level: 3; text: i18n("History"); visible: root.tags.length > 1 }
-        Repeater {
-            model: root.tags.slice(1)
-            delegate: Kirigami.AbstractCard {
+        Section {
+            title: i18n("Reader")
+            QQC2.Label {
                 Layout.fillWidth: true
-                contentItem: RowLayout {
+                wrapMode: Text.WordWrap
+                text: root.ready ? i18n("Ready. Hold a tag to the back of the tablet, behind the right corner of the screen.") : i18n("Not ready.")
+            }
+            QQC2.Label {
+                Layout.fillWidth: true
+                wrapMode: Text.WordWrap
+                opacity: 0.7
+                visible: root.ready
+                text: i18n("While this page is in front, tags show up here instead of as desktop notifications.")
+            }
+        }
+
+        Section {
+            title: i18n("Last Tag")
+            visible: root.last !== null
+            QQC2.Label { text: root.last ? root.describe(root.last) : ""; font.bold: true; wrapMode: Text.WrapAnywhere; maximumLineCount: 8; elide: Text.ElideRight; Layout.fillWidth: true }
+            Kirigami.FormLayout {
+                Layout.fillWidth: true
+                QQC2.Label { Kirigami.FormData.label: i18n("Type:"); text: root.last ? root.last.type : "" }
+                QQC2.Label { Kirigami.FormData.label: i18n("UID:"); text: root.last ? root.last.uid : "" }
+                QQC2.Label { Kirigami.FormData.label: i18n("Time:"); text: root.last ? root.last.when : "" }
+                QQC2.Label { Kirigami.FormData.label: i18n("Read from the tag in:"); text: root.last && root.last.read_ms >= 0 ? root.last.read_ms + " ms" : i18n("n/a") }
+                QQC2.Label { Kirigami.FormData.label: i18n("Delivered to this page in:"); text: root.last ? root.last.deliverMs + " ms" : "" }
+                QQC2.Button {
+                    visible: root.lastLink.length > 0
+                    text: i18n("Open"); icon.name: "document-open"
+                    onClicked: Qt.openUrlExternally(root.lastLink)
+                }
+            }
+        }
+
+        Section {
+            title: i18n("Reader Test")
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: Kirigami.Units.largeSpacing
+                QQC2.Button {
+                    text: root.testing ? i18n("Stop Test") : i18n("Start Test (10 Taps)")
+                    icon.name: root.testing ? "media-playback-stop" : "media-playback-start"
+                    onClicked: {
+                        if (root.testing) root.testTarget = 0
+                        else { root.testStart = Date.now() / 1000; root.testTarget = 10 }
+                    }
+                    QQC2.ToolTip.text: i18n("Touch the same tag ten times, lifting it each time. The test shows how fast and how reliably it is read: minimum / average / maximum of the time to read the tag and of the time to reach this page.")
+                    QQC2.ToolTip.visible: hovered || pressed
+                    QQC2.ToolTip.delay: Kirigami.Units.toolTipDelay
+                }
+                QQC2.Label { visible: root.testTarget > 0; text: i18n("%1 / %2 taps", root.testTags.length, root.testTarget) + (root.testing ? "" : i18n(" (done)")) }
+                Item { Layout.fillWidth: true }
+            }
+            Kirigami.FormLayout {
+                Layout.fillWidth: true
+                visible: root.testTarget > 0
+                QQC2.Label { Kirigami.FormData.label: i18n("Read from the tag (min / avg / max):"); text: root.stats("read_ms") }
+                QQC2.Label { Kirigami.FormData.label: i18n("Delivered here (min / avg / max):"); text: root.stats("deliverMs") }
+            }
+        }
+
+        Section {
+            title: i18n("History")
+            visible: root.tags.length > 1
+            Repeater {
+                model: root.tags.slice(1)
+                delegate: RowLayout {
+                    Layout.fillWidth: true
+                    spacing: Kirigami.Units.largeSpacing
                     QQC2.Label { text: modelData.when; opacity: 0.7 }
                     QQC2.Label { Layout.fillWidth: true; text: root.describe(modelData).replace(/\n/g, "  "); elide: Text.ElideRight }
                     QQC2.Label { text: modelData.type; opacity: 0.7 }
