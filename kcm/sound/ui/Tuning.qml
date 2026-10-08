@@ -3,11 +3,14 @@ import QtQuick
 import QtQuick.Controls as QQC2
 import QtQuick.Layouts
 import QtQuick.Dialogs
-import org.kde.kcmutils as KCM
 import org.kde.kirigami as Kirigami
 
-KCM.SimpleKCM {
+// Speaker boost and equaliser, microphone improvement, volume buttons: a column that goes at the end of Plasma's Sound page.
+ColumnLayout {
     id: root
+
+    Layout.fillWidth: true
+    spacing: Kirigami.Units.largeSpacing
 
     property var d: ({ eq: { sync: true, sets: { speaker: { boost: 120, preamp: 0, bands: [] }, headphones: { boost: 100, preamp: 0, bands: [] } } },
                        active: "speaker", presets: [], mic: { available: false, running: false, values: {}, ranges: {}, presets: [] },
@@ -79,15 +82,6 @@ KCM.SimpleKCM {
     }
     Timer { id: micTimer; interval: 120; onTriggered: { const v = root.pendingMic; root.pendingMic = null; if (v) root.audio("set", ["mic", "set-all", JSON.stringify(v)]) } }
 
-    component Section: Kirigami.AbstractCard {
-        id: sec
-        property string title
-        default property alias content: body.data
-        Layout.fillWidth: true
-        header: Kirigami.Heading { level: 4; text: sec.title; padding: Kirigami.Units.smallSpacing }
-        contentItem: ColumnLayout { id: body; spacing: Kirigami.Units.smallSpacing }
-    }
-    component Hint: QQC2.Label { Layout.fillWidth: true; wrapMode: Text.WordWrap; opacity: 0.6; font.pointSize: Kirigami.Theme.defaultFont.pointSize - 1 }
     component NameDialog: QQC2.Dialog {
         id: nd
         property var accepted_: null
@@ -118,6 +112,7 @@ KCM.SimpleKCM {
     }
 
     ColumnLayout {
+        Layout.fillWidth: true
         spacing: Kirigami.Units.largeSpacing
 
         Kirigami.InlineMessage { id: message; Layout.fillWidth: true; visible: text.length > 0; type: Kirigami.MessageType.Warning; showCloseButton: true }
@@ -130,8 +125,10 @@ KCM.SimpleKCM {
                 checked: root.d.volume_hold === "on"
                 enabled: root.d.volume_hold !== "unavailable" && !kcm.busy
                 onToggled: kcm.changeSetting("volume-hold", checked ? "on" : "off")
+                    QQC2.ToolTip.text: i18n("The Surface Go volume buttons send one step per press by default. With this on, holding a button keeps changing the volume. Asks for your password.")
+                    QQC2.ToolTip.visible: hovered || pressed
+                    QQC2.ToolTip.delay: Kirigami.Units.toolTipDelay
             }
-            Hint { text: i18n("The Surface Go volume buttons send one step per press by default. With this on, holding a button keeps changing the volume. Asks for your password.") }
         }
 
         // ---------------- output ----------------
@@ -162,16 +159,16 @@ KCM.SimpleKCM {
                 from: 100; to: 180; step: 1; unit: "%"; neutral: 100
                 value: root.cur.boost
                 onEdited: v => root.setTop("boost", v)
+                help: i18n("How much louder the \"Built-in Speakers (boosted)\" output of the Sound tab is than the plain speakers: extra digital volume on top of the volume slider (100% = none, 120% suits the Surface Go speakers). For headphones keep it near 100%.")
             }
-            Hint { text: i18n("How much louder the \"Built-in Speakers (boosted)\" output of the Sound tab is than the plain speakers: extra digital volume on top of the volume slider (100% = none, 120% suits the Surface Go speakers). For headphones keep it near 100%.") }
             Adjust {
                 onReset: edited(neutral)
                 label: i18n("Pre-amplifier")
                 from: -24; to: 12; step: 0.5; unit: "dB"; neutral: 0
                 value: root.cur.preamp
                 onEdited: v => root.setTop("preamp", v)
+                help: i18n("Lowers the level before the equaliser. Use a negative value when boosting bands, so loud passages do not distort.")
             }
-            Hint { text: i18n("Lowers the level before the equaliser. Use a negative value when boosting bands, so loud passages do not distort.") }
         }
 
         Section {
@@ -217,7 +214,6 @@ KCM.SimpleKCM {
                 onBandSelected: i => root.sel = i
                 onBandMoved: (i, f, g) => root.setBandPos(i, f, g)
             }
-            Hint { text: i18n("Drag a point to change the frequency and the gain of a band; the numbers of the selected band are below.") }
             RowLayout {
                 Layout.fillWidth: true
                 QQC2.Label { text: i18n("Band %1", root.sel + 1); font.bold: true }
@@ -231,19 +227,19 @@ KCM.SimpleKCM {
             }
             Adjust {
                 onReset: edited(neutral)
-                label: i18n("Frequency"); from: 20; to: 20000; step: 1; unit: "Hz"; showReset: false
+                label: i18n("Frequency"); help: i18n("Where the band acts: low numbers are bass, high numbers treble."); from: 20; to: 20000; step: 1; unit: "Hz"; showReset: false
                 value: root.cur.bands[root.sel] ? root.cur.bands[root.sel].freq : 1000
                 onEdited: v => root.setBand(root.sel, "freq", v)
             }
             Adjust {
                 onReset: edited(neutral)
-                label: i18n("Gain"); from: -15; to: 15; step: 0.5; unit: "dB"; neutral: 0
+                label: i18n("Gain"); help: i18n("How much the band raises (positive) or lowers (negative) the sound around its frequency."); from: -15; to: 15; step: 0.5; unit: "dB"; neutral: 0
                 value: root.cur.bands[root.sel] ? root.cur.bands[root.sel].gain : 0
                 onEdited: v => root.setBand(root.sel, "gain", v)
             }
             Adjust {
                 onReset: edited(neutral)
-                label: i18n("Width (Q)"); from: 0.2; to: 10; step: 0.1; unit: ""; neutral: 1
+                label: i18n("Width (Q)"); help: i18n("How narrow the band is: a high number changes only the sound right at the frequency, a low one a wide range around it."); from: 0.2; to: 10; step: 0.1; unit: ""; neutral: 1
                 value: root.cur.bands[root.sel] ? root.cur.bands[root.sel].q : 1
                 onEdited: v => root.setBand(root.sel, "q", v)
             }
@@ -259,10 +255,12 @@ KCM.SimpleKCM {
                     checked: root.d.mic.available
                     enabled: !busyMic.running
                     onToggled: { busyMic.running = true; root.audio("action", ["mic", checked ? "enable" : "disable"]) }
+                    QQC2.ToolTip.text: i18n("Adds noise suppression and a small equaliser to the built-in microphone and makes it the default one. Turning it on or off restarts the sound system for a second or two.")
+                    QQC2.ToolTip.visible: hovered || pressed
+                    QQC2.ToolTip.delay: Kirigami.Units.toolTipDelay
                 }
                 QQC2.BusyIndicator { id: busyMic; running: false; visible: running; implicitWidth: Kirigami.Units.gridUnit * 1.6; implicitHeight: implicitWidth }
             }
-            Hint { text: i18n("Adds noise suppression and a small equaliser to the built-in microphone and makes it the default one. Turning it on or off restarts the sound system for a second or two.") }
             ColumnLayout {
                 Layout.fillWidth: true
                 enabled: root.d.mic.available
@@ -278,12 +276,14 @@ KCM.SimpleKCM {
                     }
                 }
                 Repeater {
-                    model: [{ k: "gain", t: i18n("Gain"), u: "dB", s: 0.5, n: 0 }, { k: "lowcut", t: i18n("Low cut"), u: "Hz", s: 5, n: 80 },
-                            { k: "bass", t: i18n("Bass"), u: "dB", s: 0.5, n: 0 }, { k: "presence", t: i18n("Presence"), u: "dB", s: 0.5, n: 0 },
-                            { k: "treble", t: i18n("Treble"), u: "dB", s: 0.5, n: 0 }]
+                    model: [{ k: "gain", t: i18n("Gain"), u: "dB", s: 0.5, n: 0, h: i18n("Makes your voice louder or quieter for the apps that listen.") },
+                            { k: "lowcut", t: i18n("Low cut"), u: "Hz", s: 5, n: 80, h: i18n("Removes everything below this frequency: rumble, bumps on the table, wind. Too high and the voice gets thin.") },
+                            { k: "bass", t: i18n("Bass"), u: "dB", s: 0.5, n: 0, h: i18n("The body of the voice (around 200 Hz). Raise it for a fuller voice, lower it if it booms.") },
+                            { k: "presence", t: i18n("Presence"), u: "dB", s: 0.5, n: 0, h: i18n("The part that makes speech easy to understand (around 3 kHz).") },
+                            { k: "treble", t: i18n("Treble"), u: "dB", s: 0.5, n: 0, h: i18n("The airy top of the voice (above 8 kHz). Lower it if the microphone hisses.") }]
                     delegate: Adjust {
                 onReset: edited(neutral)
-                        label: modelData.t; unit: modelData.u; step: modelData.s; neutral: modelData.n
+                        label: modelData.t; help: modelData.h; unit: modelData.u; step: modelData.s; neutral: modelData.n
                         from: root.d.mic.ranges[modelData.k] ? root.d.mic.ranges[modelData.k][0] : 0
                         to: root.d.mic.ranges[modelData.k] ? root.d.mic.ranges[modelData.k][1] : 1
                         value: root.d.mic.values[modelData.k] !== undefined ? root.d.mic.values[modelData.k] : 0
@@ -291,13 +291,35 @@ KCM.SimpleKCM {
                     }
                 }
                 RowLayout {
+                    Layout.fillWidth: true
                     QQC2.Button {
-                        text: i18n("Record 5 seconds and play back"); icon.name: "media-record"
-                        onClicked: kcm.call("record", ["audio", "record"])
+                        id: recordButton
+                        // 0 idle, 5..1 recording (seconds left), -1 playing back
+                        property int phase: 0
+                        text: phase > 0 ? i18n("Recording: speak now (%1)", phase) : phase < 0 ? i18n("Playing it back...") : i18n("Record 5 seconds and play back")
+                        icon.name: phase > 0 ? "media-record" : phase < 0 ? "media-playback-start" : "media-record"
+                        enabled: phase === 0
+                        onClicked: { phase = 5; recordTick.start(); kcm.call("record", ["audio", "record"]) }
+                        Timer { id: recordTick; interval: 1000; repeat: true; onTriggered: { recordButton.phase--; if (recordButton.phase <= 0) { recordButton.phase = -1; stop() } } }
+                        Connections {
+                            target: kcm
+                            function onCallFinished(tag, ok, output, error) {
+                                if (tag !== "record") return
+                                recordTick.stop(); recordButton.phase = 0
+                                if (!ok) message.text = error || i18n("The recording did not work.")
+                            }
+                        }
+                        QQC2.ToolTip.text: i18n("Records the microphone as apps hear it, then plays it back, so you can hear what the settings above do.")
+                        QQC2.ToolTip.visible: hovered && phase === 0
+                        QQC2.ToolTip.delay: Kirigami.Units.toolTipDelay
                     }
-                    QQC2.Button { text: i18n("Stop"); icon.name: "media-playback-stop"; onClicked: kcm.call("stop", ["audio", "stop"]) }
+                    QQC2.Button {
+                        text: i18n("Stop"); icon.name: "media-playback-stop"
+                        visible: recordButton.phase !== 0
+                        onClicked: kcm.call("stop", ["audio", "stop"])
+                    }
+                    Item { Layout.fillWidth: true }
                 }
-                Hint { text: i18n("Speak while it records, then listen to the result. Gain raises or lowers the voice; Low cut removes rumble; Presence makes speech clearer.") }
             }
         }
     }

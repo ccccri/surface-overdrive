@@ -93,6 +93,26 @@ def enable():
     return ok
 
 
+def refresh():
+    """After a system update the microphone files in the image may be newer than the copies in the home directory: copy them again
+    and restart the sound system. Returns True when something was replaced."""
+    stale = []
+    for f in FILES:
+        mine = os.path.join(conf_dir(), f)
+        if not os.path.exists(mine):
+            continue                                   # the microphone improvement is off
+        try:
+            with open(mine, "rb") as a, open(os.path.join(SHARE, f), "rb") as b:
+                if a.read() != b.read():
+                    stale.append(f)
+        except OSError:
+            pass
+    if not stale:
+        return False
+    enable()
+    return True
+
+
 def disable():
     for f in FILES:
         try:

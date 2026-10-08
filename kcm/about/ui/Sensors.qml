@@ -26,14 +26,6 @@ ColumnLayout {
         }
     }
 
-    component Section: Kirigami.AbstractCard {
-        id: sec
-        property string title
-        default property alias content: body.data
-        Layout.fillWidth: true
-        header: Kirigami.Heading { level: 4; text: sec.title; padding: Kirigami.Units.smallSpacing }
-        contentItem: ColumnLayout { id: body; spacing: Kirigami.Units.smallSpacing }
-    }
     component Bar: RowLayout {
         property string label
         property real value: 0
@@ -45,17 +37,18 @@ ColumnLayout {
         QQC2.Label { text: parent.text; Layout.preferredWidth: Kirigami.Units.gridUnit * 6; horizontalAlignment: Text.AlignRight }
     }
 
+    property bool showFirmware: true  // false once the firmware line sits in the hardware list of the Plasma page
+
     Section {
         title: i18n("Firmware")
-        visible: (root.s.device.firmware || "").length > 0
+        visible: root.showFirmware && (root.s.device.firmware || "").length > 0
         QQC2.Label { text: (root.s.device.firmware || "") + "   " + (root.s.device.firmware_date || "") }
     }
 
     Section {
         title: i18n("Light sensor")
         visible: root.s.lux !== null
-        QQC2.Label { text: i18n("%1 lux", root.s.lux); font.pointSize: Kirigami.Theme.defaultFont.pointSize * 1.6 }
-        QQC2.Label { Layout.fillWidth: true; wrapMode: Text.WordWrap; opacity: 0.6; text: i18n("Cover the sensor, near the front camera, or point the tablet at a lamp to see it change. Automatic brightness uses this value.") }
+        HelpLabel { text: i18n("%1 lux", root.s.lux); font.pointSize: Kirigami.Theme.defaultFont.pointSize * 1.6; help: i18n("Cover the sensor, near the front camera, or point the tablet at a lamp to see it change. Automatic brightness uses this value.") }
     }
 
     Section {

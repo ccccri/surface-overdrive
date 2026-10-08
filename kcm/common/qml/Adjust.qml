@@ -4,9 +4,12 @@ import QtQuick.Controls as QQC2
 import QtQuick.Layouts
 import org.kde.kirigami as Kirigami
 
-// One adjustment: its name, a number that can be typed, a button back to the default and the slider.
-// The explanation stays out of the way: it is a tooltip, shown under the mouse or the hovering pen and, for fingers, by a tap on
-// the name (a second tap or a few seconds close it). It never takes room in the layout, so nothing moves when it shows.
+// One adjustment: its name, the value, and the slider.
+//  - The value looks like plain text at the right edge; touch or click it and it becomes a field to type in.
+//  - The arrow back to the default sits left of the value and only exists while the value is not the default, so the values of
+//    all the adjustments line up at the right whether the arrow is there or not.
+//  - The explanation is a tooltip: under the mouse or the hovering pen, or after a tap on the name. It never takes room in the
+//    layout, so nothing moves when it shows.
 ColumnLayout {
     id: adjust
 
@@ -35,23 +38,21 @@ ColumnLayout {
         Layout.fillWidth: true
         spacing: Kirigami.Units.smallSpacing
 
-        QQC2.Label {
-            id: name
+        HelpLabel {
             text: adjust.label
+            help: adjust.help
             font.bold: true
             Layout.fillWidth: true
-            elide: Text.ElideRight
-            HoverHandler { id: hover; acceptedDevices: PointerDevice.Mouse | PointerDevice.Stylus | PointerDevice.TouchPad }
-            TapHandler { onTapped: { tip.pinned = !tip.pinned; if (tip.pinned) unpin.restart() } }
-            Timer { id: unpin; interval: 7000; onTriggered: tip.pinned = false }
-            QQC2.ToolTip {
-                id: tip
-                property bool pinned: false
-                text: adjust.help
-                visible: adjust.help.length > 0 && (pinned || hover.hovered)
-                delay: pinned ? 0 : Kirigami.Units.toolTipDelay
-                timeout: -1
-            }
+        }
+        QQC2.ToolButton {
+            visible: adjust.showReset && slider.enabled && Math.abs(slider.value - adjust.neutral) > adjust.step / 2
+            icon.name: "edit-undo"
+            display: QQC2.AbstractButton.IconOnly
+            implicitHeight: field.implicitHeight
+            implicitWidth: implicitHeight
+            onClicked: { slider.value = adjust.neutral; adjust.reset() }
+            QQC2.ToolTip.text: i18n("Back to the default")
+            QQC2.ToolTip.visible: hovered
         }
         QQC2.Label {
             visible: adjust.names !== null
@@ -61,31 +62,36 @@ ColumnLayout {
         QQC2.TextField {
             id: field
             visible: adjust.names === null
-            Layout.preferredWidth: Kirigami.Units.gridUnit * 4
+            readonly property string full: adjust.shown(slider.value) + (adjust.unit.length > 0 ? " " + adjust.unit : "")
+            // as wide as the longest value this adjustment can show, so the row does not shift while the slider moves
+            Layout.preferredWidth: Math.max(sizer.advanceWidth, Kirigami.Units.gridUnit * 2.5) + leftPadding + rightPadding
+            TextMetrics { id: sizer; font: field.font; text: (adjust.shown(adjust.from).length > adjust.shown(adjust.to).length ? adjust.shown(adjust.from) : adjust.shown(adjust.to)) + (adjust.unit.length > 0 ? " " + adjust.unit : "") + "0" }
             horizontalAlignment: Text.AlignRight
             inputMethodHints: Qt.ImhFormattedNumbersOnly
             selectByMouse: true
             enabled: slider.enabled
-            onActiveFocusChanged: if (activeFocus) selectAll(); else text = adjust.shown(slider.value)
+            opacity: 0.85
+            // plain text until it is being edited or pointed at
+            background: Rectangle {
+                radius: 3
+                color: field.activeFocus ? Kirigami.Theme.backgroundColor : "transparent"
+                border.width: field.activeFocus || fieldHover.hovered ? 1 : 0
+                border.color: field.activeFocus ? Kirigami.Theme.highlightColor : Kirigami.Theme.disabledTextColor
+            }
+            HoverHandler { id: fieldHover; cursorShape: Qt.IBeamCursor }
+            onActiveFocusChanged: {
+                if (activeFocus) { text = adjust.shown(slider.value); selectAll() }      // the bare number while typing
+                else text = full
+            }
             onEditingFinished: {
                 const v = parseFloat(text.replace(",", "."))
-                if (isNaN(v)) { text = adjust.shown(slider.value); return }
-                const s = adjust.snap(v)
-                text = adjust.shown(s)
-                if (Math.abs(s - slider.value) > adjust.step / 4) { slider.value = s; adjust.edited(s) }
+                if (!isNaN(v)) {
+                    const s = adjust.snap(v)
+                    if (Math.abs(s - slider.value) > adjust.step / 4) { slider.value = s; adjust.edited(s) }
+                }
+                focus = false
             }
-            Binding { target: field; property: "text"; value: adjust.shown(slider.value); when: !field.activeFocus; restoreMode: Binding.RestoreNone }
-        }
-        QQC2.Label { visible: adjust.unit.length > 0 && adjust.names === null; text: adjust.unit; opacity: 0.7 }
-        QQC2.ToolButton {
-            visible: adjust.showReset
-            icon.name: "edit-undo"
-            display: QQC2.AbstractButton.IconOnly
-            opacity: Math.abs(slider.value - adjust.neutral) > adjust.step / 2 ? 1 : 0
-            enabled: opacity > 0 && slider.enabled
-            onClicked: { slider.value = adjust.neutral; adjust.reset() }
-            QQC2.ToolTip.text: i18n("Back to the default")
-            QQC2.ToolTip.visible: hovered
+            Binding { target: field; property: "text"; value: field.full; when: !field.activeFocus; restoreMode: Binding.RestoreNone }
         }
     }
     QQC2.Slider {
@@ -94,6 +100,14 @@ ColumnLayout {
         from: adjust.from; to: adjust.to
         // no stepSize: the desktop style would draw a tick for every step. The value is rounded to the step here instead.
         onMoved: { value = adjust.snap(value); adjust.edited(value) }
+        // A finger that moves a little up or down while it drags the handle must not scroll the page instead.
+        property Item scroller: null
+        onPressedChanged: {
+            if (pressed) {
+                for (let p = parent; p; p = p.parent) if (p.contentY !== undefined && p.interactive !== undefined) { scroller = p; break }
+                if (scroller) scroller.interactive = false
+            } else if (scroller) scroller.interactive = true
+        }
         Binding { target: slider; property: "value"; value: adjust.value; when: !slider.pressed; restoreMode: Binding.RestoreNone }
     }
 }

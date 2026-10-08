@@ -86,11 +86,13 @@ Item {
         }
     }
     Repeater {
-        model: g.bands
+        // One handle per band, by number: with the list of bands as the model every change of a band would build all the handles
+        // again, also the one under the finger, and the drag would break.
+        model: g.bands.length
         delegate: Rectangle {
             id: h
-            readonly property var b: modelData
-            width: Kirigami.Units.gridUnit * 1.6; height: width; radius: width / 2
+            readonly property var b: g.bands[index]
+            width: Kirigami.Units.gridUnit * 1.8; height: width; radius: width / 2
             x: g.xOf(b.freq) - width / 2
             y: g.yOf(b.gain) - height / 2
             color: index === g.selected ? Kirigami.Theme.highlightColor : Kirigami.Theme.backgroundColor
@@ -98,16 +100,17 @@ Item {
             border.width: 2
             border.color: Kirigami.Theme.highlightColor
             Text { anchors.centerIn: parent; text: index + 1; font.pixelSize: parent.width * 0.5; color: index === g.selected ? Kirigami.Theme.highlightedTextColor : Kirigami.Theme.textColor }
-            DragHandler {
-                id: drag
-                target: null
-                onActiveChanged: if (active) g.bandSelected(index)
-                onCentroidChanged: if (active) {
-                    const p = h.parent.mapFromItem(h, centroid.position.x, centroid.position.y)
+            MouseArea {
+                anchors.fill: parent
+                anchors.margins: -Kirigami.Units.smallSpacing      // a little larger than the dot: easier to catch with a finger
+                preventStealing: true                               // the page must not scroll while a band is dragged
+                onPressed: g.bandSelected(index)
+                onPositionChanged: mouse => {
+                    if (!pressed) return
+                    const p = mapToItem(g, mouse.x, mouse.y)
                     g.bandMoved(index, Math.max(20, Math.min(20000, g.fOf(p.x))), g.dbOf(p.y))
                 }
             }
-            TapHandler { onTapped: g.bandSelected(index) }
         }
     }
 }

@@ -7,7 +7,7 @@ import subprocess
 import sys
 import time
 
-from . import eq, pw
+from . import mic, eq, pw
 
 
 def apply_now(last):
@@ -24,6 +24,11 @@ def apply_now(last):
 
 def main():
     last = None
+    try:
+        if mic.refresh():
+            print("microphone files updated from the system image", flush=True)
+    except OSError as e:
+        print("could not update the microphone files:", e, flush=True)
     while True:
         try:
             last = apply_now(last)

@@ -4,9 +4,10 @@ import QtQuick.Controls as QQC2
 import QtQuick.Layouts
 import org.kde.kirigami as Kirigami
 
-// "Drawing Tablet": the page of Plasma with one more tab, the pen test. The tabs of Plasma (Display, Pen, Pad) are shown by our own
-// row of buttons, which presses the hidden ones of Plasma: that is how the test sits next to them and how "Pad" is left out (the
-// Surface has none). If a future Plasma builds its page differently, the row falls back to two buttons: its page, and the test.
+// "Drawing Tablet": the page of Plasma with our pen test next to its Pen tab. The tabs of Plasma (Display, Pen, Pad) are shown by
+// our own row of buttons, which presses the hidden ones of Plasma: that is how "Pad" is left out (the Surface has none) and how we
+// know when the Pen tab is in front. If a future Plasma builds its page differently, the row falls back to two buttons: its page,
+// and the pen test alone.
 Kirigami.Page {
     id: wrapper
 
@@ -15,9 +16,11 @@ Kirigami.Page {
     property Item bar: null                // the tab bar of Plasma, once found
     property var tabs: []                  // [{ text, icon, index }] of the Plasma tabs we show
     property int stockTab: 0
-    property bool test: kcm.startTab === "test"
-    onTestChanged: kcm.showStockButtons(!test)
-    Component.onCompleted: { kcm.showStockButtons(!test); kcm.loadStock("kcm_tablet") }
+    property bool test: false              // fallback only: the pen test alone, when the tabs of Plasma could not be taken over
+    readonly property bool penTab: tabs.length > 0 && tabs.some(t => t.index === stockTab && /pen/i.test(t.text))
+    readonly property bool wide: width > Kirigami.Units.gridUnit * 50
+    actions: kcm.stockPage ? kcm.stockPage.actions : []
+    Component.onCompleted: kcm.loadStock("kcm_tablet")
 
     function findBar(item, depth) {
         if (!item || depth > 8) return null
@@ -41,22 +44,59 @@ Kirigami.Page {
                 list.push({ text: a.text, icon: a.icon.name, index: i })
             }
             if (list.length === 0) return
-            found.visible = false
+            // out of sight, but still laid out: hidden for real, the tab bar of Plasma loses track of its own buttons
+            found.Layout.maximumHeight = 0
+            found.Layout.preferredHeight = 0
+            found.clip = true
+            found.opacity = 0
             bar = found
             tabs = list
+            const pen = list.find(t => /pen/i.test(t.text))
             stockTab = list[0].index
+            if (kcm.startTab === "pen" && pen) { first.index = pen.index; first.start() }      // once the tabs of Plasma are all there
         } catch (e) {
             console.warn("Surface Control: could not take over the tabs of the Drawing Tablet page:", e)
         }
     }
+    function stockButton(item, text, depth) {
+        if (!item || depth > 4) return null
+        if (item.text === text && item.checkable !== undefined) return item
+        for (let i = 0; item.children && i < item.children.length; i++) {
+            const found = stockButton(item.children[i], text, depth + 1)
+            if (found) return found
+        }
+        return null
+    }
     function choose(index) {
         test = false
         stockTab = index
-        try { bar.actions[index].trigger() } catch (e) {}
-        try { bar.currentIndex = index } catch (e) {}
+        // press the hidden tab of Plasma: through its action, as a click would, and by its number
+        let how = ""
+        try { const button = stockButton(bar, bar.actions[index].text, 0); if (button) { button.checked = true; if (button.action) button.action.trigger(); how += "button " } } catch (e) { how += "(button: " + e + ") " }
+        try { bar.actions[index].checked = true; bar.actions[index].trigger(); how += "action " } catch (e) { how += "(action: " + e + ") " }
+        try { bar.currentIndex = index; how += "index " } catch (e) { how += "(index: " + e + ") " }
+        if (how.indexOf("(") >= 0) console.warn("Surface Control: switching the tab of the Drawing Tablet page:", how)
     }
     // the page of Plasma builds its tabs a moment after it loads, and only when it has found the pen
     Timer { interval: 400; repeat: true; running: kcm.stockPage !== null && wrapper.bar === null && triggeredCount < 15; property int triggeredCount: 0; onTriggered: { triggeredCount++; wrapper.adopt() } }
+
+    // The Pen tab of Plasma shows a tall drawing of a pen (not the Surface Pen) with lines to the button settings; it only takes
+    // room. The drawing and its lines are the tall vector shapes of the tab (the pressure curve is made of shapes too, and stays).
+    function hidePicture(item, depth) {
+        if (!item || depth > 9) return
+        const type = String(item)
+        if (type.indexOf("PressureCurve") >= 0) return
+        if (type.indexOf("QQuickShape") >= 0 && item.height >= Kirigami.Units.gridUnit * 12) {
+            item.visible = false
+            // the drawing sits alone in a spacer that keeps its room
+            if (item.parent && item.parent.children.length === 1 && String(item.parent).indexOf("QQuickItem") === 0) item.parent.visible = false
+            return
+        }
+        for (let i = 0; item.children && i < item.children.length; i++) hidePicture(item.children[i], depth + 1)
+    }
+    Timer { id: first; property int index: 0; interval: 500; onTriggered: wrapper.choose(index) }
+    Timer { id: tidy; interval: 400; onTriggered: if (wrapper.penTab) { try { wrapper.hidePicture(kcm.stockPage.flickable.contentItem, 0) } catch (e) {} } }
+    onPenTabChanged: tidy.restart()
 
     header: QQC2.Control {
         padding: Kirigami.Units.largeSpacing
@@ -78,6 +118,7 @@ Kirigami.Page {
                 }
             }
             QQC2.Button {
+                visible: wrapper.tabs.length === 0
                 Layout.fillWidth: true
                 Layout.preferredWidth: 1
                 text: i18n("Pen test")
@@ -91,12 +132,19 @@ Kirigami.Page {
         }
     }
 
-    Item {
+    // Display tab: the page of Plasma alone. Pen tab: its settings and our test, side by side (one above the other when narrow).
+    GridLayout {
         anchors.fill: parent
+        columns: wrapper.wide ? 2 : 1
+        columnSpacing: 0
+        rowSpacing: 0
+
         Item {
             id: holder
-            anchors.fill: parent
             visible: !wrapper.test
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+            Layout.preferredWidth: Kirigami.Units.gridUnit * 30
             readonly property Item page: kcm.stockPage
             onPageChanged: if (page) { page.parent = holder; page.anchors.fill = holder; page.visible = true; wrapper.adopt() }
             Kirigami.PlaceholderMessage {
@@ -108,6 +156,11 @@ Kirigami.Page {
                 explanation: kcm.stockError
             }
         }
-        PenTest { anchors.fill: parent; visible: wrapper.test }
+        PenTest {
+            visible: wrapper.penTab || wrapper.test
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+            Layout.preferredWidth: Kirigami.Units.gridUnit * 30
+        }
     }
 }

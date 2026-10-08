@@ -99,6 +99,9 @@ RUN set -eux; \
     rm -rf /tmp/libcamera-rpms /tmp/libcamera-packages; dnf5 clean all
 COPY ci/patch_acp_mic.py /tmp/patch_acp_mic.py
 RUN python3 /tmp/patch_acp_mic.py && rm /tmp/patch_acp_mic.py
+# The limiter at the end of the speaker chain (image/rootfs/usr/share/pipewire/pipewire.conf.d/10-overdrive-speaker-gain.conf)
+RUN dnf5 -y install --setopt=install_weak_deps=False ladspa-swh-plugins && dnf5 clean all \
+    && test -f /usr/lib64/ladspa/fast_lookahead_limiter_1913.so
 COPY --from=hidbpf /out/ /
 COPY --from=kcm /out/ /
 # "Sound and EQ", "Power Management", "Drawing Tablet", "Software Update" and "About this System" are pages of ours that show the Plasma page inside: take the Plasma
@@ -115,6 +118,8 @@ RUN set -eux; \
     mkdir -p /usr/libexec/overdrive/stock; mv /usr/bin/systemsettings /usr/libexec/overdrive/stock/systemsettings
 COPY image/rootfs/ /
 COPY src/ /usr/lib/overdrive/python/
+# our two icons live in the fallback icon theme: its cache has to learn about them
+RUN gtk-update-icon-cache -f /usr/share/icons/hicolor 2>/dev/null || true
 ARG BASE_DIGEST=unknown
 ARG SOURCE_SHA=unknown
 LABEL org.opencontainers.image.title="Surface Overdrive" \

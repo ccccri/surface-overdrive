@@ -125,23 +125,41 @@ def play(kind):
     return p.wait()
 
 
+def _run_tracked(command, seconds=None):
+    """Run a player or recorder so that stop() can end it: its pid goes in the pid file. With seconds, it is interrupted after that
+    long (a recorder has no end of its own). Returns False when stop() ended it."""
+    marker = os.path.join(runtime_dir(), PID_FILE)
+    proc = subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+    with open(marker, "w") as f:
+        f.write(str(proc.pid))
+    try:
+        proc.wait(timeout=seconds)
+    except subprocess.TimeoutExpired:
+        proc.send_signal(signal.SIGINT)                # pw-record closes the file properly on an interrupt
+        proc.wait(timeout=5)
+    stopped = not os.path.exists(marker)                # stop() removes the marker
+    try:
+        os.remove(marker)
+    except OSError:
+        pass
+    return not stopped
+
+
 def record_and_play(seconds=5):
     """Record the default microphone for a few seconds, then play it back: the way to hear what the microphone settings do."""
     path = os.path.join(runtime_dir(), "mic-test.wav")
-    rec = subprocess.Popen(["pw-record", "--rate", "48000", "--channels", "1", path], stdout=subprocess.DEVNULL,
-                           stderr=subprocess.DEVNULL, start_new_session=True)
-    with open(os.path.join(runtime_dir(), PID_FILE), "w") as f:
-        f.write(str(rec.pid))
-    time.sleep(seconds)
-    rec.send_signal(signal.SIGINT)
-    rec.wait(timeout=5)
-    return subprocess.run(["pw-play", path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode
+    if not _run_tracked(["pw-record", "--rate", "48000", "--channels", "1", path], seconds):
+        return 0                                        # stopped while recording: nothing to play
+    _run_tracked(["pw-play", path])
+    return 0
 
 
 def stop():
-    """Stop a test sound or recording that is running."""
+    """Stop a test sound, a recording or its playback that is running."""
+    marker = os.path.join(runtime_dir(), PID_FILE)
     try:
-        pid = int(open(os.path.join(runtime_dir(), PID_FILE)).read())
+        pid = int(open(marker).read())
+        os.remove(marker)
         os.kill(pid, signal.SIGTERM)
     except (OSError, ValueError):
         pass

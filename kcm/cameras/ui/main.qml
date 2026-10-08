@@ -72,41 +72,22 @@ Kirigami.Page {
     Timer { id: autoStart; interval: 500; onTriggered: root.startPreview() }
     Timer { id: restartPreview; interval: 2500; onTriggered: root.startPreview() }   // the camera service needs a moment to come back
     onCamChanged: { preview.stop(); peak = 1; load(); autoStart.restart() }
-    Component.onCompleted: { load(); autoStart.start() }
+    Component.onCompleted: { load(); autoStart.start(); if (kcm.startTab === "bottom") toBottom.start() }
+    Timer { id: toBottom; interval: 3000; onTriggered: scroll.contentItem.contentY = Math.max(0, scroll.contentItem.contentHeight - scroll.height) }   // "--args bottom": to check the end of the list from a script
     Component.onDestruction: preview.stop()
     onVisibleChanged: if (!visible) preview.stop()
     Timer { interval: 300; repeat: true; running: preview.running && root.cam === "rear"; onTriggered: root.cmd("poll", ["describe"]) }
 
-    component Section: Kirigami.AbstractCard {
-        id: sec
-        property string title
-        default property alias content: body.data
-        Layout.fillWidth: true
-        header: Kirigami.Heading { level: 4; text: sec.title; padding: Kirigami.Units.smallSpacing }
-        contentItem: ColumnLayout { id: body; spacing: Kirigami.Units.smallSpacing }
-    }
     // A line with a switch; the explanation is a tooltip like the one of a slider (hover, or a tap on the name)
     component Toggle: RowLayout {
         id: toggle
+        Layout.fillHeight: false          // a layout inside a layout would stretch by default
         property string label
         property string help
         property bool on: false
         signal flipped(bool value)
         Layout.fillWidth: true
-        QQC2.Label {
-            text: toggle.label; font.bold: true; Layout.fillWidth: true; elide: Text.ElideRight
-            HoverHandler { id: toggleHover; acceptedDevices: PointerDevice.Mouse | PointerDevice.Stylus | PointerDevice.TouchPad }
-            TapHandler { onTapped: { toggleTip.pinned = !toggleTip.pinned; if (toggleTip.pinned) toggleUnpin.restart() } }
-            Timer { id: toggleUnpin; interval: 7000; onTriggered: toggleTip.pinned = false }
-            QQC2.ToolTip {
-                id: toggleTip
-                property bool pinned: false
-                text: toggle.help
-                visible: toggle.help.length > 0 && (pinned || toggleHover.hovered)
-                delay: pinned ? 0 : Kirigami.Units.toolTipDelay
-                timeout: -1
-            }
-        }
+        HelpLabel { text: toggle.label; help: toggle.help; font.bold: true; Layout.fillWidth: true }
         QQC2.Switch { checked: toggle.on; onToggled: toggle.flipped(checked) }
     }
 
@@ -310,6 +291,7 @@ Kirigami.Page {
                 Layout.maximumWidth: root.wide ? Kirigami.Units.gridUnit * 28 : -1
                 contentWidth: availableWidth
                 QQC2.ScrollBar.horizontal.policy: QQC2.ScrollBar.AlwaysOff
+                QQC2.ScrollBar.vertical.policy: QQC2.ScrollBar.AlwaysOff     // the bar of a scroll area of ours does not look like the ones of Plasma: none
 
                 ColumnLayout {
                     width: scroll.availableWidth - Kirigami.Units.largeSpacing     // a gap between the cards and the scroll bar

@@ -6,12 +6,12 @@
             }
         ],
         "Description": "NFC reader state, last tags and reader test",
-        "Icon": "network-wireless",
+        "Icon": "preferences-overdrive-nfc",
         "Id": "kcm_overdrive_nfc",
         "Name": "NFC"
     },
     "X-KDE-KeepAlive": true,
     "X-KDE-Keywords": "surface,nfc,tag,reader,ndef",
-    "X-KDE-System-Settings-Parent-Category": "surface-control",
-    "X-KDE-Weight": 40
+    "X-KDE-System-Settings-Parent-Category": "input-devices",
+    "X-KDE-Weight": 220
 }
