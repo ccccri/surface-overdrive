@@ -1,25 +1,23 @@
-"""Microphone improvement: WebRTC noise suppression, then a small equaliser and gain stage whose controls are set live.
+"""Microphone improvement: noise suppression, then a small equaliser and gain, running inside the built-in microphone itself.
 
-The two PipeWire config files ship in the image (/usr/share/overdrive/audio); "enable" copies them to the user's
-~/.config/pipewire/pipewire.conf.d and restarts the sound server, so the chain is loaded by PipeWire itself (a module loaded from
-outside would vanish with its loader).
+The filters are a PipeWire filter graph loaded into the microphone device (see graph.py), so the list of recording devices keeps one
+entry for the built-in microphone and every app that records from it gets the improved sound. The noise suppression is the
+overdrive_denoise LADSPA plugin of this project (ladspa/overdrive_denoise.c, the rnnoise library).
 """
 import os
-import re
-import shutil
-import time
 
-from . import pw, store
+from . import graph, pw, store
 
-SHARE = "/usr/share/overdrive/audio"
-FILES = ("20-mic-filter.conf", "30-mic-enhance.conf")
-NODE = "mic_enhanced"
-DEFAULTS = {"gain": 0.0, "lowcut": 80.0, "bass": 0.0, "presence": 0.0, "treble": 0.0}
-RANGES = {"gain": (-12, 24), "lowcut": (20, 400), "bass": (-12, 12), "presence": (-12, 12), "treble": (-12, 12)}
+SOURCE = "alsa_input.pci-0000_00_1f.3.analog-stereo"
+VERSION = "mic-1"
+# PipeWire files of earlier versions, which made two extra microphones ("noise filter" and "enhanced")
+OLD_FILES = ("20-mic-filter.conf", "30-mic-enhance.conf")
+DEFAULTS = {"denoise": 100.0, "gain": 0.0, "lowcut": 80.0, "bass": 0.0, "presence": 0.0, "treble": 0.0}
+RANGES = {"denoise": (0, 100), "gain": (-12, 24), "lowcut": (20, 400), "bass": (-12, 12), "presence": (-12, 12), "treble": (-12, 12)}
 BUILTIN = {
     "Flat": dict(DEFAULTS),
-    "Clear voice": {"gain": 3.0, "lowcut": 110.0, "bass": -2.0, "presence": 3.0, "treble": -1.0},
-    "Warm": {"gain": 2.0, "lowcut": 70.0, "bass": 3.0, "presence": 1.0, "treble": -3.0},
+    "Clear voice": {"denoise": 100.0, "gain": 3.0, "lowcut": 110.0, "bass": -2.0, "presence": 3.0, "treble": -1.0},
+    "Warm": {"denoise": 100.0, "gain": 2.0, "lowcut": 70.0, "bass": 3.0, "presence": 1.0, "treble": -3.0},
 }
 
 
@@ -27,36 +25,80 @@ def conf_dir():
     return os.path.join(os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config"), "pipewire", "pipewire.conf.d")
 
 
-def installed():
-    return os.path.exists(os.path.join(conf_dir(), FILES[1]))
+def enabled():
+    return bool(store.load().get("mic_on", False))
 
 
 def settings():
     out = dict(DEFAULTS)
     saved = store.load().get("mic", {})
-    out.update({k: float(saved[k]) for k in DEFAULTS if k in saved})
+    for k in DEFAULTS:
+        try:
+            out[k] = float(saved[k])
+        except (KeyError, TypeError, ValueError):
+            pass
     return out
 
 
 def controls(v):
-    return {"hp:Freq": v["lowcut"], "bass:Gain": v["bass"], "pres:Gain": v["presence"], "treb:Gain": v["treble"],
-            "gain:Mult": 10 ** (v["gain"] / 20.0)}
+    c = {}
+    for ch in "LR":
+        c.update({f"ns{ch}:Strength": v["denoise"] / 100.0, f"hp{ch}:Freq": v["lowcut"], f"bass{ch}:Gain": v["bass"],
+                  f"pres{ch}:Gain": v["presence"], f"treb{ch}:Gain": v["treble"], f"gain{ch}:Mult": 10 ** (v["gain"] / 20.0)})
+    return c
+
+
+def graph_text(v):
+    """The filter graph with these values in it: the same chain for each of the two microphone capsules."""
+    c = controls(v)
+    nodes = []
+    links = []
+    for ch in "LR":
+        chain = [("ns", 'type = ladspa name = ns%s plugin = overdrive_denoise label = overdrive_denoise control = { "Strength" = %.3f }'
+                  % (ch, c[f"ns{ch}:Strength"])),
+                 ("hp", 'type = builtin name = hp%s label = bq_highpass control = { "Freq" = %.2f "Q" = 0.707 }' % (ch, c[f"hp{ch}:Freq"])),
+                 ("bass", 'type = builtin name = bass%s label = bq_lowshelf control = { "Freq" = 200.0 "Q" = 0.707 "Gain" = %.3f }' % (ch, c[f"bass{ch}:Gain"])),
+                 ("pres", 'type = builtin name = pres%s label = bq_peaking control = { "Freq" = 3000.0 "Q" = 1.0 "Gain" = %.3f }' % (ch, c[f"pres{ch}:Gain"])),
+                 ("treb", 'type = builtin name = treb%s label = bq_highshelf control = { "Freq" = 8000.0 "Q" = 0.707 "Gain" = %.3f }' % (ch, c[f"treb{ch}:Gain"])),
+                 ("gain", 'type = builtin name = gain%s label = linear control = { "Mult" = %.5f "Add" = 0.0 }' % (ch, c[f"gain{ch}:Mult"]))]
+        nodes += ["{ %s }" % text for _, text in chain]
+        outs = ["ns%s:Output" % ch] + ["%s%s:Out" % (name, ch) for name, _ in chain[1:]]
+        ins = ["%s%s:In" % (name, ch) for name, _ in chain[1:]]
+        links += ['{ output = "%s" input = "%s" }' % (o, i) for o, i in zip(outs, ins)]
+    return '{ nodes = [ %s ] links = [ %s ] inputs = [ "nsL:Input" "nsR:Input" ] outputs = [ "gainL:Out" "gainR:Out" ] }' % (
+        " ".join(nodes), " ".join(links))
 
 
 def _clean(v):
-    return {k: float(max(RANGES[k][0], min(RANGES[k][1], float(v.get(k, DEFAULTS[k]))))) for k in DEFAULTS}
+    out = {}
+    for k in DEFAULTS:
+        try:
+            x = float(v.get(k, DEFAULTS[k]))
+        except (TypeError, ValueError):
+            x = DEFAULTS[k]
+        if x != x:                                      # not a number
+            x = DEFAULTS[k]
+        out[k] = float(max(RANGES[k][0], min(RANGES[k][1], x)))
+    return out
 
 
-def _store(v):
+def _store(key, value):
     d = store.load()
-    d["mic"] = v
+    d[key] = value
     store.save(d)
 
 
+def apply():
+    """Put the microphone device in the state the settings ask for. False while the device is not there."""
+    if not enabled():
+        return graph.clear(SOURCE)
+    v = settings()
+    return graph.apply(SOURCE, VERSION, lambda: graph_text(v), controls(v))
+
+
 def set_all(values):
-    v = _clean(values)
-    _store(v)
-    return pw.set_params(NODE, controls(v))
+    _store("mic", _clean(values))
+    return apply()
 
 
 def set_one(key, value):
@@ -67,59 +109,30 @@ def set_one(key, value):
     return set_all(v)
 
 
-def _restart_sound():
-    return pw.run(["systemctl", "--user", "restart", "pipewire.service", "pipewire-pulse.service", "wireplumber.service"], timeout=40)[0] == 0
-
-
-def _make_default_source(name):
-    """WirePlumber remembers the default source, so a new virtual one has to be made default explicitly."""
-    for _ in range(15):
-        nid = pw.node_id(name)
-        if nid is not None:
-            pw.run(["wpctl", "set-default", str(nid)])
-            return True
-        time.sleep(0.5)
-    return False
-
-
 def enable():
-    os.makedirs(conf_dir(), exist_ok=True)
-    for f in FILES:
-        shutil.copyfile(os.path.join(SHARE, f), os.path.join(conf_dir(), f))
-    ok = _restart_sound()
-    if ok:
-        _make_default_source(NODE)
-        set_all(settings())            # the file starts neutral: put the saved values on top
-    return ok
-
-
-def refresh():
-    """After a system update the microphone files in the image may be newer than the copies in the home directory: copy them again
-    and restart the sound system. Returns True when something was replaced."""
-    stale = []
-    for f in FILES:
-        mine = os.path.join(conf_dir(), f)
-        if not os.path.exists(mine):
-            continue                                   # the microphone improvement is off
-        try:
-            with open(mine, "rb") as a, open(os.path.join(SHARE, f), "rb") as b:
-                if a.read() != b.read():
-                    stale.append(f)
-        except OSError:
-            pass
-    if not stale:
-        return False
-    enable()
-    return True
+    _store("mic_on", True)
+    return apply()
 
 
 def disable():
-    for f in FILES:
+    _store("mic_on", False)
+    return apply()
+
+
+def migrate():
+    """Earlier versions improved the microphone with two PipeWire files in the home directory, which showed up as two more
+    microphones. Remove them, keep the improvement on, and restart the sound system once so the extra devices go away."""
+    found = False
+    for f in OLD_FILES:
         try:
             os.remove(os.path.join(conf_dir(), f))
+            found = True
         except OSError:
             pass
-    return _restart_sound()
+    if found:
+        _store("mic_on", True)
+        pw.run(["systemctl", "--user", "restart", "pipewire.service", "pipewire-pulse.service", "wireplumber.service"], timeout=40)
+    return found
 
 
 def presets():
@@ -155,5 +168,5 @@ def delete_preset(name):
 
 
 def describe():
-    return {"available": installed(), "running": pw.node_id(NODE) is not None, "values": settings(), "ranges": RANGES,
-            "presets": presets()}
+    return {"available": enabled(), "running": enabled() and graph.loaded(SOURCE, VERSION), "values": settings(), "ranges": RANGES,
+            "defaults": DEFAULTS, "presets": presets()}

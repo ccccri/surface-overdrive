@@ -4,7 +4,8 @@ import QtQuick.Controls as QQC2
 import QtQuick.Layouts
 import org.kde.kirigami as Kirigami
 
-// "Drawing Tablet": the page of Plasma with our pen test next to its Pen tab. The tabs of Plasma (Display, Pen, Pad) are shown by
+// "Drawing Tablet": the page of Plasma with our pen test next to its Pen tab (on a window wide enough for both; a narrow window
+// shows the settings of Plasma alone). The tabs of Plasma (Display, Pen, Pad) are shown by
 // our own row of buttons, which presses the hidden ones of Plasma: that is how "Pad" is left out (the Surface has none) and how we
 // know when the Pen tab is in front. If a future Plasma builds its page differently, the row falls back to two buttons: its page,
 // and the pen test alone.
@@ -13,6 +14,9 @@ Kirigami.Page {
 
     title: kcm.name
     padding: 0
+    // A page that the Plasma page opens on top of itself (its "Configure..." entries) takes the whole view with a way back, as it
+    // does in Plasma, instead of squeezing in as a second column: System Settings decides that from this property of the first page.
+    Kirigami.ColumnView.fillWidth: true
     property Item bar: null                // the tab bar of Plasma, once found
     property var tabs: []                  // [{ text, icon, index }] of the Plasma tabs we show
     property int stockTab: 0
@@ -94,8 +98,46 @@ Kirigami.Page {
         }
         for (let i = 0; item.children && i < item.children.length; i++) hidePicture(item.children[i], depth + 1)
     }
+    // A setting the pen of this tablet cannot have is left out: Plasma shows it greyed out ("Left-handed mode", which is for
+    // tablets that lie on the desk and can be turned around). That is a labelled line of the form whose check box is disabled.
+    function firstCheck(item, depth) {
+        if (!item || depth > 4) return null
+        if (item.checkable !== undefined && item.checked !== undefined) return item
+        for (let i = 0; item.children && i < item.children.length; i++) {
+            const found = firstCheck(item.children[i], depth + 1)
+            if (found) return found
+        }
+        return null
+    }
+    function hideUnsupported(item, depth) {
+        if (!item || depth > 9) return
+        if (item.Kirigami.FormData.label.length > 0) {
+            const check = firstCheck(item, 0)
+            if (check && !check.enabled) item.visible = false
+            return
+        }
+        for (let i = 0; item.children && i < item.children.length; i++) hideUnsupported(item.children[i], depth + 1)
+    }
+    // The pressure curve of Plasma is a large square; a lower one lets the whole tab fit the screen of the tablet without scrolling.
+    function shrinkCurve(item, depth) {
+        if (!item || depth > 12) return
+        if (String(item).indexOf("PressureCurve") >= 0) {
+            const side = Kirigami.Units.gridUnit * 9
+            if (item.implicitHeight > side) { item.implicitHeight = side; item.Layout.maximumHeight = side }
+            return
+        }
+        for (let i = 0; item.children && i < item.children.length; i++) shrinkCurve(item.children[i], depth + 1)
+    }
     Timer { id: first; property int index: 0; interval: 500; onTriggered: wrapper.choose(index) }
-    Timer { id: tidy; interval: 400; onTriggered: if (wrapper.penTab) { try { wrapper.hidePicture(kcm.stockPage.flickable.contentItem, 0) } catch (e) {} } }
+    Timer {
+        id: tidy; interval: 400
+        onTriggered: {
+            if (!wrapper.penTab) return
+            try { wrapper.hidePicture(kcm.stockPage.flickable.contentItem, 0) } catch (e) {}
+            try { wrapper.shrinkCurve(kcm.stockPage.flickable.contentItem, 0) } catch (e) {}
+            try { wrapper.hideUnsupported(kcm.stockPage.flickable.contentItem, 0) } catch (e) { console.warn("Surface Control: could not tidy the Pen tab:", e) }
+        }
+    }
     onPenTabChanged: tidy.restart()
 
     header: QQC2.Control {
@@ -132,19 +174,18 @@ Kirigami.Page {
         }
     }
 
-    // Display tab: the page of Plasma alone. Pen tab: its settings and our test, side by side (one above the other when narrow).
-    GridLayout {
+    // Display tab: the page of Plasma alone. Pen tab: its settings and our test side by side when the window has room for both,
+    // else the settings alone (the test needs its width, and one part above the other would mean scrolling to reach it).
+    RowLayout {
         anchors.fill: parent
-        columns: wrapper.wide ? 2 : 1
-        columnSpacing: 0
-        rowSpacing: 0
+        spacing: 0
 
         Item {
             id: holder
             visible: !wrapper.test
             Layout.fillWidth: true
             Layout.fillHeight: true
-            Layout.preferredWidth: Kirigami.Units.gridUnit * 30
+            Layout.preferredWidth: Kirigami.Units.gridUnit * 34
             readonly property Item page: kcm.stockPage
             onPageChanged: if (page) { page.parent = holder; page.anchors.fill = holder; page.visible = true; wrapper.adopt() }
             Kirigami.PlaceholderMessage {
@@ -157,10 +198,10 @@ Kirigami.Page {
             }
         }
         PenTest {
-            visible: wrapper.penTab || wrapper.test
+            visible: wrapper.test || (wrapper.penTab && wrapper.wide)
             Layout.fillWidth: true
             Layout.fillHeight: true
-            Layout.preferredWidth: Kirigami.Units.gridUnit * 30
+            Layout.preferredWidth: Kirigami.Units.gridUnit * 26
         }
     }
 }

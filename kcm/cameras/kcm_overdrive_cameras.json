@@ -6,7 +6,7 @@
             }
         ],
         "Description": "Live preview and adjustments of the front and rear camera",
-        "Icon": "preferences-overdrive-camera",
+        "Icon": "overdrive-camera",
         "Id": "kcm_overdrive_cameras",
         "Name": "Cameras"
     },

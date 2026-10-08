@@ -40,6 +40,11 @@ public:
      * in stockPage; its Apply/Defaults buttons, its unsaved state and the sub-pages it opens are passed on to System Settings.
      */
     Q_INVOKABLE void loadStock(const QString &pluginId);
+    /**
+     * Put an item of ours right after an item of a Plasma page, in the same column: that is how our settings of the speakers come
+     * right under the list of playback devices and not at the end of the page. False when the two cannot be put together.
+     */
+    Q_INVOKABLE bool placeAfter(QQuickItem *item, QQuickItem *sibling);
     /** Show the Apply/Defaults row of the Plasma page only while its tab is the one in front. */
     Q_INVOKABLE void showStockButtons(bool show);
 

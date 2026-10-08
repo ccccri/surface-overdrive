@@ -1,15 +1,22 @@
 #!/usr/bin/bash
 # Plasma opens its own pages by name (the volume icon runs "systemsettings kcm_pulseaudio"). Some of those pages now live inside ours:
 # send the old names to the new pages, then run the real System Settings.
-args=()
-for a in "$@"; do
-    case "$a" in
-        kcm_pulseaudio) a=kcm_overdrive_sound ;;
-        kcm_powerdevilprofilesconfig) a=kcm_overdrive_power ;;
-        kcm_about-distro) a=kcm_overdrive_about ;;
-        kcm_tablet) a=kcm_overdrive_tablet ;;
-        kcm_updates) a=kcm_overdrive_updates ;;
-    esac
-    args+=("$a")
-done
-exec -a systemsettings /usr/libexec/overdrive/stock/systemsettings "${args[@]}"
+#
+# Info Center is the same program under another name (/usr/bin/kinfocenter is a link to this file): it keeps its name, which is how
+# the program knows which of the two to be, and its pages are the ones of Plasma, so nothing is renamed for it.
+name=$(basename "$0")
+args=("$@")
+if [ "$name" = systemsettings ]; then
+    args=()
+    for a in "$@"; do
+        case "$a" in
+            kcm_pulseaudio) a=kcm_overdrive_sound ;;
+            kcm_powerdevilprofilesconfig) a=kcm_overdrive_power ;;
+            kcm_about-distro) a=kcm_overdrive_about ;;
+            kcm_tablet) a=kcm_overdrive_tablet ;;
+            kcm_updates) a=kcm_overdrive_updates ;;
+        esac
+        args+=("$a")
+    done
+fi
+exec -a "$name" /usr/libexec/overdrive/stock/systemsettings "${args[@]}"

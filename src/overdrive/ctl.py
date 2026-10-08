@@ -113,6 +113,12 @@ def audio_command(args):
                 out["result"] = eq.set_output(a[0], json.loads(a[1]))
             elif action == "sync":
                 eq.set_sync(a[0] == "on")
+            elif action == "swap":
+                if a[0] not in eq.OUTPUTS:
+                    raise KeyError(a[0])
+                eq.set_swap(a[0], a[1] == "on")
+            elif action == "flat":
+                out["result"] = eq.reset_bands(a[0])
             elif action == "preset":
                 sub = a[0]
                 if sub == "apply":

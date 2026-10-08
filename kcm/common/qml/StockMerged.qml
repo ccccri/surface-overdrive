@@ -13,10 +13,14 @@ Kirigami.Page {
 
     property string stock                                   // plugin name of the Plasma page, for example "kcm_pulseaudio"
     property bool merged: false
+    signal mergedInto(Item column)                          // our part is now the last item of this column of the Plasma page
     default property alias extra: ours.data
 
     title: kcm.name
     padding: 0
+    // A page that the Plasma page opens on top of itself (its "Configure..." entries) takes the whole view with a way back, as it
+    // does in Plasma, instead of squeezing in as a second column: System Settings decides that from this property of the first page.
+    Kirigami.ColumnView.fillWidth: true
     // the menu of the Plasma page (top right in the title bar) stays where it was
     actions: kcm.stockPage ? kcm.stockPage.actions : []
     Component.onCompleted: kcm.loadStock(stock)
@@ -35,7 +39,7 @@ Kirigami.Page {
     function merge(page) {
         try {
             const target = column(page.flickable ? page.flickable.contentItem : page.contentItem, 0)
-            if (target) { ours.parent = target; merged = true }
+            if (target) { ours.parent = target; merged = true; wrapper.mergedInto(target) }
         } catch (e) {
             console.warn("Surface Control: could not add to the page of Plasma, showing our part below it:", e)
         }

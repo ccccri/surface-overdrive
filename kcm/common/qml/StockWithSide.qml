@@ -16,6 +16,9 @@ Kirigami.Page {
 
     title: kcm.name
     padding: 0
+    // A page that the Plasma page opens on top of itself (its "Configure..." entries) takes the whole view with a way back, as it
+    // does in Plasma, instead of squeezing in as a second column: System Settings decides that from this property of the first page.
+    Kirigami.ColumnView.fillWidth: true
     actions: kcm.stockPage ? kcm.stockPage.actions : []
     signal loaded(Item page)
     Component.onCompleted: kcm.loadStock(stock)

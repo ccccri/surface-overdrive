@@ -95,6 +95,16 @@ void OverdriveKCM::loadStock(const QString &pluginId)
     Q_EMIT stockChanged();
 }
 
+bool OverdriveKCM::placeAfter(QQuickItem *item, QQuickItem *sibling)
+{
+    if (!item || !sibling || item == sibling || !sibling->parentItem()) {
+        return false;
+    }
+    item->setParentItem(sibling->parentItem());
+    item->stackAfter(sibling);
+    return true;
+}
+
 void OverdriveKCM::showStockButtons(bool show)
 {
     m_stockButtons = show;

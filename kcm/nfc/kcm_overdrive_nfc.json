@@ -6,7 +6,7 @@
             }
         ],
         "Description": "NFC reader state, last tags and reader test",
-        "Icon": "preferences-overdrive-nfc",
+        "Icon": "overdrive-nfc",
         "Id": "kcm_overdrive_nfc",
         "Name": "NFC"
     },

@@ -41,7 +41,6 @@ ColumnLayout {
         HelpLabel {
             text: adjust.label
             help: adjust.help
-            font.bold: true
             Layout.fillWidth: true
         }
         QQC2.ToolButton {

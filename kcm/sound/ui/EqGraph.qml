@@ -17,7 +17,9 @@ Item {
     function xOf(f) { return Math.log(f / fmin) / Math.log(fmax / fmin) * width }
     function fOf(x) { return fmin * Math.pow(fmax / fmin, Math.max(0, Math.min(1, x / width))) }
     function yOf(db) { return height / 2 - db / dbRange * height / 2 }
-    function dbOf(y) { return Math.max(-24, Math.min(24, (height / 2 - y) / (height / 2) * dbRange)) }
+    function dbOf(y) { return Math.max(-dbRange, Math.min(dbRange, (height / 2 - y) / (height / 2) * dbRange)) }
+    // a handle never leaves the graph, whatever the band holds (an imported set may go beyond what the graph shows)
+    function inside(v, size) { return Math.max(0, Math.min(size, v)) }
 
     // RBJ cookbook biquad: the same maths as the filter chain
     function coef(b) {
@@ -91,10 +93,10 @@ Item {
         model: g.bands.length
         delegate: Rectangle {
             id: h
-            readonly property var b: g.bands[index]
+            readonly property var b: g.bands[index] || ({ freq: 1000, gain: 0, on: false })
             width: Kirigami.Units.gridUnit * 1.8; height: width; radius: width / 2
-            x: g.xOf(b.freq) - width / 2
-            y: g.yOf(b.gain) - height / 2
+            x: g.inside(g.xOf(b.freq), g.width) - width / 2
+            y: g.inside(g.yOf(b.gain), g.height) - height / 2
             color: index === g.selected ? Kirigami.Theme.highlightColor : Kirigami.Theme.backgroundColor
             opacity: b.on ? 1 : 0.4
             border.width: 2

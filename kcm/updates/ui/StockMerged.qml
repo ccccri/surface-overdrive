@@ -1,1 +1,0 @@
-../../common/qml/StockMerged.qml

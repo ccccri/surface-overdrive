@@ -1,22 +1,24 @@
-"""Output equaliser: ten parametric bands on the speaker filter chain (PipeWire builtin biquads, coefficients set live).
+"""Output equaliser: pre-amplifier, ten parametric bands, the speaker boost and a limiter, running inside the sound card's own output.
 
-One set of bands for the speakers and one for the headphone jack; they can be kept in sync. The chain itself ships in the image
-(/usr/share/pipewire/pipewire.conf.d/10-overdrive-speaker-gain.conf, generated from conf_text()); the sets live in the user's
-audio.json and are applied to the running chain, at login and whenever the jack changes, by the audio route service.
+The filters are a PipeWire filter graph loaded into the output device (see graph.py), so the speakers stay one device in the list.
+One set of values for the speakers and one for the headphone jack; they can be kept in sync. The sets live in the user's audio.json
+and are applied at login and whenever the jack changes by the audio route service, and at once when the panel changes them.
 """
 import math
 import os
 import re
 
-from . import pw, store
+from . import graph, pw, store
 
 RATE = 48000
 N = 10
 TYPES = ("peak", "lowshelf", "highshelf", "lowpass", "highpass", "notch")
-NODE = "boosted_speakers"
 OUTPUTS = ("speaker", "headphones")
 SINK = "alsa_output.pci-0000_00_1f.3.analog-stereo"
 DEFAULT_BOOST = 120
+VERSION = "speaker-1"              # of the layout of the graph: a new one makes running nodes load it again
+# Left and right exchanged per output. On this tablet the headphone jack plays them the wrong way round, the speakers do not.
+DEFAULT_SWAP = {"speaker": False, "headphones": True}
 
 # A band slot can hold the kinds listed here (each kind is its own biquad in the chain, neutral when not used): the ends can be shelves or
 # cut filters, the middle bands are peaking filters. The filter chain cannot change a biquad's kind while running, so every kind a slot may use exists.
@@ -109,7 +111,8 @@ def load():
     sets = eq.get("sets", {})
     speaker = _normalise(sets["speaker"]) if "speaker" in sets else new_set(DEFAULT_BOOST)
     headphones = _normalise(sets["headphones"]) if "headphones" in sets else new_set(100)
-    return {"sync": bool(eq.get("sync", True)), "sets": {"speaker": speaker, "headphones": headphones}}
+    swap = {o: bool(eq.get("swap", {}).get(o, DEFAULT_SWAP[o])) for o in OUTPUTS}
+    return {"sync": bool(eq.get("sync", True)), "swap": swap, "sets": {"speaker": speaker, "headphones": headphones}}
 
 
 def _store(state):
@@ -140,8 +143,8 @@ def _controls(s):
     return out
 
 
-def params(s):
-    """Filter chain controls for one set, both channels."""
+def params(s, swap=False):
+    """Controls of the graph for one set, both channels."""
     p = {}
     pre = 10 ** (s["preamp"] / 20.0)
     mult = (s["boost"] / 100.0) ** 3
@@ -152,17 +155,56 @@ def params(s):
         for (i, kind), c in ctl.items():
             for k, v in c.items():
                 p[f"eq{ch}{i}{kind[0]}:{k}"] = v
+    # each output channel is a mix of the two processed channels: its own one, or the other one when left and right are exchanged
+    p["outL:Gain 1"] = p["outR:Gain 2"] = 0.0 if swap else 1.0
+    p["outL:Gain 2"] = p["outR:Gain 1"] = 1.0 if swap else 0.0
     return p
 
 
-def apply(s):
-    """Live, to the running filter chain."""
-    return pw.set_params(NODE, params(s))
+def graph_text(s, swap=False):
+    """The filter graph with the values of this set in it."""
+    p = params(s, swap)
+
+    def control(node, keys):
+        return " ".join('"%s" = %.5f' % (k, p["%s:%s" % (node, k)]) for k in keys)
+
+    nodes = []
+    links = []
+    for ch in "LR":
+        nodes.append('{ type = builtin name = pre%s label = linear control = { %s "Add" = 0.0 } }' % (ch, control("pre" + ch, ["Mult"])))
+        prev = "pre" + ch
+        for i in range(N):
+            for kind in kinds(i):
+                name = "eq%s%d%s" % (ch, i, kind[0])
+                nodes.append('{ type = builtin name = %s label = %s control = { %s } }' % (name, LABEL[kind], control(name, ["Freq", "Q", "Gain"])))
+                links.append('{ output = "%s:Out" input = "%s:In" }' % (prev, name))
+                prev = name
+        nodes.append('{ type = builtin name = gain%s label = linear control = { %s "Add" = 0.0 } }' % (ch, control("gain" + ch, ["Mult"])))
+        links.append('{ output = "%s:Out" input = "gain%s:In" }' % (prev, ch))
+    for n, ch in enumerate("LR", 1):
+        nodes.append('{ type = builtin name = out%s label = mixer control = { %s } }' % (ch, control("out" + ch, ["Gain 1", "Gain 2"])))
+        links.append('{ output = "gainL:Out" input = "out%s:In 1" }' % ch)
+        links.append('{ output = "gainR:Out" input = "out%s:In 2" }' % ch)
+        links.append('{ output = "out%s:Out" input = "limit:Input %d" }' % (ch, n))
+    # Last: a limiter. The boost and the bands that raise the level push loud passages above full scale, which the sound card would
+    # cut off flat (a harsh, grating sound). The limiter turns just those passages down instead, 5 ms ahead of time.
+    nodes.append('{ type = ladspa name = limit plugin = fast_lookahead_limiter_1913 label = fastLookaheadLimiter '
+                 'control = { "Input gain (dB)" = 0.0 "Limit (dB)" = -1.0 "Release time (s)" = 0.15 } }')
+    return '{ nodes = [ %s ] links = [ %s ] inputs = [ "preL:In" "preR:In" ] outputs = [ "limit:Output 1" "limit:Output 2" ] }' % (
+        " ".join(nodes), " ".join(links))
+
+
+def apply(s, swap=False):
+    """Live, to the output device. False while the device is not there."""
+    return graph.apply(SINK, VERSION, lambda: graph_text(s, swap), params(s, swap))
+
+
+def apply_state(state, output):
+    return apply(effective(state, output), state["swap"][output])
 
 
 def apply_active():
-    state = load()
-    return apply(effective(state, pw.active_output()))
+    return apply_state(load(), pw.active_output())
 
 
 def set_output(output, s):
@@ -171,8 +213,15 @@ def set_output(output, s):
     state["sets"][output] = _normalise(s)
     _store(state)
     if state["sync"] or pw.active_output() == output:
-        apply(effective(state, pw.active_output()))
+        apply_state(state, pw.active_output())
     return True
+
+
+def reset_bands(output):
+    """All ten bands back to flat; boost and pre-amplifier stay."""
+    state = load()
+    state["sets"][output]["bands"] = flat_bands()
+    return set_output(output, state["sets"][output])
 
 
 def set_sync(on):
@@ -181,75 +230,14 @@ def set_sync(on):
     if on:
         state["sets"]["headphones"] = dict(state["sets"]["speaker"])
     _store(state)
-    apply(effective(state, pw.active_output()))
+    apply_state(state, pw.active_output())
 
 
-# ---- the configuration file of the chain ----
-def conf_text(s):
-    pre = 10 ** (s["preamp"] / 20.0)
-    mult = (s["boost"] / 100.0) ** 3
-    nodes = []
-    links = []
-    ctl_of = {}
-    for i, band in enumerate(s["bands"]):
-        for kind in kinds(i):
-            c = neutral(kind)
-            if band["on"] and band["type"] == kind:
-                c = {"Freq": band["freq"], "Q": band["q"], "Gain": band["gain"]}
-            ctl_of[(i, kind)] = c
-    for ch in "LR":
-        nodes.append(f'          {{ type = builtin name = pre{ch} label = linear control = {{ "Mult" = {pre:.5f} "Add" = 0.0 }} }}')
-        prev = f"pre{ch}"
-        for i in range(N):
-            for kind in kinds(i):
-                name = f"eq{ch}{i}{kind[0]}"
-                c = ctl_of[(i, kind)]
-                nodes.append(f'          {{ type = builtin name = {name} label = {LABEL[kind]} control = {{ "Freq" = {c["Freq"]:.2f} "Q" = {c["Q"]:.3f} "Gain" = {c["Gain"]:.3f} }} }}')
-                links.append(f'          {{ output = "{prev}:Out" input = "{name}:In" }}')
-                prev = name
-        nodes.append(f'          {{ type = builtin name = gain{ch} label = linear control = {{ "Mult" = {mult:.5f} "Add" = 0.0 }} }}')
-        links.append(f'          {{ output = "{prev}:Out" input = "gain{ch}:In" }}')
-        links.append(f'          {{ output = "gain{ch}:Out" input = "limit:Input {1 if ch == "L" else 2}" }}')
-    # Last in the chain: a limiter. The boost and the bands that raise the level push loud passages above full scale, which the
-    # sound card would cut off flat (a harsh, grating sound). The limiter turns just those passages down instead, 5 ms ahead of time.
-    nodes.append('          { type = ladspa name = limit plugin = fast_lookahead_limiter_1913 label = fastLookaheadLimiter '
-                 'control = { "Input gain (dB)" = 0.0 "Limit (dB)" = -1.0 "Release time (s)" = 0.15 } }')
-    return f'''# Speaker chain of Surface Overdrive: pre-amplifier, ten parametric bands (biquads whose frequency, Q and gain are set live), the speaker boost,
-# then a limiter (ladspa-swh-plugins) so that nothing the boost or the bands add is ever cut off flat by the sound card.
-# The Surface Go speakers are quiet: the boost is a fixed digital gain, (percent / 100)^3 because PipeWire volumes are cubic. The physical sink
-# must stay at 100%. Generated by overdrive.audio.eq.conf_text(); the values here are what the chain starts with, the user's equaliser sets are applied on top at login.
-context.modules = [
-  {{ name = libpipewire-module-filter-chain
-    args = {{
-      node.description = "Built-in Speakers (boosted)"
-      media.name       = "Built-in Speakers (boosted)"
-      filter.graph = {{
-        nodes = [
-{chr(10).join(nodes)}
-        ]
-        links = [
-{chr(10).join(links)}
-        ]
-        inputs  = [ "preL:In" "preR:In" ]
-        outputs = [ "limit:Output 1" "limit:Output 2" ]
-      }}
-      audio.channels = 2
-      audio.position = [ FL FR ]
-      capture.props = {{
-        node.name = "boosted_speakers"
-        media.class = Audio/Sink
-        priority.session = 2000
-        priority.driver = 2000
-      }}
-      playback.props = {{
-        node.name = "boosted_speakers_out"
-        node.passive = true
-        target.object = "alsa_output.pci-0000_00_1f.3.analog-stereo"
-      }}
-    }}
-  }}
-]
-'''
+def set_swap(output, on):
+    state = load()
+    state["swap"][output] = bool(on)
+    _store(state)
+    apply_state(state, pw.active_output())
 
 
 # ---- presets: built-in and your own, one list ----
@@ -391,15 +379,8 @@ def export_apo(s):
 
 
 def verify():
-    """Compares the running chain with the stored set of the output in use: [(control, expected, actual)] of what differs, [] when all is applied."""
-    state = load()
-    exp = params(effective(state, pw.active_output()))
-    got = pw.get_params(NODE)
-    if not got:
-        return [("the equaliser chain is not running", "-", "-")]
-    bad = []
-    for k, v in exp.items():
-        a = got.get(k)
-        if a is None or abs(a - v) > 1e-3 * max(1.0, abs(v)):
-            bad.append((k, round(v, 4), None if a is None else round(a, 4)))
-    return bad
+    """[] when the output device runs the filters, else one line that says what is missing. PipeWire does not report the values a
+    graph inside a device runs with, so this cannot compare them: it checks that the graph was loaded into the device that is there now."""
+    if pw.node_serial(SINK) is None:
+        return [("the built-in sound output is not there", "-", "-")]
+    return [] if graph.loaded(SINK, VERSION) else [("the boost and equaliser are not loaded", "-", "-")]

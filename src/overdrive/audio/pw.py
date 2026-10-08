@@ -24,12 +24,29 @@ def node_id(name):
     return None
 
 
+def node_serial(name):
+    """(id, serial) of the node with this node.name, or None. The serial is new every time the node is made again."""
+    rc, out = run(["pw-dump"], timeout=10)
+    try:
+        for o in json.loads(out):
+            props = o.get("info", {}).get("props", {}) if o.get("type", "").endswith("Node") else {}
+            if props.get("node.name") == name:
+                return o["id"], str(props.get("object.serial", o["id"]))
+    except ValueError:
+        pass
+    return None
+
+
+def _quote(value):
+    return json.dumps(value) if isinstance(value, str) else "%g" % value
+
+
 def set_params(name, params):
     """Change filter chain controls of a running node, for example {"gainL:Mult": 1.5}. True when PipeWire took them."""
     nid = node_id(name)
     if nid is None:
         return False
-    items = " ".join('"%s" %g' % (k, v) for k, v in params.items())
+    items = " ".join('"%s" %s' % (k, _quote(v)) for k, v in params.items())
     return run(["pw-cli", "set-param", str(nid), "Props", "{ params = [ %s ] }" % items])[0] == 0
 
 

@@ -5,48 +5,58 @@ import QtQuick.Layouts
 import QtQuick.Dialogs
 import org.kde.kirigami as Kirigami
 
-// Speaker boost and equaliser, microphone improvement, volume buttons: a column that goes at the end of Plasma's Sound page.
+// What this project adds to the Sound page of Plasma, in two parts that the page places where they belong:
+//   speakerPart  volume boost and equalizer of the built-in output, to go under the list of playback devices
+//   micPart      the improvement of the built-in microphone, to go under the list of recording devices
+// Left alone (a Plasma page built differently) they simply follow each other.
 ColumnLayout {
     id: root
 
     Layout.fillWidth: true
-    spacing: Kirigami.Units.largeSpacing
+    spacing: 0
 
-    property var d: ({ eq: { sync: true, sets: { speaker: { boost: 120, preamp: 0, bands: [] }, headphones: { boost: 100, preamp: 0, bands: [] } } },
-                       active: "speaker", presets: [], mic: { available: false, running: false, values: {}, ranges: {}, presets: [] },
+    property alias messagePart: message
+    property alias speakerPart: speaker
+    property alias micPart: microphone
+
+    property var d: ({ eq: { sync: true, swap: { speaker: false, headphones: true },
+                             sets: { speaker: { boost: 120, preamp: 0, bands: [] }, headphones: { boost: 100, preamp: 0, bands: [] } } },
+                       active: "speaker", presets: [], mic: { available: false, running: false, values: {}, ranges: {}, defaults: {}, presets: [] },
                        output: {}, input: {}, volume_hold: "on" })
     property string editing: "speaker"
     property int sel: 4
-    property bool testing: false
     readonly property var cur: d.eq.sets[editing]
+    readonly property var band: cur.bands[sel] || ({ type: "peak", freq: 1000, gain: 0, q: 1, on: true })
     readonly property var kindNames: ({ peak: i18n("Peak"), lowshelf: i18n("Low shelf"), highshelf: i18n("High shelf"),
                                         highpass: i18n("High-pass (low cut)"), lowpass: i18n("Low-pass (high cut)") })
     function kindsFor(i) { return i === 0 ? ["peak", "lowshelf", "highpass"] : i === 9 ? ["peak", "highshelf", "lowpass"] : ["peak"] }
+    function presetAt(list, index) { return index >= 0 && index < list.length ? list[index] : null }
 
     // ---- talking to overdrivectl ----
     function audio(tag, args) { kcm.call(tag, ["audio"].concat(args)) }
     function load() { audio("load", ["describe"]) }
-    Component.onCompleted: { load(); editing = "speaker" }
-    Timer { interval: 4000; repeat: true; running: root.visible; onTriggered: if (!sendTimer.running) root.audio("quiet", ["describe"]) }
+    Component.onCompleted: load()
+    Timer { interval: 4000; repeat: true; running: root.visible; onTriggered: if (!sendTimer.running && !micTimer.running) root.audio("quiet", ["describe"]) }
     Connections {
         target: kcm
         function onCallFinished(tag, ok, output, error) {
-            if (["load", "action", "quiet"].indexOf(tag) < 0) return
+            if (["load", "action", "quiet", "set"].indexOf(tag) < 0) return
             if (!ok) { if (tag !== "quiet") message.text = error || i18n("The change was not applied."); return }
             let r
             try { r = JSON.parse(output) } catch (e) { return }
-            if (tag === "quiet") {
-                // keep what the sliders show while the user is working: only the mic state and the output volume are refreshed
+            if (!r || !r.eq || !r.mic) return
+            if (tag === "quiet" || tag === "set") {
+                // keep what the sliders show while the user is working: only what changes by itself is refreshed
                 root.d = Object.assign({}, root.d, { active: r.active, output: r.output, input: r.input, volume_hold: r.volume_hold,
                                                      mic: Object.assign({}, root.d.mic, { available: r.mic.available, running: r.mic.running }) })
                 return
             }
             root.d = r
+            if (r.eq.sync) root.editing = "speaker"
             if (r.notes && r.notes.length > 0) message.text = r.notes.join("\n")
-            else if (r.result === "invalid") message.text = i18n("Please type a name.")
+            else if (r.result === "invalid") message.text = i18n("Please type a name that is not one of the built-in presets.")
             else if (r.result === false && tag === "action") message.text = i18n("That did not work.")
             else message.text = ""
-            busyMic.running = false
         }
         function onChangeFinished(ok, msg) {
             if (!ok) message.text = msg || i18n("The change was not applied.")
@@ -54,7 +64,7 @@ ColumnLayout {
         }
     }
 
-    // ---- equaliser edits: stored and applied live, a moment after the last change ----
+    // ---- equalizer edits: stored and applied live, a moment after the last change ----
     property var pendingEq: null
     function pushEq(set) {
         const sets = Object.assign({}, d.eq.sets); sets[editing] = set
@@ -62,13 +72,13 @@ ColumnLayout {
         pendingEq = { output: editing, set: set }
         sendTimer.restart()
     }
-    function setBand(i, key, value) {
-        const c = JSON.parse(JSON.stringify(cur)); c.bands[i][key] = value; pushEq(c)
-    }
+    function copyOfCurrent() { return JSON.parse(JSON.stringify(cur)) }
+    function setBand(i, key, value) { const c = copyOfCurrent(); if (!c.bands[i]) return; c.bands[i][key] = value; pushEq(c) }
     function setBandPos(i, f, g) {
-        const c = JSON.parse(JSON.stringify(cur)); c.bands[i].freq = Math.round(f); c.bands[i].gain = Math.round(g * 10) / 10; pushEq(c)
+        const c = copyOfCurrent(); if (!c.bands[i]) return
+        c.bands[i].freq = Math.round(f); c.bands[i].gain = Math.round(g * 10) / 10; pushEq(c)
     }
-    function setTop(key, value) { const c = JSON.parse(JSON.stringify(cur)); c[key] = value; pushEq(c) }
+    function setTop(key, value) { const c = copyOfCurrent(); c[key] = value; pushEq(c) }
     Timer {
         id: sendTimer; interval: 120
         onTriggered: { const p = root.pendingEq; root.pendingEq = null; if (p) root.audio("set", ["eq", "set", p.output, JSON.stringify(p.set)]) }
@@ -90,76 +100,74 @@ ColumnLayout {
         standardButtons: QQC2.Dialog.Ok | QQC2.Dialog.Cancel
         contentItem: ColumnLayout {
             QQC2.Label { text: i18n("Name:") }
-            QQC2.TextField { id: nameField; Layout.fillWidth: true; Layout.minimumWidth: Kirigami.Units.gridUnit * 18; onAccepted: nd.accept() }
+            QQC2.TextField { id: nameField; Layout.fillWidth: true; Layout.minimumWidth: Kirigami.Units.gridUnit * 18; maximumLength: 60; onAccepted: nd.accept() }
         }
         function begin(t, fn) { title = t; accepted_ = fn; nameField.text = ""; open(); nameField.forceActiveFocus() }
         onAccepted: if (accepted_) accepted_(nameField.text)
     }
     NameDialog { id: eqName }
     NameDialog { id: micName }
+    function localPath(url) { return decodeURIComponent(url.toString().replace(/^file:\/\//, "")) }
     FileDialog {
         id: importDialog
         title: i18n("Import an Equalizer APO / AutoEQ text file")
         nameFilters: [i18n("Text files (*.txt)"), i18n("All files (*)")]
-        onAccepted: root.audio("action", ["eq", "import", root.editing, selectedFile.toString().replace("file://", "")])
+        onAccepted: root.audio("action", ["eq", "import", root.editing, root.localPath(selectedFile)])
     }
     FileDialog {
         id: exportDialog
         title: i18n("Export as an Equalizer APO text file")
         fileMode: FileDialog.SaveFile
         nameFilters: [i18n("Text files (*.txt)")]
-        onAccepted: root.audio("action", ["eq", "export", root.editing, selectedFile.toString().replace("file://", "")])
+        onAccepted: root.audio("action", ["eq", "export", root.editing, root.localPath(selectedFile)])
     }
 
-    ColumnLayout {
+    Kirigami.InlineMessage {
+        id: message
         Layout.fillWidth: true
-        spacing: Kirigami.Units.largeSpacing
+        Layout.margins: visible ? Kirigami.Units.largeSpacing : 0
+        visible: text.length > 0
+        type: Kirigami.MessageType.Warning
+        showCloseButton: true
+    }
 
-        Kirigami.InlineMessage { id: message; Layout.fillWidth: true; visible: text.length > 0; type: Kirigami.MessageType.Warning; showCloseButton: true }
+    // ================= built-in output: boost and equalizer =================
+    ColumnLayout {
+        id: speaker
+        Layout.fillWidth: true
+        Layout.fillHeight: false
+        spacing: 0
 
-        // ---------------- volume buttons ----------------
         Section {
-            title: i18n("Volume buttons")
-            QQC2.Switch {
-                text: i18n("Hold a volume button to repeat")
-                checked: root.d.volume_hold === "on"
-                enabled: root.d.volume_hold !== "unavailable" && !kcm.busy
-                onToggled: kcm.changeSetting("volume-hold", checked ? "on" : "off")
-                    QQC2.ToolTip.text: i18n("The Surface Go volume buttons send one step per press by default. With this on, holding a button keeps changing the volume. Asks for your password.")
-                    QQC2.ToolTip.visible: hovered || pressed
-                    QQC2.ToolTip.delay: Kirigami.Units.toolTipDelay
-            }
-        }
-
-        // ---------------- output ----------------
-        Section {
-            title: i18n("Boost")
+            title: i18n("Volume Boost")
             RowLayout {
                 Layout.fillWidth: true
-                Repeater {
-                    model: [{ t: i18n("Speakers"), o: "speaker" }, { t: i18n("Headphones"), o: "headphones" }]
-                    delegate: QQC2.Button {
-                        Layout.fillWidth: true
-                        text: modelData.t + (root.d.active === modelData.o ? i18n("  (in use)") : "")
-                        checkable: true; autoExclusive: true; highlighted: checked
-                        checked: root.editing === modelData.o
-                        enabled: !root.d.eq.sync || modelData.o === "speaker"
-                        onClicked: root.editing = modelData.o
-                    }
+                spacing: Kirigami.Units.smallSpacing
+                QQC2.Label { text: i18n("Settings for:") }
+                QQC2.ComboBox {
+                    id: outputBox
+                    Layout.preferredWidth: Kirigami.Units.gridUnit * 14
+                    readonly property var outputs: ["speaker", "headphones"]
+                    model: [i18n("Speakers"), i18n("Headphones")].map((t, i) => t + (root.d.active === outputs[i] ? i18n(" (in use)") : ""))
+                    enabled: !root.d.eq.sync
+                    currentIndex: Math.max(0, outputs.indexOf(root.editing))
+                    onActivated: i => root.editing = outputs[i]
                 }
-            }
-            QQC2.Switch {
-                text: i18n("Use the speaker settings for the headphones too")
-                checked: root.d.eq.sync
-                onToggled: { if (checked) root.editing = "speaker"; root.audio("action", ["eq", "sync", checked ? "on" : "off"]) }
+                Check {
+                    text: i18n("Same for both")
+                    help: i18n("Use the settings of the speakers for the headphones too. Turn it off to give the headphones their own boost and equalizer, which apply by themselves when headphones are plugged in.")
+                    checked: root.d.eq.sync
+                    onToggled: { if (checked) root.editing = "speaker"; root.audio("action", ["eq", "sync", checked ? "on" : "off"]) }
+                }
+                Item { Layout.fillWidth: true }
             }
             Adjust {
                 onReset: edited(neutral)
                 label: i18n("Volume boost")
-                from: 100; to: 180; step: 1; unit: "%"; neutral: 100
+                from: 100; to: 180; step: 1; unit: "%"; neutral: root.editing === "speaker" ? 120 : 100
                 value: root.cur.boost
                 onEdited: v => root.setTop("boost", v)
-                help: i18n("How much louder the \"Built-in Speakers (boosted)\" output of the Sound tab is than the plain speakers: extra digital volume on top of the volume slider (100% = none, 120% suits the Surface Go speakers). For headphones keep it near 100%.")
+                help: i18n("Extra volume on top of the volume slider (100% = none). The Surface Go speakers are quiet: 120% suits them. Loud passages are held just below the maximum instead of distorting. For headphones keep it near 100%.")
             }
             Adjust {
                 onReset: edited(neutral)
@@ -167,48 +175,65 @@ ColumnLayout {
                 from: -24; to: 12; step: 0.5; unit: "dB"; neutral: 0
                 value: root.cur.preamp
                 onEdited: v => root.setTop("preamp", v)
-                help: i18n("Lowers the level before the equaliser. Use a negative value when boosting bands, so loud passages do not distort.")
+                help: i18n("Changes the level before the equalizer. Use a negative value when raising bands a lot, to keep the loud passages clean.")
+            }
+            Check {
+                text: root.editing === "headphones" ? i18n("Swap left and right on the headphones") : i18n("Swap left and right on the speakers")
+                help: i18n("Exchanges the left and the right channel of this output. Use the Test button of the device above to hear which side is which.")
+                checked: root.d.eq.swap ? root.d.eq.swap[swapOutput.target] : false
+                onToggled: root.audio("action", ["eq", "swap", swapOutput.target, checked ? "on" : "off"])
+                // with "Same for both" the equalizer is shared, the sides are not: this then acts on the output in use
+                QtObject { id: swapOutput; readonly property string target: root.d.eq.sync ? root.d.active : root.editing }
+            }
+            Check {
+                text: i18n("Holding a volume button keeps changing the volume")
+                help: i18n("The volume buttons of the Surface Go send one step per press by default. With this on, holding a button repeats. Asks for your password.")
+                checked: root.d.volume_hold === "on"
+                enabled: root.d.volume_hold !== "unavailable" && !kcm.busy
+                onToggled: kcm.changeSetting("volume-hold", checked ? "on" : "off")
             }
         }
 
         Section {
-            title: i18n("Equaliser")
+            title: i18n("Equalizer")
             RowLayout {
                 Layout.fillWidth: true
+                spacing: Kirigami.Units.smallSpacing
+                QQC2.Label { text: i18n("Preset:") }
                 QQC2.ComboBox {
                     id: presetBox
                     Layout.fillWidth: true
+                    Layout.maximumWidth: Kirigami.Units.gridUnit * 18
                     model: root.d.presets.map(p => p.name + (p.builtin ? "" : i18n("  (yours)")))
                 }
                 QQC2.Button {
                     text: i18n("Apply"); icon.name: "dialog-ok-apply"
-                    enabled: root.d.presets.length > 0
+                    enabled: root.presetAt(root.d.presets, presetBox.currentIndex) !== null
                     onClicked: root.audio("action", ["eq", "preset", "apply", root.editing, root.d.presets[presetBox.currentIndex].name])
                 }
-                QQC2.Button { text: i18n("Save as..."); icon.name: "document-save-as"; onClicked: eqName.begin(i18n("Save the current equaliser as a preset"), n => root.audio("action", ["eq", "preset", "save", n, root.editing])) }
+                QQC2.Button {
+                    text: i18n("Save As…"); icon.name: "document-save-as"
+                    onClicked: eqName.begin(i18n("Save the current equalizer as a preset"), n => root.audio("action", ["eq", "preset", "save", n, root.editing]))
+                }
                 QQC2.Button {
                     icon.name: "edit-delete"; display: QQC2.AbstractButton.IconOnly
-                    enabled: root.d.presets.length > 0 && !root.d.presets[presetBox.currentIndex].builtin
-                    onClicked: root.audio("action", ["eq", "preset", "delete", root.d.presets[presetBox.currentIndex].name])
-                    QQC2.ToolTip.text: i18n("Delete your preset"); QQC2.ToolTip.visible: hovered
+                    text: i18n("Delete your preset")
+                    readonly property var preset: root.presetAt(root.d.presets, presetBox.currentIndex)
+                    enabled: preset !== null && !preset.builtin
+                    onClicked: root.audio("action", ["eq", "preset", "delete", preset.name])
+                    QQC2.ToolTip.text: text; QQC2.ToolTip.visible: hovered; QQC2.ToolTip.delay: Kirigami.Units.toolTipDelay
                 }
-            }
-            RowLayout {
-                Layout.fillWidth: true
-                QQC2.Button { text: i18n("Import..."); icon.name: "document-import"; onClicked: importDialog.open() }
-                QQC2.Button { text: i18n("Export..."); icon.name: "document-export"; onClicked: exportDialog.open() }
                 Item { Layout.fillWidth: true }
                 QQC2.Button {
-                    text: i18n("Play a sweep"); icon.name: "media-playback-start"
-                    onClicked: kcm.call("play", ["audio", "play", "sweep"])
-                    QQC2.ToolTip.text: i18n("A tone that goes from 40 Hz to 16 kHz, to hear where the speakers rattle or fade")
-                    QQC2.ToolTip.visible: hovered
+                    text: i18n("Reset"); icon.name: "edit-reset"
+                    onClicked: root.audio("action", ["eq", "flat", root.editing])
+                    QQC2.ToolTip.text: i18n("All ten bands back to flat. The boost and the pre-amplifier stay as they are.")
+                    QQC2.ToolTip.visible: hovered; QQC2.ToolTip.delay: Kirigami.Units.toolTipDelay
                 }
-                QQC2.Button { icon.name: "media-playback-stop"; display: QQC2.AbstractButton.IconOnly; onClicked: kcm.call("stop", ["audio", "stop"]) }
             }
             EqGraph {
                 Layout.fillWidth: true
-                Layout.preferredHeight: Kirigami.Units.gridUnit * 14
+                Layout.preferredHeight: Kirigami.Units.gridUnit * 13
                 bands: root.cur.bands
                 selected: root.sel
                 onBandSelected: i => root.sel = i
@@ -216,88 +241,110 @@ ColumnLayout {
             }
             RowLayout {
                 Layout.fillWidth: true
-                QQC2.Label { text: i18n("Band %1", root.sel + 1); font.bold: true }
+                spacing: Kirigami.Units.smallSpacing
+                QQC2.Label { text: i18n("Band %1:", root.sel + 1) }
                 QQC2.ComboBox {
-                    Layout.fillWidth: true
+                    Layout.preferredWidth: Kirigami.Units.gridUnit * 12
                     model: root.kindsFor(root.sel).map(k => root.kindNames[k])
-                    currentIndex: Math.max(0, root.kindsFor(root.sel).indexOf(root.cur.bands[root.sel] ? root.cur.bands[root.sel].type : "peak"))
+                    enabled: count > 1
+                    currentIndex: Math.max(0, root.kindsFor(root.sel).indexOf(root.band.type))
                     onActivated: i => root.setBand(root.sel, "type", root.kindsFor(root.sel)[i])
                 }
-                QQC2.Switch { checked: root.cur.bands[root.sel] ? root.cur.bands[root.sel].on : true; onToggled: root.setBand(root.sel, "on", checked) }
+                Check {
+                    text: i18n("Active")
+                    help: i18n("Turn the band off to hear the sound without it.")
+                    checked: root.band.on
+                    onToggled: root.setBand(root.sel, "on", checked)
+                }
+                Item { Layout.fillWidth: true }
+                QQC2.Button {
+                    text: i18n("Play a Sweep"); icon.name: "media-playback-start"
+                    onClicked: kcm.call("play", ["audio", "play", "sweep"])
+                    QQC2.ToolTip.text: i18n("A tone that rises from 40 Hz to 16 kHz, to hear where the speakers rattle or fade")
+                    QQC2.ToolTip.visible: hovered; QQC2.ToolTip.delay: Kirigami.Units.toolTipDelay
+                }
+                QQC2.Button {
+                    icon.name: "media-playback-stop"; display: QQC2.AbstractButton.IconOnly
+                    text: i18n("Stop")
+                    onClicked: kcm.call("stop", ["audio", "stop"])
+                    QQC2.ToolTip.text: text; QQC2.ToolTip.visible: hovered; QQC2.ToolTip.delay: Kirigami.Units.toolTipDelay
+                }
+                QQC2.Button { text: i18n("Import…"); icon.name: "document-import"; onClicked: importDialog.open() }
+                QQC2.Button { text: i18n("Export…"); icon.name: "document-export"; onClicked: exportDialog.open() }
             }
             Adjust {
-                onReset: edited(neutral)
                 label: i18n("Frequency"); help: i18n("Where the band acts: low numbers are bass, high numbers treble."); from: 20; to: 20000; step: 1; unit: "Hz"; showReset: false
-                value: root.cur.bands[root.sel] ? root.cur.bands[root.sel].freq : 1000
+                value: root.band.freq
                 onEdited: v => root.setBand(root.sel, "freq", v)
             }
             Adjust {
                 onReset: edited(neutral)
                 label: i18n("Gain"); help: i18n("How much the band raises (positive) or lowers (negative) the sound around its frequency."); from: -15; to: 15; step: 0.5; unit: "dB"; neutral: 0
-                value: root.cur.bands[root.sel] ? root.cur.bands[root.sel].gain : 0
+                value: root.band.gain
                 onEdited: v => root.setBand(root.sel, "gain", v)
             }
             Adjust {
                 onReset: edited(neutral)
                 label: i18n("Width (Q)"); help: i18n("How narrow the band is: a high number changes only the sound right at the frequency, a low one a wide range around it."); from: 0.2; to: 10; step: 0.1; unit: ""; neutral: 1
-                value: root.cur.bands[root.sel] ? root.cur.bands[root.sel].q : 1
+                value: root.band.q
                 onEdited: v => root.setBand(root.sel, "q", v)
             }
         }
+    }
 
-        // ---------------- microphone ----------------
+    // ================= built-in microphone =================
+    ColumnLayout {
+        id: microphone
+        Layout.fillWidth: true
+        Layout.fillHeight: false
+        spacing: 0
+
         Section {
-            title: i18n("Microphone")
-            RowLayout {
-                Layout.fillWidth: true
-                QQC2.Switch {
-                    text: i18n("Improve the built-in microphone")
-                    checked: root.d.mic.available
-                    enabled: !busyMic.running
-                    onToggled: { busyMic.running = true; root.audio("action", ["mic", checked ? "enable" : "disable"]) }
-                    QQC2.ToolTip.text: i18n("Adds noise suppression and a small equaliser to the built-in microphone and makes it the default one. Turning it on or off restarts the sound system for a second or two.")
-                    QQC2.ToolTip.visible: hovered || pressed
-                    QQC2.ToolTip.delay: Kirigami.Units.toolTipDelay
-                }
-                QQC2.BusyIndicator { id: busyMic; running: false; visible: running; implicitWidth: Kirigami.Units.gridUnit * 1.6; implicitHeight: implicitWidth }
+            title: i18n("Microphone Enhancement")
+            Check {
+                text: i18n("Improve the built-in microphone")
+                help: i18n("Adds noise suppression and a small equalizer to the built-in microphone. Every app that records from it gets the improved sound.")
+                checked: root.d.mic.available
+                onToggled: root.audio("action", ["mic", checked ? "enable" : "disable"])
             }
             ColumnLayout {
                 Layout.fillWidth: true
                 enabled: root.d.mic.available
+                spacing: Kirigami.Units.smallSpacing
                 RowLayout {
                     Layout.fillWidth: true
-                    QQC2.ComboBox { id: micPreset; Layout.fillWidth: true; model: root.d.mic.presets.map(p => p.name + (p.builtin ? "" : i18n("  (yours)"))) }
-                    QQC2.Button { text: i18n("Apply"); icon.name: "dialog-ok-apply"; onClicked: root.audio("action", ["mic", "preset", "apply", root.d.mic.presets[micPreset.currentIndex].name]) }
-                    QQC2.Button { text: i18n("Save as..."); icon.name: "document-save-as"; onClicked: micName.begin(i18n("Save the microphone settings as a preset"), n => root.audio("action", ["mic", "preset", "save", n])) }
+                    spacing: Kirigami.Units.smallSpacing
+                    QQC2.Label { text: i18n("Preset:") }
+                    QQC2.ComboBox {
+                        id: micPreset
+                        Layout.fillWidth: true
+                        Layout.maximumWidth: Kirigami.Units.gridUnit * 18
+                        model: root.d.mic.presets.map(p => p.name + (p.builtin ? "" : i18n("  (yours)")))
+                    }
+                    QQC2.Button {
+                        text: i18n("Apply"); icon.name: "dialog-ok-apply"
+                        enabled: root.presetAt(root.d.mic.presets, micPreset.currentIndex) !== null
+                        onClicked: root.audio("action", ["mic", "preset", "apply", root.d.mic.presets[micPreset.currentIndex].name])
+                    }
+                    QQC2.Button {
+                        text: i18n("Save As…"); icon.name: "document-save-as"
+                        onClicked: micName.begin(i18n("Save the microphone settings as a preset"), n => root.audio("action", ["mic", "preset", "save", n]))
+                    }
                     QQC2.Button {
                         icon.name: "edit-delete"; display: QQC2.AbstractButton.IconOnly
-                        enabled: root.d.mic.presets.length > 0 && !root.d.mic.presets[micPreset.currentIndex].builtin
-                        onClicked: root.audio("action", ["mic", "preset", "delete", root.d.mic.presets[micPreset.currentIndex].name])
+                        text: i18n("Delete your preset")
+                        readonly property var preset: root.presetAt(root.d.mic.presets, micPreset.currentIndex)
+                        enabled: preset !== null && !preset.builtin
+                        onClicked: root.audio("action", ["mic", "preset", "delete", preset.name])
+                        QQC2.ToolTip.text: text; QQC2.ToolTip.visible: hovered; QQC2.ToolTip.delay: Kirigami.Units.toolTipDelay
                     }
-                }
-                Repeater {
-                    model: [{ k: "gain", t: i18n("Gain"), u: "dB", s: 0.5, n: 0, h: i18n("Makes your voice louder or quieter for the apps that listen.") },
-                            { k: "lowcut", t: i18n("Low cut"), u: "Hz", s: 5, n: 80, h: i18n("Removes everything below this frequency: rumble, bumps on the table, wind. Too high and the voice gets thin.") },
-                            { k: "bass", t: i18n("Bass"), u: "dB", s: 0.5, n: 0, h: i18n("The body of the voice (around 200 Hz). Raise it for a fuller voice, lower it if it booms.") },
-                            { k: "presence", t: i18n("Presence"), u: "dB", s: 0.5, n: 0, h: i18n("The part that makes speech easy to understand (around 3 kHz).") },
-                            { k: "treble", t: i18n("Treble"), u: "dB", s: 0.5, n: 0, h: i18n("The airy top of the voice (above 8 kHz). Lower it if the microphone hisses.") }]
-                    delegate: Adjust {
-                onReset: edited(neutral)
-                        label: modelData.t; help: modelData.h; unit: modelData.u; step: modelData.s; neutral: modelData.n
-                        from: root.d.mic.ranges[modelData.k] ? root.d.mic.ranges[modelData.k][0] : 0
-                        to: root.d.mic.ranges[modelData.k] ? root.d.mic.ranges[modelData.k][1] : 1
-                        value: root.d.mic.values[modelData.k] !== undefined ? root.d.mic.values[modelData.k] : 0
-                        onEdited: v => root.setMic(modelData.k, v)
-                    }
-                }
-                RowLayout {
-                    Layout.fillWidth: true
+                    Item { Layout.fillWidth: true }
                     QQC2.Button {
                         id: recordButton
                         // 0 idle, 5..1 recording (seconds left), -1 playing back
                         property int phase: 0
-                        text: phase > 0 ? i18n("Recording: speak now (%1)", phase) : phase < 0 ? i18n("Playing it back...") : i18n("Record 5 seconds and play back")
-                        icon.name: phase > 0 ? "media-record" : phase < 0 ? "media-playback-start" : "media-record"
+                        text: phase > 0 ? i18n("Recording: Speak Now (%1)", phase) : phase < 0 ? i18n("Playing It Back…") : i18n("Record 5 Seconds and Play Back")
+                        icon.name: phase < 0 ? "media-playback-start" : "media-record"
                         enabled: phase === 0
                         onClicked: { phase = 5; recordTick.start(); kcm.call("record", ["audio", "record"]) }
                         Timer { id: recordTick; interval: 1000; repeat: true; onTriggered: { recordButton.phase--; if (recordButton.phase <= 0) { recordButton.phase = -1; stop() } } }
@@ -309,7 +356,7 @@ ColumnLayout {
                                 if (!ok) message.text = error || i18n("The recording did not work.")
                             }
                         }
-                        QQC2.ToolTip.text: i18n("Records the microphone as apps hear it, then plays it back, so you can hear what the settings above do.")
+                        QQC2.ToolTip.text: i18n("Records the microphone as apps hear it, then plays it back, so you can hear what these settings do.")
                         QQC2.ToolTip.visible: hovered && phase === 0
                         QQC2.ToolTip.delay: Kirigami.Units.toolTipDelay
                     }
@@ -318,7 +365,23 @@ ColumnLayout {
                         visible: recordButton.phase !== 0
                         onClicked: kcm.call("stop", ["audio", "stop"])
                     }
-                    Item { Layout.fillWidth: true }
+                }
+                Repeater {
+                    model: [{ k: "denoise", t: i18n("Noise suppression"), u: "%", s: 5, h: i18n("How much of the background noise (fans, hiss, the room) is taken out. 0% leaves the sound untouched.") },
+                            { k: "gain", t: i18n("Gain"), u: "dB", s: 0.5, h: i18n("Makes your voice louder or quieter for the apps that listen.") },
+                            { k: "lowcut", t: i18n("Low cut"), u: "Hz", s: 5, h: i18n("Removes everything below this frequency: rumble, bumps on the table, wind. Too high and the voice gets thin.") },
+                            { k: "bass", t: i18n("Bass"), u: "dB", s: 0.5, h: i18n("The body of the voice (around 200 Hz). Raise it for a fuller voice, lower it if it booms.") },
+                            { k: "presence", t: i18n("Presence"), u: "dB", s: 0.5, h: i18n("The part that makes speech easy to understand (around 3 kHz).") },
+                            { k: "treble", t: i18n("Treble"), u: "dB", s: 0.5, h: i18n("The airy top of the voice (above 8 kHz). Lower it if the microphone hisses.") }]
+                    delegate: Adjust {
+                        onReset: edited(neutral)
+                        label: modelData.t; help: modelData.h; unit: modelData.u; step: modelData.s
+                        neutral: root.d.mic.defaults && root.d.mic.defaults[modelData.k] !== undefined ? root.d.mic.defaults[modelData.k] : 0
+                        from: root.d.mic.ranges[modelData.k] ? root.d.mic.ranges[modelData.k][0] : 0
+                        to: root.d.mic.ranges[modelData.k] ? root.d.mic.ranges[modelData.k][1] : 1
+                        value: root.d.mic.values[modelData.k] !== undefined ? root.d.mic.values[modelData.k] : 0
+                        onEdited: v => root.setMic(modelData.k, v)
+                    }
                 }
             }
         }

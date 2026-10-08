@@ -100,9 +100,9 @@ INFO = {
         "overdrivectl volume-hold on"),
     "audio": (
         "Louder speakers and a sane microphone level.",
-        "A virtual sink applies a fixed gain to the speakers (the hardware has no headroom). The internal microphone path is limited to +18 dB "
-        "with the boost off.",
-        "If the default output is not 'boosted_speakers', restart PipeWire: systemctl --user restart pipewire wireplumber."),
+        "A boost, an equaliser and a limiter run inside the built-in sound output (the hardware has no headroom). The internal microphone "
+        "path is limited to +18 dB with the boost off.",
+        "If the boost is not loaded, restart the service that loads it: systemctl --user restart overdrive-audio-route."),
     "secure-boot": (
         "With Secure Boot on, the kernel only loads signed modules.",
         "The project key signs the modules; its certificate was enrolled once in the firmware (MOK).",
@@ -209,12 +209,20 @@ def check_volume_hold(system):
     return _check("volume-hold", "Devices", "Volume buttons hold to repeat", OK, "on" if value in ("Y", "1") else "off (by choice)")
 
 
+def filters_missing():
+    """What the built-in sound output lacks of its boost and equaliser, as text; "" when they run."""
+    from .audio import eq
+    return "; ".join(line[0] for line in eq.verify())
+
+
 def check_audio(system):
-    rc, sink = system.run(["pactl", "get-default-sink"])
+    rc, _ = system.run(["pactl", "get-default-sink"])
     path = system.read("/usr/share/alsa-card-profile/mixer/paths/analog-input-internal-mic.conf") or ""
     problems = []
-    if rc == 0 and sink.strip() != "boosted_speakers":
-        problems.append("default output is %s" % sink.strip())
+    if rc == 0:
+        missing = filters_missing()
+        if missing:
+            problems.append(missing)
     if "Surface Overdrive" not in path:
         problems.append("microphone path not limited")
     if problems:
