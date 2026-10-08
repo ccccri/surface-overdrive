@@ -99,6 +99,8 @@ RUN set -eux; \
     rm -rf /tmp/libcamera-rpms /tmp/libcamera-packages; dnf5 clean all
 COPY ci/patch_acp_mic.py /tmp/patch_acp_mic.py
 RUN python3 /tmp/patch_acp_mic.py && rm /tmp/patch_acp_mic.py
+COPY ci/patch_lockscreen.py /tmp/patch_lockscreen.py
+RUN python3 /tmp/patch_lockscreen.py && rm /tmp/patch_lockscreen.py
 # The limiter at the end of the speaker chain (image/rootfs/usr/share/pipewire/pipewire.conf.d/10-overdrive-speaker-gain.conf)
 RUN dnf5 -y install --setopt=install_weak_deps=False ladspa-swh-plugins && dnf5 clean all \
     && test -f /usr/lib64/ladspa/fast_lookahead_limiter_1913.so
