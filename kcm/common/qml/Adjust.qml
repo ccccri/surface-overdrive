@@ -11,7 +11,7 @@ import org.kde.kirigami as Kirigami
 //    kept, so the sliders all end at the same place.
 //  - The explanation is a tooltip: under the mouse or the hovering pen, or after a tap on the name. It never takes room in the
 //    layout, so nothing moves when it shows.
-RowLayout {
+GridLayout {
     id: adjust
 
     property string label
@@ -34,20 +34,40 @@ RowLayout {
 
     property real labelWidth: Kirigami.Units.gridUnit * 9      // the same for the adjustments of a group
     property real valueWidth: Kirigami.Units.gridUnit * 4.5
+    // Stacked: the name and the value on one line and the slider under them over the whole width, for a narrow column of
+    // settings where a slider next to its name would be too short to set precisely.
+    property bool stacked: false
+    property bool helpButton: true    // the small (i) next to the name, as Plasma has it; the tooltip on the name works either way
+
+    columns: stacked ? 2 : 3
+    rowSpacing: 0
+    columnSpacing: Kirigami.Units.smallSpacing
 
     Layout.fillWidth: true
     Layout.fillHeight: false
-    spacing: Kirigami.Units.smallSpacing
 
-    HelpLabel {
-        text: adjust.label.length > 0 ? i18nc("the name of a setting, in front of its control", "%1:", adjust.label) : ""
-        help: adjust.help
-        horizontalAlignment: Text.AlignRight
-        Layout.preferredWidth: adjust.labelWidth
-        Layout.maximumWidth: adjust.labelWidth
+    RowLayout {
+        Layout.row: 0; Layout.column: 0
+        Layout.fillWidth: adjust.stacked
+        Layout.preferredWidth: adjust.stacked ? -1 : adjust.labelWidth
+        Layout.maximumWidth: adjust.stacked ? -1 : adjust.labelWidth
+        spacing: 0
+        HelpLabel {
+            text: adjust.stacked || adjust.label.length === 0 ? adjust.label : i18nc("the name of a setting, in front of its control", "%1:", adjust.label)
+            help: adjust.help
+            horizontalAlignment: adjust.stacked ? Text.AlignLeft : Text.AlignRight
+            Layout.fillWidth: !adjust.stacked
+        }
+        Kirigami.ContextualHelpButton {
+            visible: adjust.helpButton && adjust.stacked && adjust.help.length > 0
+            toolTipText: adjust.help
+        }
+        Item { Layout.fillWidth: true; visible: adjust.stacked }
     }
     QQC2.Slider {
         id: slider
+        Layout.row: adjust.stacked ? 1 : 0; Layout.column: adjust.stacked ? 0 : 1
+        Layout.columnSpan: adjust.stacked ? 2 : 1
         Layout.fillWidth: true
         from: adjust.from; to: adjust.to
         // no stepSize: the desktop style would draw a tick for every step. The value is rounded to the step here instead.
@@ -63,8 +83,13 @@ RowLayout {
         Binding { target: slider; property: "value"; value: adjust.value; when: !slider.pressed; restoreMode: Binding.RestoreNone }
     }
     RowLayout {
+        Layout.row: 0; Layout.column: adjust.stacked ? 1 : 2
         spacing: Kirigami.Units.smallSpacing
 
+        Kirigami.ContextualHelpButton {
+            visible: adjust.helpButton && !adjust.stacked && adjust.help.length > 0
+            toolTipText: adjust.help
+        }
         QQC2.ToolButton {
             opacity: adjust.showReset && slider.enabled && Math.abs(slider.value - adjust.neutral) > adjust.step / 2 ? 1 : 0
             enabled: opacity > 0

@@ -22,6 +22,7 @@ Kirigami.Page {
     actions: kcm.stockPage ? kcm.stockPage.actions : []
     signal loaded(Item page)
     Component.onCompleted: kcm.loadStock(stock)
+    Bars { target: wrapper }
 
     GridLayout {
         anchors.fill: parent

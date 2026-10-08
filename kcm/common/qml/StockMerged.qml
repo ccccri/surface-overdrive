@@ -24,6 +24,7 @@ Kirigami.Page {
     // the menu of the Plasma page (top right in the title bar) stays where it was
     actions: kcm.stockPage ? kcm.stockPage.actions : []
     Component.onCompleted: kcm.loadStock(stock)
+    Bars { target: wrapper }
 
     // The content of a Plasma page is a column a few wrappers below the page: the first column layout with several items in it.
     function column(item, depth) {

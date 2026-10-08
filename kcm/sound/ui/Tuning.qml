@@ -277,8 +277,8 @@ ColumnLayout {
                     onClicked: kcm.call("stop", ["audio", "stop"])
                     QQC2.ToolTip.text: text; QQC2.ToolTip.visible: hovered; QQC2.ToolTip.delay: Kirigami.Units.toolTipDelay
                 }
-                QQC2.Button { text: i18n("Import…"); icon.name: "document-import"; onClicked: importDialog.open() }
-                QQC2.Button { text: i18n("Export…"); icon.name: "document-export"; onClicked: exportDialog.open() }
+                QQC2.Button { text: i18n("Import…"); icon.name: "document-import"; enabled: kcm.startTab !== "stress"; onClicked: importDialog.open() }
+                QQC2.Button { text: i18n("Export…"); icon.name: "document-export"; enabled: kcm.startTab !== "stress"; onClicked: exportDialog.open() }
             }
             Adjust {
                 label: i18n("Frequency"); help: i18n("Where the band acts: low numbers are bass, high numbers treble."); from: 20; to: 20000; step: 1; unit: "Hz"; showReset: false

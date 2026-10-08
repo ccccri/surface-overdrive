@@ -25,6 +25,7 @@ Kirigami.Page {
     readonly property bool wide: width > Kirigami.Units.gridUnit * 50
     actions: kcm.stockPage ? kcm.stockPage.actions : []
     Component.onCompleted: kcm.loadStock("kcm_tablet")
+    Bars { target: wrapper }
 
     function findBar(item, depth) {
         if (!item || depth > 8) return null

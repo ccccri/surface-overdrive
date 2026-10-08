@@ -15,6 +15,7 @@ Kirigami.Page {
     Kirigami.ColumnView.fillWidth: true
     actions: kcm.stockPage ? kcm.stockPage.actions : []
     property var b: null
+    Bars { target: wrapper }
 
     // The three power states (On AC Power, On Battery, On Low Battery) are a bar of tabs in the Plasma page. They show as our slim
     // row of buttons instead, as in Cameras and Drawing Tablet: the bar of Plasma is put out of sight and our buttons press its

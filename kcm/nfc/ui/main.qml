@@ -17,6 +17,7 @@ KCM.SimpleKCM {
     readonly property bool testing: testTarget > 0 && testTags.length < testTarget
 
     function reload() { kcm.call("nfc", ["nfc"]) }
+    Bars { target: root }
     Component.onCompleted: reload()
     Timer { interval: 4000; repeat: true; running: root.visible; onTriggered: root.reload() }
     Connections {

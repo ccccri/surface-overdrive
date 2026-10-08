@@ -8,7 +8,7 @@
         "Description": "Live preview and adjustments of the front and rear camera",
         "Icon": "overdrive-camera",
         "Id": "kcm_overdrive_cameras",
-        "Name": "Cameras"
+        "Name": "Embedded Cameras"
     },
     "X-KDE-KeepAlive": true,
     "X-KDE-Keywords": "surface,camera,focus,exposure,colour,preset",

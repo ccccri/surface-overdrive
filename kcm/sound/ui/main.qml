@@ -53,6 +53,7 @@ StockMerged {
             let ours = null, stock = null
             for (let k = 0; k < line.children.length; k++) {
                 const c = line.children[k]
+                tidyPort(c, k > 0 ? line.children[k - 1] : null)
                 if (c.objectName === "overdriveProfiles") ours = c
                 else if (c.currentText !== undefined && c.model !== undefined && k > 0 && /profile/i.test(String(line.children[k - 1].text || ""))) stock = c
             }
@@ -69,6 +70,15 @@ StockMerged {
             return true
         }
         return false
+    }
+    // With headphones plugged in, the sound system marks the speakers "unavailable", and the port selector then reads
+    // "Speakers (unavailable)" for the output one has just chosen by hand and that plays. The selector shows the plain name of
+    // the port in use; the note stays in its list, where it tells which port the jack points at.
+    function tidyPort(combo, label) {
+        if (!combo || combo.objectName === "overdrivePort" || combo.currentText === undefined || combo.displayText === undefined) return
+        if (!label || !/port/i.test(String(label.text || ""))) return
+        combo.objectName = "overdrivePort"
+        combo.displayText = Qt.binding(() => String(combo.currentText).replace(/\s*\([^)]*\)\s*$/, ""))
     }
     Component {
         id: eqBox

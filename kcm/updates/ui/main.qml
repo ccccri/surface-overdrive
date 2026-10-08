@@ -14,6 +14,7 @@ Kirigami.Page {
     // A page that the Plasma page opens on top of itself takes the whole view with a way back, as it does in Plasma.
     Kirigami.ColumnView.fillWidth: true
     Component.onCompleted: kcm.loadStock("kcm_updates")
+    Bars { target: wrapper }
     actions: [
         Kirigami.Action {
             text: i18n("Check Again")
