@@ -93,10 +93,18 @@ def play_sound():
                                                    stderr=subprocess.DEVNULL, timeout=10, check=False), daemon=True).start()
 
 
-def notify(title, body, url):
-    command = ["notify-send", "--app-name=NFC", "--icon=nfc", "--urgency=normal", "--expire-time=10000"]
+def copy_text(text):
+    """Put text on the clipboard (on a touch screen the text of a notification cannot be selected)."""
+    if shutil.which("wl-copy"):
+        subprocess.run(["wl-copy", "--", text], timeout=5, check=False)
+
+
+def notify(title, body, url, content):
+    """Show the notification. Its buttons: "Open" for a link, "Copy" for what the tag holds (its first record, or its UID)."""
+    command = ["notify-send", "--app-name=NFC", "--icon=nfc", "--urgency=normal", "--expire-time=10000", "--wait"]
     if url and url.startswith(OPENABLE):
-        command += ["--action=open=Open", "--wait"]
+        command.append("--action=open=Open")
+    command.append("--action=copy=Copy")
     command += [title, html.escape(body)]
 
     def run():
@@ -107,6 +115,8 @@ def notify(title, body, url):
             return
         if out == "open" and url:
             subprocess.Popen(["xdg-open", url], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        elif out == "copy":
+            copy_text(content)
 
     threading.Thread(target=run, daemon=True).start()
 
@@ -127,7 +137,9 @@ def handle(event):
     log("event %s: %s (delivered in %.0f ms)" % (event.get("uid"), " | ".join(text), latency * 1000))
     play_sound()
     if not window_open():
-        notify("NFC tag detected", "\n".join(text), url)
+        records = flatten(event.get("records") or [])
+        content = url or (records[0][0].split(": ", 1)[-1] if records else event.get("uid", ""))
+        notify("NFC tag detected", "\n".join(text), url, content)
 
 
 def main():

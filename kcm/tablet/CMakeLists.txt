@@ -1,0 +1,2 @@
+kcmutils_add_qml_kcm(kcm_overdrive_tablet SOURCES page_tablet.cpp)
+target_link_libraries(kcm_overdrive_tablet PRIVATE overdrive_common)

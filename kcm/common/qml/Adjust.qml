@@ -5,7 +5,8 @@ import QtQuick.Layouts
 import org.kde.kirigami as Kirigami
 
 // One adjustment: its name, a number that can be typed, a button back to the default and the slider.
-// The explanation stays out of the way: it shows as a tooltip under the mouse or the pen, and a tap on the name opens it in place.
+// The explanation stays out of the way: it is a tooltip, shown under the mouse or the hovering pen and, for fingers, by a tap on
+// the name (a second tap or a few seconds close it). It never takes room in the layout, so nothing moves when it shows.
 ColumnLayout {
     id: adjust
 
@@ -41,10 +42,16 @@ ColumnLayout {
             Layout.fillWidth: true
             elide: Text.ElideRight
             HoverHandler { id: hover; acceptedDevices: PointerDevice.Mouse | PointerDevice.Stylus | PointerDevice.TouchPad }
-            TapHandler { onTapped: if (adjust.help.length > 0) helpText.visible = !helpText.visible }
-            QQC2.ToolTip.text: adjust.help
-            QQC2.ToolTip.visible: hover.hovered && adjust.help.length > 0 && !helpText.visible
-            QQC2.ToolTip.delay: Kirigami.Units.toolTipDelay
+            TapHandler { onTapped: { tip.pinned = !tip.pinned; if (tip.pinned) unpin.restart() } }
+            Timer { id: unpin; interval: 7000; onTriggered: tip.pinned = false }
+            QQC2.ToolTip {
+                id: tip
+                property bool pinned: false
+                text: adjust.help
+                visible: adjust.help.length > 0 && (pinned || hover.hovered)
+                delay: pinned ? 0 : Kirigami.Units.toolTipDelay
+                timeout: -1
+            }
         }
         QQC2.Label {
             visible: adjust.names !== null
@@ -84,20 +91,9 @@ ColumnLayout {
     QQC2.Slider {
         id: slider
         Layout.fillWidth: true
-        Layout.preferredHeight: Kirigami.Units.gridUnit * 2
-        from: adjust.from; to: adjust.to; stepSize: adjust.step
-        snapMode: QQC2.Slider.SnapAlways
-        onMoved: adjust.edited(value)
+        from: adjust.from; to: adjust.to
+        // no stepSize: the desktop style would draw a tick for every step. The value is rounded to the step here instead.
+        onMoved: { value = adjust.snap(value); adjust.edited(value) }
         Binding { target: slider; property: "value"; value: adjust.value; when: !slider.pressed; restoreMode: Binding.RestoreNone }
-    }
-    QQC2.Label {
-        id: helpText
-        visible: false
-        Layout.fillWidth: true
-        wrapMode: Text.WordWrap
-        opacity: 0.65
-        font.pointSize: Kirigami.Theme.defaultFont.pointSize - 1
-        text: adjust.help
-        bottomPadding: Kirigami.Units.smallSpacing
     }
 }

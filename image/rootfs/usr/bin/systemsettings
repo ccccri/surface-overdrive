@@ -7,6 +7,8 @@ for a in "$@"; do
         kcm_pulseaudio) a=kcm_overdrive_sound ;;
         kcm_powerdevilprofilesconfig) a=kcm_overdrive_power ;;
         kcm_about-distro) a=kcm_overdrive_about ;;
+        kcm_tablet) a=kcm_overdrive_tablet ;;
+        kcm_updates) a=kcm_overdrive_updates ;;
     esac
     args+=("$a")
 done

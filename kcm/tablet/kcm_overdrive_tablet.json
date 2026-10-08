@@ -1,0 +1,17 @@
+{
+    "KPlugin": {
+        "Authors": [
+            {
+                "Name": "ccccri"
+            }
+        ],
+        "Description": "Pen and tablet settings, pen test",
+        "Icon": "preferences-desktop-tablet",
+        "Id": "kcm_overdrive_tablet",
+        "Name": "Drawing Tablet"
+    },
+    "X-KDE-KeepAlive": true,
+    "X-KDE-Keywords": "tablet,pen,stylus,wacom,surface,pressure,eraser,draw",
+    "X-KDE-System-Settings-Parent-Category": "input-devices",
+    "X-KDE-Weight": 120
+}

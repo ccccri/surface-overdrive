@@ -51,7 +51,7 @@ KCM.SimpleKCM {
     }
 
     NfcMonitor {
-        active: root.visible
+        active: root.visible && Qt.application.state === Qt.ApplicationActive    // minimised or behind another app: let the desktop notification show
         onTag: json => {
             try {
                 const t = JSON.parse(json)

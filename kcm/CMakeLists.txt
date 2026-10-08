@@ -21,10 +21,10 @@ target_include_directories(overdrive_common PUBLIC common)
 target_link_libraries(overdrive_common PUBLIC Qt6::Core Qt6::Qml Qt6::Quick KF6::CoreAddons KF6::I18n KF6::KCMUtilsQuick)
 
 # One System Settings page = one directory with its own CMakeLists.txt, <plugin>.json, page_<name>.cpp and ui/main.qml
-add_subdirectory(overview)
-add_subdirectory(pen)
 add_subdirectory(cameras)
 add_subdirectory(sound)
 add_subdirectory(nfc)
 add_subdirectory(about)
 add_subdirectory(power)
+add_subdirectory(tablet)
+add_subdirectory(updates)

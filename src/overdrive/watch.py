@@ -1,7 +1,7 @@
 """overdrive-health-watch: tells the user, once, when a fix stops working.
 
 Runs from a systemd user timer. It reads the health checks and shows a desktop notification when the overall state got worse than
-the last one it announced (and when it is green again). The notification only points to Settings > Surface Control > Overview, where
+the last one it announced (and when it is green again). The notification only points to Settings > Software Update, which lists the Surface fixes, where
 the explanation and the remedy are.
 """
 import json
@@ -42,11 +42,11 @@ def decide(previous, checks):
 
 
 def notify(note):
-    cmd = ["notify-send", "--app-name=Surface Control", "--icon=preferences-desktop-tablet", "--action=open=Open Surface Control",
+    cmd = ["notify-send", "--app-name=Surface Control", "--icon=preferences-desktop-tablet", "--action=open=Show the Surface fixes",
            "--urgency=%s" % ("critical" if note["urgent"] else "normal"), "--wait", note["title"], note["body"]]
     out = subprocess.run(cmd, capture_output=True, text=True, timeout=120).stdout.strip()
     if out == "open":
-        subprocess.Popen(["systemsettings", "kcm_overdrive"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        subprocess.Popen(["systemsettings", "kcm_overdrive_updates"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
 def main():

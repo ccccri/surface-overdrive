@@ -1,0 +1,1 @@
+../../common/qml/StockWithSide.qml

@@ -1,0 +1,17 @@
+{
+    "KPlugin": {
+        "Authors": [
+            {
+                "Name": "ccccri"
+            }
+        ],
+        "Description": "System updates, and whether the Surface fixes of the system image work",
+        "Icon": "system-software-update",
+        "Id": "kcm_overdrive_updates",
+        "Name": "Software Update"
+    },
+    "X-KDE-KeepAlive": true,
+    "X-KDE-Keywords": "update,software,surface,fixes,health,kernel,camera,nfc,image",
+    "X-KDE-System-Settings-Parent-Category": "system-administration",
+    "X-KDE-Weight": 30
+}

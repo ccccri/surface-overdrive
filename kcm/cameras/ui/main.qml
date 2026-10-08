@@ -10,7 +10,7 @@ Kirigami.Page {
     id: root
 
     title: kcm.name
-    padding: Kirigami.Units.largeSpacing
+    padding: 0
 
     property string cam: "rear"
     property var d: ({ settings: {}, controls: [], presets: [], focus: {}, sizes: [], node: "" })
@@ -85,34 +85,29 @@ Kirigami.Page {
         header: Kirigami.Heading { level: 4; text: sec.title; padding: Kirigami.Units.smallSpacing }
         contentItem: ColumnLayout { id: body; spacing: Kirigami.Units.smallSpacing }
     }
-    // A line with a switch; the explanation shows like the one of a slider (tooltip, or a tap on the name)
-    component Toggle: ColumnLayout {
+    // A line with a switch; the explanation is a tooltip like the one of a slider (hover, or a tap on the name)
+    component Toggle: RowLayout {
         id: toggle
         property string label
         property string help
         property bool on: false
         signal flipped(bool value)
         Layout.fillWidth: true
-        spacing: 0
-        RowLayout {
-            Layout.fillWidth: true
-            QQC2.Label {
-                text: toggle.label; font.bold: true; Layout.fillWidth: true
-                HoverHandler { id: toggleHover; acceptedDevices: PointerDevice.Mouse | PointerDevice.Stylus | PointerDevice.TouchPad }
-                TapHandler { onTapped: toggleHelp.visible = !toggleHelp.visible }
-                QQC2.ToolTip.text: toggle.help
-                QQC2.ToolTip.visible: toggleHover.hovered && toggle.help.length > 0 && !toggleHelp.visible
-                QQC2.ToolTip.delay: Kirigami.Units.toolTipDelay
-            }
-            QQC2.Switch { checked: toggle.on; onToggled: toggle.flipped(checked) }
-        }
         QQC2.Label {
-            id: toggleHelp
-            visible: false
-            Layout.fillWidth: true; wrapMode: Text.WordWrap; opacity: 0.65
-            font.pointSize: Kirigami.Theme.defaultFont.pointSize - 1
-            text: toggle.help
+            text: toggle.label; font.bold: true; Layout.fillWidth: true; elide: Text.ElideRight
+            HoverHandler { id: toggleHover; acceptedDevices: PointerDevice.Mouse | PointerDevice.Stylus | PointerDevice.TouchPad }
+            TapHandler { onTapped: { toggleTip.pinned = !toggleTip.pinned; if (toggleTip.pinned) toggleUnpin.restart() } }
+            Timer { id: toggleUnpin; interval: 7000; onTriggered: toggleTip.pinned = false }
+            QQC2.ToolTip {
+                id: toggleTip
+                property bool pinned: false
+                text: toggle.help
+                visible: toggle.help.length > 0 && (pinned || toggleHover.hovered)
+                delay: pinned ? 0 : Kirigami.Units.toolTipDelay
+                timeout: -1
+            }
         }
+        QQC2.Switch { checked: toggle.on; onToggled: toggle.flipped(checked) }
     }
 
     component NameDialog: QQC2.Dialog {
@@ -134,6 +129,84 @@ Kirigami.Page {
             else root.cmd("action", ["preset", "duplicate", targetId, nameField.text])
         }
     }
+    // The picture size and the presets: under the preview when the window is wide (they stay in view with it), at the top of the
+    // scrolling part otherwise.
+    Component {
+        id: sizeAndPresets
+        ColumnLayout {
+            spacing: Kirigami.Units.largeSpacing
+            Section {
+                title: i18n("Resolution")
+                QQC2.ComboBox {
+                    Layout.fillWidth: true
+                    model: root.d.sizes.map(x => x.text)
+                    currentIndex: { for (let i = 0; i < root.d.sizes.length; i++) if (root.d.sizes[i].minWidth === root.s.minWidth) return i; return 0 }
+                    onActivated: { preview.stop(); root.edit("minWidth", root.d.sizes[currentIndex].minWidth) }
+                    QQC2.ToolTip.text: i18n("The picture size apps get from this camera. The largest sizes read the whole sensor: sharpest photos, fewer pictures per second. For video calls pick a fast one. Changing it restarts the camera service.")
+                    QQC2.ToolTip.visible: hovered && !popup.visible
+                    QQC2.ToolTip.delay: Kirigami.Units.toolTipDelay
+                }
+            }
+
+            Section {
+                title: i18n("Presets")
+                QQC2.ComboBox {
+                    Layout.fillWidth: true
+                    enabled: root.d.presets.length > 0
+                    model: root.d.presets.length > 0 ? root.d.presets.map(p => p.name + (p.current ? i18n("   (active)") : "")) : [i18n("No presets saved yet")]
+                    currentIndex: root.presetIndex
+                    onActivated: i => root.presetIndex = i
+                }
+                RowLayout {
+                    Layout.fillWidth: true
+                    QQC2.Button {
+                        Layout.fillWidth: true
+                        text: i18n("Apply"); icon.name: "dialog-ok-apply"
+                        enabled: root.d.presets.length > 0
+                        onClicked: root.cmd("action", ["preset", "apply", root.d.presets[root.presetIndex].id])
+                    }
+                    QQC2.Button {
+                        Layout.fillWidth: true
+                        text: i18n("Save as..."); icon.name: "document-save-as"
+                        onClicked: nameDialog.begin("save", "", "")
+                    }
+                    QQC2.Button {
+                        text: i18n("More"); icon.name: "view-more-symbolic"
+                        enabled: root.d.presets.length > 0
+                        onClicked: moreMenu.popup()
+                        QQC2.Menu {
+                            id: moreMenu
+                            readonly property var p: root.d.presets.length > 0 ? root.d.presets[Math.min(root.presetIndex, root.d.presets.length - 1)] : ({ id: "", name: "" })
+                            QQC2.MenuItem {
+                                text: i18n("Update with the current settings..."); icon.name: "document-save"
+                                onTriggered: {
+                                    confirmDialog.text = i18n("Replace the settings stored in \"%1\" with the current ones?", moreMenu.p.name)
+                                    confirmDialog.run = () => root.cmd("action", ["preset", "save", moreMenu.p.name, "overwrite"])
+                                    confirmDialog.open()
+                                }
+                            }
+                            QQC2.MenuItem { text: i18n("Rename..."); icon.name: "edit-rename"; onTriggered: nameDialog.begin("rename", moreMenu.p.id, moreMenu.p.name) }
+                            QQC2.MenuItem { text: i18n("Duplicate..."); icon.name: "edit-copy"; onTriggered: nameDialog.begin("duplicate", moreMenu.p.id, i18n("%1 copy", moreMenu.p.name)) }
+                            QQC2.MenuSeparator {}
+                            QQC2.MenuItem {
+                                text: i18n("Delete..."); icon.name: "edit-delete"
+                                onTriggered: {
+                                    confirmDialog.text = i18n("Delete the preset \"%1\"? This cannot be undone.", moreMenu.p.name)
+                                    confirmDialog.run = () => root.cmd("action", ["preset", "delete", moreMenu.p.id])
+                                    confirmDialog.open()
+                                }
+                            }
+                        }
+                    }
+                }
+                QQC2.Label {
+                    Layout.fillWidth: true; elide: Text.ElideRight; opacity: 0.7
+                    text: root.activePreset ? i18n("Current settings = \"%1\"", root.activePreset.name) : i18n("Current settings do not match a preset")
+                }
+            }
+        }
+    }
+
     NameDialog { id: nameDialog }
     QQC2.Dialog {
         id: confirmDialog
@@ -149,6 +222,8 @@ Kirigami.Page {
 
     ColumnLayout {
         anchors.fill: parent
+        anchors.topMargin: Kirigami.Units.largeSpacing
+        anchors.leftMargin: Kirigami.Units.largeSpacing     // none on the right: the scroll bar sits at the edge, as on the pages of Plasma
         spacing: Kirigami.Units.largeSpacing
 
         Kirigami.InlineMessage {
@@ -161,6 +236,7 @@ Kirigami.Page {
 
         RowLayout {
             Layout.fillWidth: true
+            Layout.rightMargin: Kirigami.Units.largeSpacing
             Repeater {
                 model: [{ t: i18n("Front camera"), c: "front", i: "camera-web-symbolic" }, { t: i18n("Rear camera"), c: "rear", i: "camera-photo-symbolic" }]
                 delegate: QQC2.Button {
@@ -185,20 +261,21 @@ Kirigami.Page {
             rowSpacing: Kirigami.Units.largeSpacing
 
             // ---------------- the preview: always in view ----------------
-            Item {
+            ColumnLayout {
                 id: stage
                 Layout.fillWidth: true
                 Layout.fillHeight: root.wide
                 Layout.alignment: Qt.AlignTop
                 Layout.preferredWidth: Kirigami.Units.gridUnit * 24
-                // on a narrow window the preview takes at most about 40% of the height, the rest is for the adjustments
-                Layout.preferredHeight: root.wide ? -1 : Math.min(width * 3 / 4, root.height * 0.4)
+                spacing: Kirigami.Units.largeSpacing
 
                 Item {
                     id: frame
-                    width: Math.min(stage.width, stage.height * 4 / 3)
-                    height: width * 3 / 4
-                    anchors.horizontalCenter: parent.horizontalCenter
+                    // 4:3, as wide as the column; on a narrow window at most about 40% of the height, the rest is for the adjustments
+                    readonly property real room: root.wide ? stage.height - below.implicitHeight - stage.spacing : root.height * 0.4
+                    Layout.alignment: Qt.AlignHCenter
+                    Layout.preferredWidth: Math.max(Kirigami.Units.gridUnit * 8, Math.min(stage.width, room * 4 / 3))
+                    Layout.preferredHeight: Layout.preferredWidth * 3 / 4
                     PreviewItem {
                         id: preview
                         anchors.fill: parent
@@ -220,6 +297,8 @@ Kirigami.Page {
                         QQC2.ToolTip.visible: hovered
                     }
                 }
+                Loader { id: below; Layout.fillWidth: true; active: root.wide; visible: active; sourceComponent: sizeAndPresets }
+                Item { Layout.fillHeight: true; visible: root.wide }
             }
 
             // ---------------- everything that can be changed: scrolls on its own ----------------
@@ -233,78 +312,11 @@ Kirigami.Page {
                 QQC2.ScrollBar.horizontal.policy: QQC2.ScrollBar.AlwaysOff
 
                 ColumnLayout {
-                    width: scroll.availableWidth
+                    width: scroll.availableWidth - Kirigami.Units.largeSpacing     // a gap between the cards and the scroll bar
                     spacing: Kirigami.Units.largeSpacing
 
-                    Section {
-                        title: i18n("Resolution")
-                        QQC2.ComboBox {
-                            Layout.fillWidth: true
-                            model: root.d.sizes.map(x => x.text)
-                            currentIndex: { for (let i = 0; i < root.d.sizes.length; i++) if (root.d.sizes[i].minWidth === root.s.minWidth) return i; return 0 }
-                            onActivated: { preview.stop(); root.edit("minWidth", root.d.sizes[currentIndex].minWidth) }
-                            QQC2.ToolTip.text: i18n("The picture size apps get from this camera. The largest sizes read the whole sensor: sharpest photos, fewer pictures per second. For video calls pick a fast one. Changing it restarts the camera service.")
-                            QQC2.ToolTip.visible: hovered && !popup.visible
-                            QQC2.ToolTip.delay: Kirigami.Units.toolTipDelay
-                        }
-                    }
-
-                    Section {
-                        title: i18n("Presets")
-                        QQC2.ComboBox {
-                            Layout.fillWidth: true
-                            enabled: root.d.presets.length > 0
-                            model: root.d.presets.length > 0 ? root.d.presets.map(p => p.name + (p.current ? i18n("   (active)") : "")) : [i18n("No presets saved yet")]
-                            currentIndex: root.presetIndex
-                            onActivated: i => root.presetIndex = i
-                        }
-                        RowLayout {
-                            Layout.fillWidth: true
-                            QQC2.Button {
-                                Layout.fillWidth: true
-                                text: i18n("Apply"); icon.name: "dialog-ok-apply"
-                                enabled: root.d.presets.length > 0
-                                onClicked: root.cmd("action", ["preset", "apply", root.d.presets[root.presetIndex].id])
-                            }
-                            QQC2.Button {
-                                Layout.fillWidth: true
-                                text: i18n("Save as..."); icon.name: "document-save-as"
-                                onClicked: nameDialog.begin("save", "", "")
-                            }
-                            QQC2.Button {
-                                text: i18n("More"); icon.name: "view-more-symbolic"
-                                enabled: root.d.presets.length > 0
-                                onClicked: moreMenu.popup()
-                                QQC2.Menu {
-                                    id: moreMenu
-                                    readonly property var p: root.d.presets.length > 0 ? root.d.presets[Math.min(root.presetIndex, root.d.presets.length - 1)] : ({ id: "", name: "" })
-                                    QQC2.MenuItem {
-                                        text: i18n("Update with the current settings..."); icon.name: "document-save"
-                                        onTriggered: {
-                                            confirmDialog.text = i18n("Replace the settings stored in \"%1\" with the current ones?", moreMenu.p.name)
-                                            confirmDialog.run = () => root.cmd("action", ["preset", "save", moreMenu.p.name, "overwrite"])
-                                            confirmDialog.open()
-                                        }
-                                    }
-                                    QQC2.MenuItem { text: i18n("Rename..."); icon.name: "edit-rename"; onTriggered: nameDialog.begin("rename", moreMenu.p.id, moreMenu.p.name) }
-                                    QQC2.MenuItem { text: i18n("Duplicate..."); icon.name: "edit-copy"; onTriggered: nameDialog.begin("duplicate", moreMenu.p.id, i18n("%1 copy", moreMenu.p.name)) }
-                                    QQC2.MenuSeparator {}
-                                    QQC2.MenuItem {
-                                        text: i18n("Delete..."); icon.name: "edit-delete"
-                                        onTriggered: {
-                                            confirmDialog.text = i18n("Delete the preset \"%1\"? This cannot be undone.", moreMenu.p.name)
-                                            confirmDialog.run = () => root.cmd("action", ["preset", "delete", moreMenu.p.id])
-                                            confirmDialog.open()
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                        QQC2.Label {
-                            Layout.fillWidth: true; elide: Text.ElideRight; opacity: 0.7
-                            text: root.activePreset ? i18n("Current settings = \"%1\"", root.activePreset.name) : i18n("Current settings do not match a preset")
-                        }
-                    }
+                    // on a narrow window there is no room under the preview: the picture size and the presets come first here
+                    Loader { Layout.fillWidth: true; active: !root.wide; visible: active; sourceComponent: sizeAndPresets }
 
                     Section {
                         title: i18n("Focus")
@@ -397,6 +409,7 @@ Kirigami.Page {
                         Layout.fillWidth: true; wrapMode: Text.WordWrap; opacity: 0.6
                         font.pointSize: Kirigami.Theme.defaultFont.pointSize - 1
                         text: i18n("Changes apply to every app that uses the camera. Tap the name of a setting to read what it does.")
+                        bottomPadding: Kirigami.Units.largeSpacing
                     }
                 }
             }

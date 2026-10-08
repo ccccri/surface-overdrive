@@ -4,6 +4,7 @@
 #include <QCoreApplication>
 #include <QDebug>
 #include <QKeyEvent>
+#include <QKeySequence>
 #include <QTabletEvent>
 #include <QWindow>
 
@@ -44,12 +45,25 @@ bool PenMonitor::eventFilter(QObject *watched, QEvent *event)
     auto *window = qobject_cast<QWindow *>(watched);
     const bool realWindow = window && window->handle();
 
-    // The click of the top button does not come through the screen: the pen sends it over Bluetooth as a key, the Windows key with
-    // F20 (one click), F19 (two clicks) or F18 (press and hold).
+    // The click of the top button does not come through the screen: the pen sends it over Bluetooth as a key held with the Windows
+    // key: F20 for one click, F19 for two, F18 for press and hold. The keyboard layout renames two of them on the way: F20 arrives
+    // as "microphone mute" and F18 as a "launch" key, only F19 stays F19.
     if (type == QEvent::KeyPress && realWindow) {
         auto *key = static_cast<QKeyEvent *>(event);
-        if (!key->isAutoRepeat() && key->key() >= Qt::Key_F18 && key->key() <= Qt::Key_F20) {
-            Q_EMIT topButton(key->key() == Qt::Key_F20 ? QStringLiteral("click") : key->key() == Qt::Key_F19 ? QStringLiteral("double") : QStringLiteral("hold"));
+        const bool meta = key->modifiers() & Qt::MetaModifier;
+        const int code = key->key();
+        const bool functionKey = code >= Qt::Key_F13 && code <= Qt::Key_F24;
+        const bool renamed = meta && (code == Qt::Key_MicMute || (code >= Qt::Key_Launch0 && code <= Qt::Key_LaunchH));
+        if (!key->isAutoRepeat() && (functionKey || renamed)) {
+            QString how;
+            if (code == Qt::Key_F20 || code == Qt::Key_MicMute) {
+                how = QStringLiteral("click");
+            } else if (code == Qt::Key_F19) {
+                how = QStringLiteral("double");
+            } else if (code == Qt::Key_F18 || renamed) {
+                how = QStringLiteral("hold");
+            }
+            Q_EMIT topButton(how, QKeySequence(key->keyCombination()).toString(QKeySequence::PortableText));
         }
         return false;
     }

@@ -12,6 +12,7 @@ ColumnLayout {
     property bool live: true          // false while the page is hidden: nothing is read then
 
     spacing: Kirigami.Units.largeSpacing
+    Layout.fillWidth: true
 
     function reload() { kcm.call("sensors", ["sensors"]) }
     // the motion sensors report 10 times a second by default: 50 while somebody is watching the bars
@@ -43,8 +44,6 @@ ColumnLayout {
         QQC2.ProgressBar { Layout.fillWidth: true; from: -parent.range; to: parent.range; value: parent.value }
         QQC2.Label { text: parent.text; Layout.preferredWidth: Kirigami.Units.gridUnit * 6; horizontalAlignment: Text.AlignRight }
     }
-
-    Kirigami.Heading { level: 3; text: i18n("Surface"); Layout.alignment: Qt.AlignHCenter }
 
     Section {
         title: i18n("Firmware")
