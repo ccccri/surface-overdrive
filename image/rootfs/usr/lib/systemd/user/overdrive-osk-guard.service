@@ -1,0 +1,12 @@
+[Unit]
+Description=Surface Overdrive on-screen keyboard guard (keyboard always available on the lock screen)
+After=graphical-session.target
+PartOf=graphical-session.target
+
+[Service]
+ExecStart=/usr/libexec/overdrive/osk-guard
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=graphical-session.target
