@@ -22,10 +22,12 @@ SENSORS = {"front": "ov5693", "rear": "ov8865"}
 
 # Picture sizes offered to applications ("min_width": the smallest width offered, apps take the first size) and what each costs.
 SIZES = {
-    "front": [(0, "1152x864", "about 28 fps"), (1536, "1536x1152", "about 28 fps"), (2048, "2048x1536", "about 23 fps"),
-              (2560, "2560x1920", "about 20 fps")],
-    "rear": [(0, "1536x1152", "30 fps"), (2048, "2048x1536", "about 15 fps"), (2560, "2560x1920", "about 13 fps"),
-             (3200, "3200x2400", "about 11 fps")],
+    "front": [(0, "1152x864", "1 MP, fast: about 28 pictures a second"), (1536, "1536x1152", "1.8 MP, about 28 pictures a second"),
+              (2048, "2048x1536", "3.1 MP, about 23 pictures a second"),
+              (2560, "2560x1920", "4.9 MP, the maximum of this camera: about 20 pictures a second")],
+    "rear": [(0, "1536x1152", "1.8 MP, fast: 30 pictures a second"), (2048, "2048x1536", "3.1 MP, about 15 pictures a second"),
+             (2560, "2560x1920", "4.9 MP, about 13 pictures a second"),
+             (3200, "3200x2400", "7.7 MP, the maximum of this camera: about 11 pictures a second")],
 }
 # Temporal denoise levels: (minimum weight in 1/256, threshold). Lower weight = stronger. Level 0 is off.
 TNR_LEVELS = [(0, 0), (160, 12), (96, 12), (48, 12), (24, 14), (12, 16)]
@@ -367,6 +369,6 @@ def duplicate_preset(cam, pid, new_name):
 def describe(cam):
     """Everything the Cameras page needs in one JSON object."""
     return {"camera": cam, "settings": settings(cam), "controls": controls(cam), "presets": list_presets(cam),
-            "focus": focus_state(cam), "sizes": [{"minWidth": w, "text": "%s, %s" % (s, fps)} for w, s, fps in SIZES[cam]],
+            "focus": focus_state(cam), "sizes": [{"minWidth": w, "text": "%s  (%s)" % (s, fps)} for w, s, fps in SIZES[cam]],
             "advanced": bool(ui_setting("camAdvanced", False)),
             "node": "libcamera_input.__SB_.PCI0.LNK%d" % (0 if cam == "rear" else 1)}

@@ -101,6 +101,16 @@ COPY ci/patch_acp_mic.py /tmp/patch_acp_mic.py
 RUN python3 /tmp/patch_acp_mic.py && rm /tmp/patch_acp_mic.py
 COPY --from=hidbpf /out/ /
 COPY --from=kcm /out/ /
+# "Sound and EQ" and our "Power Management" show the Plasma pages in their first tab: take the Plasma pages out of the sidebar (they
+# stay loadable from overdrive-stock). A page Plasma has renamed is simply left where it is; ours then says it could not load it.
+# System Settings itself moves aside: image/rootfs/usr/bin/systemsettings sends the old page names to our pages and then runs it.
+RUN set -eux; \
+    kcms=/usr/lib64/qt6/plugins/plasma/kcms; mkdir -p "$kcms/overdrive-stock"; \
+    for k in kcm_pulseaudio kcm_powerdevilprofilesconfig; do \
+        if [ -f "$kcms/systemsettings/$k.so" ]; then mv "$kcms/systemsettings/$k.so" "$kcms/overdrive-stock/"; \
+        else echo "warning: $k is not in the base image"; fi; \
+    done; \
+    mkdir -p /usr/libexec/overdrive/stock; mv /usr/bin/systemsettings /usr/libexec/overdrive/stock/systemsettings
 COPY image/rootfs/ /
 COPY src/ /usr/lib/overdrive/python/
 ARG BASE_DIGEST=unknown

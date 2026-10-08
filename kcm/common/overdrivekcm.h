@@ -2,8 +2,10 @@
 #pragma once
 
 #include <KQuickConfigModule>
+#include <QQuickItem>
 
 class QProcess;
+
 
 /**
  * The shared back end of every page in the Surface Control group of System Settings.
@@ -16,9 +18,13 @@ class OverdriveKCM : public KQuickConfigModule
     Q_OBJECT
     Q_PROPERTY(QString statusJson READ statusJson NOTIFY statusChanged)
     Q_PROPERTY(bool busy READ busy NOTIFY busyChanged)
+    Q_PROPERTY(QQuickItem *stockPage READ stockPage NOTIFY stockChanged)
+    Q_PROPERTY(QString stockError READ stockError NOTIFY stockChanged)
+    /** The tab to open first, from the command line: `systemsettings kcm_overdrive_sound --args tuning`. Empty when none was asked. */
+    Q_PROPERTY(QString startTab READ startTab CONSTANT)
 
 public:
-    OverdriveKCM(QObject *parent, const KPluginMetaData &data);
+    OverdriveKCM(QObject *parent, const KPluginMetaData &data, const QVariantList &args);
 
     QString statusJson() const;
     bool busy() const;
@@ -29,10 +35,26 @@ public:
     Q_INVOKABLE void changeSetting(const QString &name, const QString &value);
     /** Run `overdrivectl <args>` without privileges; the answer (usually JSON) comes back through callFinished with the same tag. */
     Q_INVOKABLE void call(const QString &tag, const QStringList &args);
+    /**
+     * Load a page that ships with Plasma (for example "kcm_pulseaudio") so that our page can show it in one of its tabs. Its page is then
+     * in stockPage; its Apply/Defaults buttons, its unsaved state and the sub-pages it opens are passed on to System Settings.
+     */
+    Q_INVOKABLE void loadStock(const QString &pluginId);
+    /** Show the Apply/Defaults row of the Plasma page only while its tab is the one in front. */
+    Q_INVOKABLE void showStockButtons(bool show);
+
+    QQuickItem *stockPage() const;
+    QString stockError() const;
+    QString startTab() const;
+
+    void load() override;
+    void save() override;
+    void defaults() override;
 
 Q_SIGNALS:
     void statusChanged();
     void busyChanged();
+    void stockChanged();
     void changeFinished(bool ok, const QString &message);
     void callFinished(const QString &tag, bool ok, const QString &output, const QString &error);
 
@@ -41,4 +63,9 @@ private:
 
     QString m_statusJson;
     bool m_busy = false;
+    KQuickConfigModule *m_stock = nullptr;
+    QQuickItem *m_stockPage = nullptr;
+    QString m_stockError;
+    QString m_startTab;
+    bool m_stockButtons = true;
 };

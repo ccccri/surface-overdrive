@@ -21,7 +21,7 @@ from .tag import read_tag
 SOCKET_PATH = os.environ.get("OVERDRIVE_NFC_SOCK", "/run/overdrive-nfc/events.sock")
 SOCKET_GROUP = os.environ.get("OVERDRIVE_NFC_GROUP", "wheel")
 ABSENCE_S = 1.0          # the same tag not seen for this long counts as removed: notify again
-RESTING_REPOLL_S = 0.3   # pause between polls while the same tag keeps resting on the reader
+RESTING_REPOLL_S = 0.15  # pause between polls while the same tag keeps resting on the reader
 REARM_S = 10.0           # restart polling at least this often (resume from suspend, adapter reset)
 # Power saver profile: the reader is on for a short window, then off for a few seconds (about 8 times fewer radio pulses; a tag can
 # take up to ~4 s to be noticed). Any other profile polls continuously.
@@ -109,6 +109,7 @@ def run():
     profile = PowerProfile()
     last_uid, last_seen = None, 0.0
     errors = 0
+    resting = 0
     log("overdrive-nfcd running")
 
     err = adapter.up()
@@ -158,9 +159,15 @@ def run():
         last_uid, last_seen = uid, now
 
         if repeat:                                    # the same tag is still resting: no read, no event
+            # How long the reader took to find a tag that was already there = the length of one discovery cycle, the delay
+            # a new tag waits at worst. Logged now and then so the speed of the reader can be read from the journal.
+            resting += 1
+            if resting % 10 == 1:
+                log("resting tag found again %.0f ms after polling started" % ((started - poll_started) * 1000))
             time.sleep(RESTING_REPOLL_S)              # it was never activated, so polling can simply restart
             continue
 
+        resting = 0
         records = read_tag(adapter, target, log)
         read_ms = (time.monotonic() - started) * 1000
         event = {"time": time.time(), "uid": uid, "type": proto_label(target["protos"]), "records": records,

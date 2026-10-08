@@ -5,22 +5,136 @@
 #include "penmonitor.h"
 #include "preview.h"
 
+#include <KPluginMetaData>
+#include <KQuickConfigModuleLoader>
 #include <QProcess>
 #include <QQmlEngine>
+#include <QQuickItem>
 #include <mutex>
 
 static const QString s_ctl = QStringLiteral("/usr/bin/overdrivectl");
 
-OverdriveKCM::OverdriveKCM(QObject *parent, const KPluginMetaData &data)
+OverdriveKCM::OverdriveKCM(QObject *parent, const KPluginMetaData &data, const QVariantList &args)
     : KQuickConfigModule(parent, data)
 {
+    for (const QVariant &arg : args) {
+        if (arg.typeId() == QMetaType::QString && !arg.toString().isEmpty()) {
+            m_startTab = arg.toString().toLower();
+            break;
+        }
+    }
     static std::once_flag registered;
     std::call_once(registered, []() {
         qmlRegisterType<PreviewItem>("org.surfaceoverdrive.kcm", 1, 0, "PreviewItem");
         qmlRegisterType<PenMonitor>("org.surfaceoverdrive.kcm", 1, 0, "PenMonitor");
         qmlRegisterType<NfcMonitor>("org.surfaceoverdrive.kcm", 1, 0, "NfcMonitor");
     });
+    // every setting of ours applies at once and has its own reset: no Defaults / Reset / Apply row
+    setButtons(NoAdditionalButton);
     refresh();
+}
+
+// Where the image keeps the Plasma pages that ours replace in the sidebar (see the Containerfile), then where Plasma installs them.
+static const QStringList s_stockDirs = {QStringLiteral("plasma/kcms/overdrive-stock"), QStringLiteral("plasma/kcms/systemsettings")};
+
+void OverdriveKCM::loadStock(const QString &pluginId)
+{
+    if (m_stock || !m_stockError.isEmpty()) {
+        return;
+    }
+    KPluginMetaData meta;
+    for (const QString &dir : s_stockDirs) {
+        meta = KPluginMetaData::findPluginById(dir, pluginId);
+        if (meta.isValid()) {
+            break;
+        }
+    }
+    if (!meta.isValid()) {
+        m_stockError = QStringLiteral("The Plasma page %1 was not found.").arg(pluginId);
+        Q_EMIT stockChanged();
+        return;
+    }
+    const auto result = KQuickConfigModuleLoader::loadModule(meta, this, {}, engine());
+    if (!result) {
+        m_stockError = result.errorString;
+        Q_EMIT stockChanged();
+        return;
+    }
+    m_stock = result.plugin;
+    m_stockPage = m_stock->mainUi();
+    if (!m_stockPage) {
+        m_stockError = m_stock->errorString();
+        Q_EMIT stockChanged();
+        return;
+    }
+    showStockButtons(m_stockButtons);
+    connect(m_stock, &KAbstractConfigModule::buttonsChanged, this, [this]() {
+        showStockButtons(m_stockButtons);
+    });
+    connect(m_stock, &KAbstractConfigModule::needsSaveChanged, this, [this]() {
+        setNeedsSave(m_stock->needsSave());
+    });
+    connect(m_stock, &KAbstractConfigModule::representsDefaultsChanged, this, [this]() {
+        setRepresentsDefaults(m_stock->representsDefaults());
+    });
+    connect(m_stock, &KAbstractConfigModule::authActionNameChanged, this, [this]() {
+        setAuthActionName(m_stock->authActionName());
+    });
+    connect(m_stock, &KQuickConfigModule::pagePushed, this, [this](QQuickItem *page) {
+        push(page);
+    });
+    connect(m_stock, &KQuickConfigModule::pageRemoved, this, [this]() {
+        if (depth() > 1) {
+            pop();
+        }
+    });
+    connect(this, &KQuickConfigModule::currentIndexChanged, m_stock, [this](int index) {
+        m_stock->setCurrentIndex(index);
+    });
+    m_stock->load();
+    Q_EMIT stockChanged();
+}
+
+void OverdriveKCM::showStockButtons(bool show)
+{
+    m_stockButtons = show;
+    setButtons(show && m_stock ? m_stock->buttons() : Buttons(NoAdditionalButton));
+}
+
+QQuickItem *OverdriveKCM::stockPage() const
+{
+    return m_stockPage;
+}
+
+QString OverdriveKCM::startTab() const
+{
+    return m_startTab;
+}
+
+QString OverdriveKCM::stockError() const
+{
+    return m_stockError;
+}
+
+void OverdriveKCM::load()
+{
+    if (m_stock) {
+        m_stock->load();
+    }
+}
+
+void OverdriveKCM::save()
+{
+    if (m_stock) {
+        m_stock->save();
+    }
+}
+
+void OverdriveKCM::defaults()
+{
+    if (m_stock) {
+        m_stock->defaults();
+    }
 }
 
 QString OverdriveKCM::statusJson() const

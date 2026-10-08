@@ -1,0 +1,12 @@
+#!/usr/bin/bash
+# Plasma opens its own pages by name (the volume icon runs "systemsettings kcm_pulseaudio"). Two of those pages now live inside ours:
+# send the old names to the new pages, then run the real System Settings.
+args=()
+for a in "$@"; do
+    case "$a" in
+        kcm_pulseaudio) a=kcm_overdrive_sound ;;
+        kcm_powerdevilprofilesconfig) a=kcm_overdrive_power ;;
+    esac
+    args+=("$a")
+done
+exec -a systemsettings /usr/libexec/overdrive/stock/systemsettings "${args[@]}"

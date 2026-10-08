@@ -44,28 +44,6 @@ KCM.SimpleKCM {
         spacing: Kirigami.Units.largeSpacing
 
         Section {
-            title: i18n("Battery")
-            visible: root.s.battery !== null
-            QQC2.ProgressBar {
-                Layout.fillWidth: true; from: 0; to: 100
-                value: root.s.battery && root.s.battery.percent !== null ? root.s.battery.percent : 0
-            }
-            Kirigami.FormLayout {
-                Layout.fillWidth: true
-                QQC2.Label { Kirigami.FormData.label: i18n("Charge:"); text: root.s.battery ? root.s.battery.percent + "%  (" + root.s.battery.status + ")" : "" }
-                QQC2.Label { Kirigami.FormData.label: i18n("Power:"); visible: root.s.battery && root.s.battery.watts !== undefined; text: root.s.battery && root.s.battery.watts !== undefined ? Math.abs(root.s.battery.watts) + " W" : "" }
-                QQC2.Label {
-                    Kirigami.FormData.label: root.s.battery && root.s.battery.status === "Charging" ? i18n("Time to full:") : i18n("Time left:")
-                    visible: root.s.battery && root.s.battery.hours !== undefined
-                    text: root.s.battery && root.s.battery.hours !== undefined ? i18n("about %1 h", root.s.battery.hours) : ""
-                }
-                QQC2.Label { Kirigami.FormData.label: i18n("Health:"); visible: root.s.battery && root.s.battery.health !== null; text: root.s.battery ? root.s.battery.health + "% of the original capacity (" + root.s.battery.full_mah + " of " + root.s.battery.design_mah + " mAh)" : "" }
-                QQC2.Label { Kirigami.FormData.label: i18n("Charge cycles:"); text: root.s.battery ? root.s.battery.cycles : "" }
-                QQC2.Label { Kirigami.FormData.label: i18n("Cell:"); text: root.s.battery ? (root.s.battery.maker + " " + root.s.battery.model).trim() : "" }
-            }
-        }
-
-        Section {
             title: i18n("Light sensor")
             visible: root.s.lux !== null
             QQC2.Label { text: i18n("%1 lux", root.s.lux); font.pointSize: Kirigami.Theme.defaultFont.pointSize * 1.6 }

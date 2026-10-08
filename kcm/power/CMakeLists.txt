@@ -1,0 +1,2 @@
+kcmutils_add_qml_kcm(kcm_overdrive_power SOURCES page_power.cpp)
+target_link_libraries(kcm_overdrive_power PRIVATE overdrive_common)

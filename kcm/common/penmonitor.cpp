@@ -2,7 +2,9 @@
 #include "penmonitor.h"
 
 #include <QCoreApplication>
+#include <QDebug>
 #include <QTabletEvent>
+#include <QWindow>
 
 PenMonitor::PenMonitor(QObject *parent)
     : QObject(parent)
@@ -35,8 +37,14 @@ void PenMonitor::setActive(bool active)
 
 bool PenMonitor::eventFilter(QObject *watched, QEvent *event)
 {
+    const QEvent::Type type = event->type();
+    // The same sample passes here several times: for the real window, then for the widget and the off-screen Qt Quick window that
+    // System Settings draws the page in, each time with coordinates of its own. Only the real window counts.
+    auto *window = qobject_cast<QWindow *>(watched);
+    const bool realWindow = window && window->handle();
+
     QString kind;
-    switch (event->type()) {
+    switch (type) {
     case QEvent::TabletMove:
         kind = QStringLiteral("move");
         break;
@@ -53,11 +61,21 @@ bool PenMonitor::eventFilter(QObject *watched, QEvent *event)
         kind = QStringLiteral("leave");
         break;
     default:
-        return QObject::eventFilter(watched, event);
+        return false;
+    }
+    // Entering and leaving the range of the screen is told to the application, not to a window.
+    const bool proximity = type == QEvent::TabletEnterProximity || type == QEvent::TabletLeaveProximity;
+    if (!proximity && !realWindow) {
+        return false;
     }
     auto *tablet = static_cast<QTabletEvent *>(event);
     const QString tool = tablet->pointerType() == QPointingDevice::PointerType::Eraser ? QStringLiteral("eraser") : QStringLiteral("pen");
-    const QPointF pos = tablet->position();
-    Q_EMIT penEvent(kind, tool, pos.x(), pos.y(), tablet->pressure(), tablet->xTilt(), tablet->yTilt(), tablet->rotation(), int(tablet->buttons()));
+    const QPointF pos = tablet->globalPosition();
+    // the buttons of a pen that has just left are stale
+    const int buttons = type == QEvent::TabletLeaveProximity ? 0 : int(tablet->buttons());
+    if (qEnvironmentVariableIsSet("OVERDRIVE_PEN_DEBUG") && (type != QEvent::TabletMove || buttons != 0)) {
+        qInfo() << "pen" << kind << tool << pos << "pressure" << tablet->pressure() << "button" << tablet->button() << "buttons" << tablet->buttons();
+    }
+    Q_EMIT penEvent(kind, tool, pos.x(), pos.y(), tablet->pressure(), tablet->xTilt(), tablet->yTilt(), tablet->rotation(), buttons);
     return false;
 }

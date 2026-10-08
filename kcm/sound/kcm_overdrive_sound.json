@@ -5,13 +5,13 @@
                 "Name": "ccccri"
             }
         ],
-        "Description": "Speaker boost and equaliser, microphone improvement, volume buttons",
-        "Icon": "audio-speakers",
+        "Description": "Devices and volumes, speaker boost and equaliser, microphone improvement, volume buttons",
+        "Icon": "preferences-desktop-sound",
         "Id": "kcm_overdrive_sound",
-        "Name": "Sound Tuning"
+        "Name": "Sound and EQ"
     },
     "X-KDE-KeepAlive": true,
-    "X-KDE-Keywords": "surface,sound,audio,equalizer,eq,microphone,speaker,boost,volume,buttons,headphones",
+    "X-KDE-Keywords": "surface,sound,audio,equalizer,eq,microphone,speaker,boost,volume,buttons,headphones,output,input,speakers,devices,pipewire,pulseaudio,hdmi,balance,profile",
     "X-KDE-System-Settings-Parent-Category": "input-devices",
-    "X-KDE-Weight": 45
+    "X-KDE-Weight": 200
 }

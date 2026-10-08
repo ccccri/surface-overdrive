@@ -147,6 +147,25 @@ KCM.SimpleKCM {
             }
         }
 
+        RowLayout {
+            Layout.fillWidth: true
+            spacing: Kirigami.Units.largeSpacing
+            QQC2.Label { text: i18n("Resolution:"); font.bold: true }
+            QQC2.ComboBox {
+                Layout.fillWidth: true
+                Layout.maximumWidth: Kirigami.Units.gridUnit * 22
+                model: root.d.sizes.map(x => x.text)
+                currentIndex: { for (let i = 0; i < root.d.sizes.length; i++) if (root.d.sizes[i].minWidth === root.s.minWidth) return i; return 0 }
+                onActivated: { preview.stop(); root.edit("minWidth", root.d.sizes[currentIndex].minWidth) }
+            }
+            Item { Layout.fillWidth: true }
+        }
+        QQC2.Label {
+            Layout.fillWidth: true; wrapMode: Text.WordWrap; opacity: 0.6
+            font.pointSize: Kirigami.Theme.defaultFont.pointSize - 1
+            text: i18n("The picture size apps get from this camera. The largest sizes read the whole sensor: sharpest photos, fewer pictures per second. For video calls pick a fast one. Changing it restarts the camera service.")
+        }
+
         GridLayout {
             Layout.fillWidth: true
             columns: root.wide ? 2 : 1
@@ -311,21 +330,6 @@ KCM.SimpleKCM {
                             from: 0; to: 1
                             value: root.d.focus.sharpness !== undefined ? Math.min(1, root.d.focus.sharpness / root.peak) : 0
                         }
-                    }
-                }
-
-                Section {
-                    title: i18n("Output")
-                    QQC2.Label { text: i18n("Picture size offered to apps"); font.bold: true }
-                    QQC2.ComboBox {
-                        Layout.fillWidth: true
-                        model: root.d.sizes.map(x => x.text)
-                        currentIndex: { for (let i = 0; i < root.d.sizes.length; i++) if (root.d.sizes[i].minWidth === root.s.minWidth) return i; return 0 }
-                        onActivated: { preview.stop(); root.edit("minWidth", root.d.sizes[currentIndex].minWidth) }
-                    }
-                    QQC2.Label {
-                        Layout.fillWidth: true; wrapMode: Text.WordWrap; opacity: 0.6
-                        text: i18n("Apps take the first size offered. Smaller sizes run faster (video calls); the largest give the sharpest photos. Changing it restarts the camera service.")
                     }
                 }
 

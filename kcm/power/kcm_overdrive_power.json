@@ -1,0 +1,17 @@
+{
+    "KPlugin": {
+        "Authors": [
+            {
+                "Name": "ccccri"
+            }
+        ],
+        "Description": "Suspend, screen and power profile settings, battery health",
+        "Icon": "preferences-system-power-management",
+        "Id": "kcm_overdrive_power",
+        "Name": "Power Management"
+    },
+    "X-KDE-KeepAlive": true,
+    "X-KDE-Keywords": "surface,power,battery,suspend,sleep,energy,brightness,profile,health,cycles,charge",
+    "X-KDE-System-Settings-Parent-Category": "system-administration",
+    "X-KDE-Weight": 20
+}

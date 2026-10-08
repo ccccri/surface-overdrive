@@ -23,8 +23,10 @@ KCM.SimpleKCM {
     property bool eventsSeen: false
     property real lastX: -1
     property real lastY: -1
-    readonly property bool barrelDown: (buttons & Qt.RightButton) !== 0
-    readonly property bool eraserDown: tool === "Eraser" || (buttons & Qt.MiddleButton) !== 0
+    // The side button arrives as the middle button (a second side button, on pens that have one, as the right button), and only
+    // together with a movement of the pen. The top end is not a button: it turns the pen into the eraser tool.
+    readonly property bool barrelDown: (buttons & (Qt.RightButton | Qt.MiddleButton)) !== 0
+    readonly property bool eraserDown: tool === "Eraser"
 
     function reload() { kcm.call("pen", ["pen"]) }
     Component.onCompleted: reload()
@@ -48,15 +50,18 @@ KCM.SimpleKCM {
         onPenEvent: (kind, tool, x, y, pressure, tx, ty, rotation, buttons) => {
             root.eventsSeen = true
             root.tool = tool === "eraser" ? "Eraser" : "Tip"
-            if (kind === "leave") { root.state = "away"; root.lastX = -1; return }
+            if (kind === "leave") { root.state = "away"; root.lastX = -1; root.buttons = 0; root.pressure = 0; return }
+            if (kind === "enter") { root.state = "hover"; return }
+            // letting go of a button can be reported after the pen has already left
+            if (kind === "release" && root.state === "away") return
             root.pressure = pressure
             root.xTilt = tx; root.yTilt = ty
             if (Math.abs(tx) > 0.5 || Math.abs(ty) > 0.5) root.tiltSeen = true
             root.buttons = buttons
-            const touching = pressure > 0 || (buttons & Qt.LeftButton)
+            const touching = kind !== "release" && (pressure > 0 || (buttons & Qt.LeftButton) !== 0)
             root.state = touching ? "touch" : "hover"
             if (pressure > 0) root.maxPressure = Math.max(root.maxPressure, pressure)
-            const p = canvas.mapFromItem(null, x, y)
+            const p = canvas.mapFromGlobal(x, y)
             if (touching && p.x >= 0 && p.y >= 0 && p.x <= canvas.width && p.y <= canvas.height) {
                 if (root.lastX >= 0) canvas.addSegment(root.lastX, root.lastY, p.x, p.y, pressure, tool === "eraser")
                 root.lastX = p.x; root.lastY = p.y
@@ -77,7 +82,7 @@ KCM.SimpleKCM {
         Kirigami.Heading { level: 3; text: i18n("Pen test") }
         QQC2.Label {
             Layout.fillWidth: true; wrapMode: Text.WordWrap; opacity: 0.7
-            text: i18n("Draw in the area below: the line gets thicker with pressure. Hold the top button (the eraser button) and draw to erase. Hover first, press the side button, tilt the pen: the readout shows what the tablet and the pen report.")
+            text: i18n("Draw in the area below: the line gets thicker with pressure. Turn the pen around and rub with its top end to erase. Hover first, press the side button, tilt the pen: the readout shows what the tablet and the pen report.")
         }
 
         GridLayout {
@@ -96,21 +101,34 @@ KCM.SimpleKCM {
                 Canvas {
                     id: canvas
                     anchors.fill: parent
-                    property var queue: []
-                    function clear() { const c = getContext("2d"); c.clearRect(0, 0, width, height); requestPaint() }
-                    function addSegment(x1, y1, x2, y2, p, erase) { queue.push([x1, y1, x2, y2, p, erase]); requestPaint() }
+                    // Every segment is kept: a canvas forgets its picture when its size changes (the on-screen keyboard coming up
+                    // resizes the window), so the whole drawing is painted again then.
+                    property var segments: []
+                    property int painted: 0
+                    function clear() { segments = []; painted = 0; requestPaint() }
+                    function addSegment(x1, y1, x2, y2, p, erase) {
+                        if (segments.length > 20000) segments.splice(0, 5000), painted = 0
+                        segments.push([x1, y1, x2, y2, p, erase]); requestPaint()
+                    }
+                    onWidthChanged: { painted = 0; requestPaint() }
+                    onHeightChanged: { painted = 0; requestPaint() }
                     onPaint: {
                         const c = getContext("2d")
+                        if (painted === 0) c.clearRect(0, 0, width, height)
                         c.lineCap = "round"
-                        for (const s of queue) {
+                        for (let i = painted; i < segments.length; i++) {
+                            const s = segments[i]
                             c.beginPath()
                             c.strokeStyle = s[5] ? "#ffffff" : "#1b3a6b"
                             c.lineWidth = s[5] ? 24 : 1 + s[4] * 14
                             c.moveTo(s[0], s[1]); c.lineTo(s[2], s[3]); c.stroke()
                         }
-                        queue = []
+                        painted = segments.length
                     }
                 }
+                // the pen also acts as a mouse: without this the page would scroll under the pen while drawing. Taking the keyboard focus
+                // away from the search field keeps the on-screen keyboard from coming up at the first touch.
+                MouseArea { anchors.fill: parent; acceptedButtons: Qt.AllButtons; preventStealing: true; onPressed: canvas.forceActiveFocus() }
                 QQC2.Label { anchors.centerIn: parent; text: i18n("Touch the screen with the pen here"); color: "#888"; visible: !root.eventsSeen }
                 QQC2.Button {
                     anchors { right: parent.right; top: parent.top; margins: 6 }
@@ -143,7 +161,7 @@ KCM.SimpleKCM {
                 RowLayout {
                     spacing: Kirigami.Units.smallSpacing
                     Repeater {
-                        model: [{ n: i18n("Barrel (side)"), on: root.barrelDown }, { n: i18n("Eraser (top)"), on: root.eraserDown }]
+                        model: [{ n: i18n("Barrel (side)"), on: root.barrelDown }, { n: i18n("Eraser (top end)"), on: root.eraserDown }]
                         delegate: Rectangle {
                             Layout.preferredWidth: Kirigami.Units.gridUnit * 6; Layout.preferredHeight: Kirigami.Units.gridUnit * 1.6; radius: 4
                             color: modelData.on ? Kirigami.Theme.highlightColor : "transparent"

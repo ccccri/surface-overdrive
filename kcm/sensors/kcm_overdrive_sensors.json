@@ -5,13 +5,13 @@
                 "Name": "ccccri"
             }
         ],
-        "Description": "Battery, light sensor, motion and device facts",
-        "Icon": "battery",
+        "Description": "Light sensor, motion and device facts",
+        "Icon": "preferences-system-orientation",
         "Id": "kcm_overdrive_sensors",
-        "Name": "Sensors and Battery"
+        "Name": "Sensors"
     },
     "X-KDE-KeepAlive": true,
-    "X-KDE-Keywords": "surface,sensor,accelerometer,gyroscope,light,battery",
+    "X-KDE-Keywords": "surface,sensor,accelerometer,gyroscope,light,lux,model,firmware",
     "X-KDE-System-Settings-Parent-Category": "surface-control",
     "X-KDE-Weight": 50
 }
