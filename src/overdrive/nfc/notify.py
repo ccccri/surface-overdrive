@@ -7,12 +7,15 @@ Needs notify-send and pw-play (both present on Kinoite).
 """
 import html
 import json
+import math
 import os
 import shutil
 import socket
+import struct
 import subprocess
 import threading
 import time
+import wave
 
 SOCKET_PATH = os.environ.get("OVERDRIVE_NFC_SOCK", "/run/overdrive-nfc/events.sock")
 SOUND = "/usr/share/sounds/freedesktop/stereo/message-new-instant.oga"
@@ -57,9 +60,37 @@ def describe(event):
     return text, url
 
 
+def beep_file():
+    """Our own beep: two short rising tones that start at full level, so that the tap is heard at once (desktop notification
+    sounds fade in and add a tenth of a second). Written once per session."""
+    path = os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/tmp"), "overdrive-nfc-beep.wav")
+    if not os.path.exists(path):
+        rate, frames = 48000, []
+        for start, length, freq in ((0.0, 0.07, 1320.0), (0.07, 0.11, 1760.0)):
+            count = int(length * rate)
+            for i in range(count):
+                fade = min(1.0, (count - i) / (0.02 * rate))            # no click at the end
+                value = int(9000 * fade * math.sin(2 * math.pi * freq * i / rate))
+                frames.append(struct.pack("<hh", value, value))
+        with wave.open(path + ".tmp", "wb") as out:
+            out.setnchannels(2)
+            out.setsampwidth(2)
+            out.setframerate(rate)
+            out.writeframes(b"".join(frames))
+        os.replace(path + ".tmp", path)
+    return path
+
+
 def play_sound():
-    if shutil.which("pw-play") and os.path.exists(SOUND):
-        subprocess.Popen(["pw-play", SOUND], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    if not shutil.which("pw-play"):
+        return
+    try:
+        sound = beep_file()
+    except OSError:
+        sound = SOUND
+    # waited for in a thread, so that no finished player is left behind as a zombie
+    threading.Thread(target=lambda: subprocess.run(["pw-play", "--latency=20ms", sound], stdout=subprocess.DEVNULL,
+                                                   stderr=subprocess.DEVNULL, timeout=10, check=False), daemon=True).start()
 
 
 def notify(title, body, url):

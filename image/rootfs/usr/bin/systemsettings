@@ -1,11 +1,12 @@
 #!/usr/bin/bash
-# Plasma opens its own pages by name (the volume icon runs "systemsettings kcm_pulseaudio"). Two of those pages now live inside ours:
+# Plasma opens its own pages by name (the volume icon runs "systemsettings kcm_pulseaudio"). Some of those pages now live inside ours:
 # send the old names to the new pages, then run the real System Settings.
 args=()
 for a in "$@"; do
     case "$a" in
         kcm_pulseaudio) a=kcm_overdrive_sound ;;
         kcm_powerdevilprofilesconfig) a=kcm_overdrive_power ;;
+        kcm_about-distro) a=kcm_overdrive_about ;;
     esac
     args+=("$a")
 done

@@ -21,6 +21,8 @@ public:
 Q_SIGNALS:
     void activeChanged();
     /** kind: "move", "press", "release", "enter" or "leave"; tool: "pen" or "eraser"; x and y are window coordinates. */
+    /** The top button was clicked: "click", "double" or "hold". Needs the pen paired over Bluetooth. */
+    void topButton(const QString &how);
     void penEvent(const QString &kind, const QString &tool, qreal x, qreal y, qreal pressure, qreal xTilt, qreal yTilt, qreal rotation, int buttons);
 
 private:

@@ -61,6 +61,15 @@ void PreviewItem::start(const QString &node)
     m_process->setArguments({QStringLiteral("-q"),
                              QStringLiteral("pipewiresrc"),
                              QStringLiteral("target-object=") + node,
+                             // PipeWire lets the camera write the next picture into a buffer a few frames after handing it out,
+                             // whether or not we are done with it: copy each picture at once, or scaling a large one shows
+                             // rectangles of two different frames. The queue drops pictures we are too slow for, so the preview
+                             // shows the newest one instead of falling behind.
+                             QStringLiteral("always-copy=true"),
+                             QStringLiteral("!"),
+                             QStringLiteral("queue"),
+                             QStringLiteral("leaky=downstream"),
+                             QStringLiteral("max-size-buffers=1"),
                              QStringLiteral("!"),
                              QStringLiteral("videoconvert"),
                              QStringLiteral("!"),

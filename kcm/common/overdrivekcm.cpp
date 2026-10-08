@@ -35,7 +35,7 @@ OverdriveKCM::OverdriveKCM(QObject *parent, const KPluginMetaData &data, const Q
 }
 
 // Where the image keeps the Plasma pages that ours replace in the sidebar (see the Containerfile), then where Plasma installs them.
-static const QStringList s_stockDirs = {QStringLiteral("plasma/kcms/overdrive-stock"), QStringLiteral("plasma/kcms/systemsettings")};
+static const QStringList s_stockDirs = {QStringLiteral("plasma/kcms/overdrive-stock"), QStringLiteral("plasma/kcms/systemsettings"), QStringLiteral("plasma/kcms/kinfocenter"), QStringLiteral("plasma/kcms")};
 
 void OverdriveKCM::loadStock(const QString &pluginId)
 {

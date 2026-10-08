@@ -8,10 +8,12 @@ import json
 import os
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 from . import health
 
+RECHECK_S = 25
 RANK = {health.OK: 0, health.NA: 0, health.WARN: 1, health.FAIL: 2}
 
 
@@ -53,7 +55,13 @@ def main():
         previous = json.loads(path.read_text())
     except (OSError, ValueError):
         previous = {}
-    note, state = decide(previous, health.run_all())
+    checks = health.run_all()
+    if not set(c.title for c in problems(checks)) <= set(previous.get("problems", [])):
+        # Something new looks broken. It may be a service that is just restarting (the camera service does when the picture size
+        # changes): look again in a while and only speak up when it is still broken.
+        time.sleep(RECHECK_S)
+        checks = health.run_all()
+    note, state = decide(previous, checks)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(state))
     if note:

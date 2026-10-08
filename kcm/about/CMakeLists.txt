@@ -1,0 +1,2 @@
+kcmutils_add_qml_kcm(kcm_overdrive_about SOURCES page_about.cpp)
+target_link_libraries(kcm_overdrive_about PRIVATE overdrive_common)

@@ -88,39 +88,6 @@ KCM.SimpleKCM {
         contentItem: ColumnLayout { id: body; spacing: Kirigami.Units.smallSpacing }
     }
     component Hint: QQC2.Label { Layout.fillWidth: true; wrapMode: Text.WordWrap; opacity: 0.6; font.pointSize: Kirigami.Theme.defaultFont.pointSize - 1 }
-    component ValueSlider: ColumnLayout {
-        id: vs
-        property string label
-        property real from: 0
-        property real to: 1
-        property real step: 0.1
-        property real value: 0
-        property string unit: ""
-        property real neutral: 0
-        signal edited(real v)
-        Layout.fillWidth: true
-        spacing: 0
-        RowLayout {
-            Layout.fillWidth: true
-            QQC2.Label { text: vs.label; font.bold: true }
-            Item { Layout.fillWidth: true }
-            QQC2.Label { text: (Math.round(sl.value / vs.step) * vs.step).toFixed(vs.step < 1 ? 1 : 0) + " " + vs.unit; opacity: 0.8 }
-            QQC2.ToolButton {
-                icon.name: "edit-undo"; display: QQC2.AbstractButton.IconOnly
-                opacity: Math.abs(sl.value - vs.neutral) > vs.step / 2 ? 1 : 0
-                enabled: opacity > 0
-                onClicked: { sl.value = vs.neutral; vs.edited(vs.neutral) }
-            }
-        }
-        QQC2.Slider {
-            id: sl
-            Layout.fillWidth: true
-            Layout.preferredHeight: Kirigami.Units.gridUnit * 2
-            from: vs.from; to: vs.to; stepSize: vs.step; snapMode: QQC2.Slider.SnapAlways
-            value: vs.value
-            onMoved: vs.edited(value)
-        }
-    }
     component NameDialog: QQC2.Dialog {
         id: nd
         property var accepted_: null
@@ -167,24 +134,9 @@ KCM.SimpleKCM {
             Hint { text: i18n("The Surface Go volume buttons send one step per press by default. With this on, holding a button keeps changing the volume. Asks for your password.") }
         }
 
-        // ---------------- test sounds ----------------
-        Section {
-            title: i18n("Test the speakers")
-            RowLayout {
-                Layout.fillWidth: true
-                Repeater {
-                    model: [{ t: i18n("Left"), k: "left", i: "audio-speakers" }, { t: i18n("Right"), k: "right", i: "audio-speakers" },
-                            { t: i18n("Stereo"), k: "both", i: "media-playback-start" }, { t: i18n("Sweep"), k: "sweep", i: "view-media-equalizer" }]
-                    delegate: QQC2.Button { Layout.fillWidth: true; text: modelData.t; icon.name: modelData.i; onClicked: kcm.call("play", ["audio", "play", modelData.k]) }
-                }
-                QQC2.Button { text: i18n("Stop"); icon.name: "media-playback-stop"; onClicked: kcm.call("stop", ["audio", "stop"]) }
-            }
-            Hint { text: i18n("Left and Right announce the channel; Stereo is a short piece that moves between the speakers; Sweep goes from 40 Hz to 16 kHz so you can hear where the speakers rattle or fade.") }
-        }
-
         // ---------------- output ----------------
         Section {
-            title: i18n("Output")
+            title: i18n("Boost")
             RowLayout {
                 Layout.fillWidth: true
                 Repeater {
@@ -204,14 +156,16 @@ KCM.SimpleKCM {
                 checked: root.d.eq.sync
                 onToggled: { if (checked) root.editing = "speaker"; root.audio("action", ["eq", "sync", checked ? "on" : "off"]) }
             }
-            ValueSlider {
+            Adjust {
+                onReset: edited(neutral)
                 label: i18n("Volume boost")
                 from: 100; to: 180; step: 1; unit: "%"; neutral: 100
                 value: root.cur.boost
                 onEdited: v => root.setTop("boost", v)
             }
-            Hint { text: i18n("The Surface Go speakers are quiet: this is extra digital volume on top of the system volume (100% = none; the default of 120% suits the speakers). For headphones keep it near 100%, or they will be too loud.") }
-            ValueSlider {
+            Hint { text: i18n("How much louder the \"Built-in Speakers (boosted)\" output of the Sound tab is than the plain speakers: extra digital volume on top of the volume slider (100% = none, 120% suits the Surface Go speakers). For headphones keep it near 100%.") }
+            Adjust {
+                onReset: edited(neutral)
                 label: i18n("Pre-amplifier")
                 from: -24; to: 12; step: 0.5; unit: "dB"; neutral: 0
                 value: root.cur.preamp
@@ -247,6 +201,13 @@ KCM.SimpleKCM {
                 QQC2.Button { text: i18n("Import..."); icon.name: "document-import"; onClicked: importDialog.open() }
                 QQC2.Button { text: i18n("Export..."); icon.name: "document-export"; onClicked: exportDialog.open() }
                 Item { Layout.fillWidth: true }
+                QQC2.Button {
+                    text: i18n("Play a sweep"); icon.name: "media-playback-start"
+                    onClicked: kcm.call("play", ["audio", "play", "sweep"])
+                    QQC2.ToolTip.text: i18n("A tone that goes from 40 Hz to 16 kHz, to hear where the speakers rattle or fade")
+                    QQC2.ToolTip.visible: hovered
+                }
+                QQC2.Button { icon.name: "media-playback-stop"; display: QQC2.AbstractButton.IconOnly; onClicked: kcm.call("stop", ["audio", "stop"]) }
             }
             EqGraph {
                 Layout.fillWidth: true
@@ -268,17 +229,20 @@ KCM.SimpleKCM {
                 }
                 QQC2.Switch { checked: root.cur.bands[root.sel] ? root.cur.bands[root.sel].on : true; onToggled: root.setBand(root.sel, "on", checked) }
             }
-            ValueSlider {
-                label: i18n("Frequency"); from: 20; to: 20000; step: 1; unit: "Hz"; neutral: -1
+            Adjust {
+                onReset: edited(neutral)
+                label: i18n("Frequency"); from: 20; to: 20000; step: 1; unit: "Hz"; showReset: false
                 value: root.cur.bands[root.sel] ? root.cur.bands[root.sel].freq : 1000
                 onEdited: v => root.setBand(root.sel, "freq", v)
             }
-            ValueSlider {
+            Adjust {
+                onReset: edited(neutral)
                 label: i18n("Gain"); from: -15; to: 15; step: 0.5; unit: "dB"; neutral: 0
                 value: root.cur.bands[root.sel] ? root.cur.bands[root.sel].gain : 0
                 onEdited: v => root.setBand(root.sel, "gain", v)
             }
-            ValueSlider {
+            Adjust {
+                onReset: edited(neutral)
                 label: i18n("Width (Q)"); from: 0.2; to: 10; step: 0.1; unit: ""; neutral: 1
                 value: root.cur.bands[root.sel] ? root.cur.bands[root.sel].q : 1
                 onEdited: v => root.setBand(root.sel, "q", v)
@@ -317,7 +281,8 @@ KCM.SimpleKCM {
                     model: [{ k: "gain", t: i18n("Gain"), u: "dB", s: 0.5, n: 0 }, { k: "lowcut", t: i18n("Low cut"), u: "Hz", s: 5, n: 80 },
                             { k: "bass", t: i18n("Bass"), u: "dB", s: 0.5, n: 0 }, { k: "presence", t: i18n("Presence"), u: "dB", s: 0.5, n: 0 },
                             { k: "treble", t: i18n("Treble"), u: "dB", s: 0.5, n: 0 }]
-                    delegate: ValueSlider {
+                    delegate: Adjust {
+                onReset: edited(neutral)
                         label: modelData.t; unit: modelData.u; step: modelData.s; neutral: modelData.n
                         from: root.d.mic.ranges[modelData.k] ? root.d.mic.ranges[modelData.k][0] : 0
                         to: root.d.mic.ranges[modelData.k] ? root.d.mic.ranges[modelData.k][1] : 1

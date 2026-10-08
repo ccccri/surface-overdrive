@@ -101,8 +101,8 @@ COPY ci/patch_acp_mic.py /tmp/patch_acp_mic.py
 RUN python3 /tmp/patch_acp_mic.py && rm /tmp/patch_acp_mic.py
 COPY --from=hidbpf /out/ /
 COPY --from=kcm /out/ /
-# "Sound and EQ" and our "Power Management" show the Plasma pages in their first tab: take the Plasma pages out of the sidebar (they
-# stay loadable from overdrive-stock). A page Plasma has renamed is simply left where it is; ours then says it could not load it.
+# "Sound and EQ", "Power Management" and "About this System" are pages of ours that show the Plasma page inside: take the Plasma
+# pages out of the sidebar (they stay loadable from overdrive-stock; the About page goes where only Info Center looks, which uses it too). A page Plasma has renamed is simply left where it is; ours then says it could not load it.
 # System Settings itself moves aside: image/rootfs/usr/bin/systemsettings sends the old page names to our pages and then runs it.
 RUN set -eux; \
     kcms=/usr/lib64/qt6/plugins/plasma/kcms; mkdir -p "$kcms/overdrive-stock"; \
@@ -110,6 +110,8 @@ RUN set -eux; \
         if [ -f "$kcms/systemsettings/$k.so" ]; then mv "$kcms/systemsettings/$k.so" "$kcms/overdrive-stock/"; \
         else echo "warning: $k is not in the base image"; fi; \
     done; \
+    if [ -f "$kcms/kcm_about-distro.so" ]; then mkdir -p "$kcms/kinfocenter"; mv "$kcms/kcm_about-distro.so" "$kcms/kinfocenter/"; \
+    else echo "warning: kcm_about-distro is not in the base image"; fi; \
     mkdir -p /usr/libexec/overdrive/stock; mv /usr/bin/systemsettings /usr/libexec/overdrive/stock/systemsettings
 COPY image/rootfs/ /
 COPY src/ /usr/lib/overdrive/python/

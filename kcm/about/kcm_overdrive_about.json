@@ -1,0 +1,17 @@
+{
+    "KPlugin": {
+        "Authors": [
+            {
+                "Name": "ccccri"
+            }
+        ],
+        "Description": "Information about the system, its sensors and its firmware",
+        "Icon": "help-about",
+        "Id": "kcm_overdrive_about",
+        "Name": "About this System"
+    },
+    "X-KDE-KeepAlive": true,
+    "X-KDE-Keywords": "about,system,information,version,kernel,hardware,surface,sensor,accelerometer,gyroscope,light,lux,firmware",
+    "X-KDE-System-Settings-Parent-Category": "system-administration",
+    "X-KDE-Weight": 0
+}

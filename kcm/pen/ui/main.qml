@@ -25,6 +25,7 @@ KCM.SimpleKCM {
     property real lastY: -1
     // The side button arrives as the middle button (a second side button, on pens that have one, as the right button), and only
     // together with a movement of the pen. The top end is not a button: it turns the pen into the eraser tool.
+    readonly property bool paired: info.bluetooth.some(d => d.connected)
     readonly property bool barrelDown: (buttons & (Qt.RightButton | Qt.MiddleButton)) !== 0
     readonly property bool eraserDown: tool === "Eraser"
 
@@ -45,8 +46,11 @@ KCM.SimpleKCM {
         maxPressure = 0; tiltSeen = false
     }
 
+    property string topClick: ""
+    Timer { id: topClear; interval: 2500; onTriggered: root.topClick = "" }
     PenMonitor {
         active: root.visible
+        onTopButton: how => { root.topClick = how; topClear.restart() }
         onPenEvent: (kind, tool, x, y, pressure, tx, ty, rotation, buttons) => {
             root.eventsSeen = true
             root.tool = tool === "eraser" ? "Eraser" : "Tip"
@@ -157,6 +161,13 @@ KCM.SimpleKCM {
                 }
                 Name { text: i18n("Tilt:") }
                 Val { text: root.tiltSeen ? "X " + root.xTilt.toFixed(0) + "°   Y " + root.yTilt.toFixed(0) + "°" : i18n("not reported") }
+                Name { text: i18n("Top button:") }
+                Val {
+                    text: root.topClick === "click" ? i18n("one click") : root.topClick === "double" ? i18n("two clicks")
+                          : root.topClick === "hold" ? i18n("pressed and held") : root.paired ? i18n("click it to try") : i18n("needs Bluetooth, see below")
+                    font.bold: root.topClick.length > 0
+                    color: root.topClick.length > 0 ? Kirigami.Theme.positiveTextColor : Kirigami.Theme.textColor
+                }
                 Name { text: i18n("Buttons now:") }
                 RowLayout {
                     spacing: Kirigami.Units.smallSpacing
@@ -176,7 +187,7 @@ KCM.SimpleKCM {
         Kirigami.Heading { level: 3; text: i18n("Bluetooth pen") }
         QQC2.Label {
             Layout.fillWidth: true; wrapMode: Text.WordWrap
-            text: root.info.bluetooth.length === 0 ? i18n("No paired pen found.")
+            text: root.info.bluetooth.length === 0 ? i18n("No paired pen found. Writing, the side button and the eraser work without Bluetooth; the click of the top button and the battery level need it. To pair: hold the top button for about seven seconds until the light on the pen blinks, then add \"Surface Pen\" in Bluetooth.")
                   : root.info.bluetooth.map(d => d.name + ": " + (d.connected ? i18n("connected") + (d.battery >= 0 ? i18n(", battery %1%", d.battery) : "")
                                                                    : i18n("paired, not connected (press a pen button to wake it)"))).join("\n")
         }

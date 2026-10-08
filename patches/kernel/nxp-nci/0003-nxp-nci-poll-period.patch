@@ -7,12 +7,12 @@
 +/*
 + * NCI discovery parameter TOTAL_DURATION (id 0x00, 2 octets little endian, milliseconds): time
 + * between the starts of two polling cycles. The NCI default is 1000 ms, so a tag that is put on
-+ * the reader can wait up to a second before it is noticed (100 ms here). Lower values detect faster and keep the
++ * the reader can wait up to a second before it is noticed (50 ms here). Lower values detect faster and keep the
 + * RF field on more often (more power).
 + */
 +#define NXP_NCI_PARAM_TOTAL_DURATION 0x00
 +
-+static unsigned int poll_period_ms = 100;
++static unsigned int poll_period_ms = 50;
 +module_param(poll_period_ms, uint, 0444);
 +MODULE_PARM_DESC(poll_period_ms, "NFC polling period in ms (NCI TOTAL_DURATION), 0 keeps the chip default");
 +

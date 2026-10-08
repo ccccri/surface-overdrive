@@ -3,6 +3,7 @@
 
 #include <QCoreApplication>
 #include <QDebug>
+#include <QKeyEvent>
 #include <QTabletEvent>
 #include <QWindow>
 
@@ -42,6 +43,16 @@ bool PenMonitor::eventFilter(QObject *watched, QEvent *event)
     // System Settings draws the page in, each time with coordinates of its own. Only the real window counts.
     auto *window = qobject_cast<QWindow *>(watched);
     const bool realWindow = window && window->handle();
+
+    // The click of the top button does not come through the screen: the pen sends it over Bluetooth as a key, the Windows key with
+    // F20 (one click), F19 (two clicks) or F18 (press and hold).
+    if (type == QEvent::KeyPress && realWindow) {
+        auto *key = static_cast<QKeyEvent *>(event);
+        if (!key->isAutoRepeat() && key->key() >= Qt::Key_F18 && key->key() <= Qt::Key_F20) {
+            Q_EMIT topButton(key->key() == Qt::Key_F20 ? QStringLiteral("click") : key->key() == Qt::Key_F19 ? QStringLiteral("double") : QStringLiteral("hold"));
+        }
+        return false;
+    }
 
     QString kind;
     switch (type) {
