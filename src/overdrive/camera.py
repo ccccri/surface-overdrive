@@ -22,12 +22,10 @@ SENSORS = {"front": "ov5693", "rear": "ov8865"}
 
 # Picture sizes offered to applications ("min_width": the smallest width offered, apps take the first size) and what each costs.
 SIZES = {
-    "front": [(0, "1152x864", "1 MP, fast: about 28 pictures a second"), (1536, "1536x1152", "1.8 MP, about 28 pictures a second"),
-              (2048, "2048x1536", "3.1 MP, about 23 pictures a second"),
-              (2560, "2560x1920", "4.9 MP, the maximum of this camera: about 20 pictures a second")],
-    "rear": [(0, "1536x1152", "1.8 MP, fast: 30 pictures a second"), (2048, "2048x1536", "3.1 MP, about 15 pictures a second"),
-             (2560, "2560x1920", "4.9 MP, about 13 pictures a second"),
-             (3200, "3200x2400", "7.7 MP, the maximum of this camera: about 11 pictures a second")],
+    "front": [(0, "1152x864", "1 MP, 28 fps"), (1536, "1536x1152", "1.8 MP, 28 fps"), (2048, "2048x1536", "3.1 MP, 23 fps"),
+              (2560, "2560x1920", "4.9 MP, 20 fps, maximum")],
+    "rear": [(0, "1536x1152", "1.8 MP, 30 fps"), (2048, "2048x1536", "3.1 MP, 15 fps"), (2560, "2560x1920", "4.9 MP, 13 fps"),
+             (3200, "3200x2400", "7.7 MP, 11 fps, maximum")],
 }
 # Temporal denoise levels: (minimum weight in 1/256, threshold). Lower weight = stronger. Level 0 is off.
 TNR_LEVELS = [(0, 0), (160, 12), (96, 12), (48, 12), (24, 14), (12, 16)]
@@ -140,7 +138,11 @@ def controls(cam):
 
 
 def _default(cam, key):
-    return next(it["default"] for g in controls(cam) for it in g["items"] if it["key"] == key)
+    for group in controls(cam):
+        for item in group["items"]:
+            if item["key"] == key:
+                return item["default"]
+    raise KeyError(key)
 
 
 def focus_state(cam):
@@ -239,44 +241,62 @@ def reset_all(cam, keep_size=True):
 
 
 # ---- UI memory (which switches the user left on) ----
-def ui_setting(key, default):
+def _ui():
+    """The file as a dictionary; a damaged one counts as empty."""
     try:
-        return json.load(open(UI_FILE)).get(key, default)
+        with open(UI_FILE) as f:
+            d = json.load(f)
     except (OSError, ValueError):
-        return default
+        return {}
+    return d if isinstance(d, dict) else {}
+
+
+def ui_setting(key, default):
+    return _ui().get(key, default)
 
 
 def set_ui_setting(key, value):
-    try:
-        d = json.load(open(UI_FILE))
-    except (OSError, ValueError):
-        d = {}
+    d = _ui()
     d[key] = value
     _write_atomic(UI_FILE, json.dumps(d))
 
 
 # ---- presets ----
+MAX_NAME = 60
+
+
+def _name(name):
+    """A preset name as it is shown: one line, single spaces. '' when it is empty or too long."""
+    name = " ".join(str(name).split())
+    return name if len(name) <= MAX_NAME else ""
+
+
 def _slug(name):
-    return re.sub(r"[^A-Za-z0-9._-]+", "_", name.strip()).strip("._")[:60]
+    return re.sub(r"[^A-Za-z0-9._-]+", "_", _name(name)).strip("._")[:60]
 
 
 def _preset_path(cam, pid):
+    """The file of a preset. The id comes from the command line: only what _slug makes is taken, so that an id can never
+    point outside the preset folder."""
+    if not pid or pid != _slug(pid):
+        raise ValueError("not a preset id: %r" % pid)
     return os.path.join(PRESET_DIR, cam, pid + ".json")
 
 
 def _load_preset(cam, pid):
     try:
         with open(_preset_path(cam, pid)) as f:
-            return json.load(f)
+            d = json.load(f)
     except (OSError, ValueError):
         return None
+    return d if isinstance(d, dict) else None
 
 
 def _preset_profile(cam, pid):
     d = _load_preset(cam, pid)
     try:
         return {k: [float(x) for x in v] for k, v in d["profile"].items()}
-    except (TypeError, KeyError, ValueError):
+    except (TypeError, KeyError, ValueError, AttributeError):
         return None
 
 
@@ -295,7 +315,7 @@ def list_presets(cam):
         pid = os.path.basename(p)[:-5]
         d = _load_preset(cam, pid)
         if d is not None:
-            out.append({"id": pid, "name": d.get("name", pid)})
+            out.append({"id": pid, "name": str(d.get("name") or pid)})
     out.sort(key=lambda x: x["name"].lower())
     cur = matching_preset(cam)
     for o in out:
@@ -310,14 +330,17 @@ def save_preset(cam, name, overwrite=False):
         return "invalid"
     if os.path.exists(_preset_path(cam, pid)) and not overwrite:
         return "exists"
-    _write_atomic(_preset_path(cam, pid), json.dumps({"name": name.strip(), "profile": read_profile(cam)}, indent=1))
+    _write_atomic(_preset_path(cam, pid), json.dumps({"name": _name(name), "profile": read_profile(cam)}, indent=1))
     set_ui_setting("lastPreset_" + cam, pid)
     return "ok"
 
 
 def apply_preset(cam, pid):
     """Make the preset the current profile. Returns True when the picture size changed (the camera service restarts)."""
-    prof = _preset_profile(cam, pid)
+    try:
+        prof = _preset_profile(cam, pid)
+    except ValueError:
+        prof = None
     if prof is None:
         return False
     old = read_profile(cam).get("min_width")
@@ -338,7 +361,7 @@ def rename_preset(cam, pid, new_name):
     d = _load_preset(cam, pid)
     if d is None:
         return "invalid"
-    d["name"] = new_name.strip()
+    d["name"] = _name(new_name)
     _write_atomic(_preset_path(cam, nid), json.dumps(d, indent=1))
     if nid != pid:
         os.remove(_preset_path(cam, pid))
@@ -348,8 +371,12 @@ def rename_preset(cam, pid, new_name):
 def delete_preset(cam, pid):
     try:
         os.remove(_preset_path(cam, pid))
-    except OSError:
-        pass
+    except (OSError, ValueError):
+        return
+    d = _ui()
+    if d.get("lastPreset_" + cam) == pid:               # do not keep pointing at a preset that is gone
+        del d["lastPreset_" + cam]
+        _write_atomic(UI_FILE, json.dumps(d))
 
 
 def duplicate_preset(cam, pid, new_name):
@@ -361,7 +388,7 @@ def duplicate_preset(cam, pid, new_name):
     d = _load_preset(cam, pid)
     if d is None:
         return "invalid"
-    d["name"] = new_name.strip()
+    d["name"] = _name(new_name)
     _write_atomic(_preset_path(cam, nid), json.dumps(d, indent=1))
     return "ok"
 

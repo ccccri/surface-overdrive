@@ -33,7 +33,10 @@ Kirigami.Page {
     function load() { cmd("load", ["describe"]) }
     function setLocal(key, value) { const o = {}; o[key] = value; d = Object.assign({}, d, { settings: Object.assign({}, d.settings, o) }) }
     // sliders send many values while they move: keep the last one of each setting and send it a moment later
-    function edit(key, value) { setLocal(key, value); pending[key] = value; sendTimer.restart() }
+    function edit(key, value) {
+        if (typeof value === "number" && !isFinite(value)) return          // never send what is not a number
+        setLocal(key, value); pending[key] = value; sendTimer.restart()
+    }
     property var pending: ({})
     Timer {
         id: sendTimer; interval: 90
@@ -196,19 +199,23 @@ Kirigami.Page {
         onAccepted: if (run) run()
     }
 
+    // A message lies over the top of the page and goes away by itself: it never pushes the preview and the settings around.
+    Kirigami.InlineMessage {
+        id: message
+        z: 10
+        anchors { top: parent.top; left: parent.left; right: parent.right; margins: Kirigami.Units.largeSpacing }
+        visible: text.length > 0
+        type: Kirigami.MessageType.Warning
+        showCloseButton: true
+        onTextChanged: if (text.length > 0) hideMessage.restart()
+        Timer { id: hideMessage; interval: 8000; onTriggered: message.text = "" }
+    }
+
     ColumnLayout {
         anchors.fill: parent
         anchors.topMargin: Kirigami.Units.largeSpacing
         anchors.leftMargin: Kirigami.Units.largeSpacing     // none on the right: the scroll bar sits at the edge, as on the pages of Plasma
         spacing: Kirigami.Units.largeSpacing
-
-        Kirigami.InlineMessage {
-            id: message
-            Layout.fillWidth: true
-            visible: text.length > 0
-            type: Kirigami.MessageType.Warning
-            showCloseButton: true
-        }
 
         GridLayout {
             Layout.fillWidth: true
@@ -285,7 +292,7 @@ Kirigami.Page {
                             onToggled: { const value = checked; root.setLocal("focusManual", value); root.cmd("action", ["set", "focusManual", value ? "1" : "0"]) }
                         }
                         Adjust {
-                            id: focus
+                            id: lens          // not "focus": inside a button that name is the button's own keyboard focus
                             label: i18n("Lens position")
                             help: i18n("0 is far away, 1023 is as close as the lens goes. Watch the sharpness meter: it is highest when the picture is in focus.")
                             enabled: root.s.focusManual === true
@@ -302,7 +309,7 @@ Kirigami.Page {
                                 delegate: QQC2.Button {
                                     Layout.fillWidth: true
                                     text: modelData > 0 ? "+" + modelData : String(modelData)
-                                    onClicked: root.edit("focus", Math.max(0, Math.min(1023, Math.round(focus.value) + modelData)))
+                                    onClicked: root.edit("focus", Math.max(0, Math.min(1023, Math.round(lens.value) + modelData)))
                                 }
                             }
                         }
@@ -357,6 +364,8 @@ Kirigami.Page {
 
                     QQC2.Button {
                         Layout.fillWidth: true
+                        Layout.leftMargin: Kirigami.Units.largeSpacing
+                        Layout.rightMargin: Kirigami.Units.largeSpacing
                         text: i18n("Reset All Adjustments")
                         icon.name: "edit-undo"
                         enabled: root.s.dirty === true
@@ -364,6 +373,7 @@ Kirigami.Page {
                     }
                     QQC2.Label {
                         Layout.fillWidth: true; wrapMode: Text.WordWrap; opacity: 0.6
+                        Layout.leftMargin: Kirigami.Units.largeSpacing; Layout.rightMargin: Kirigami.Units.largeSpacing
                         font.pointSize: Kirigami.Theme.defaultFont.pointSize - 1
                         text: i18n("Changes apply to every app that uses the camera.")
                         bottomPadding: Kirigami.Units.largeSpacing

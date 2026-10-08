@@ -107,11 +107,15 @@ def nfc_info():
 
 def set_rate(hz):
     """Faster sensor updates while the live view is open (the hub default is 10 Hz). Needs the udev rule; ignored without it."""
+    try:
+        rate = max(1, min(100, int(float(hz))))
+    except (TypeError, ValueError, OverflowError):
+        return                                          # not a number: leave the sensors as they are
     for name, attr in (("accel_3d", "in_accel_sampling_frequency"), ("gyro_3d", "in_anglvel_sampling_frequency")):
         d = iio_device(name)
         if d:
             try:
                 with open("%s/%s" % (d, attr), "w") as f:
-                    f.write(str(int(hz)))
+                    f.write(str(rate))
             except OSError:
                 pass

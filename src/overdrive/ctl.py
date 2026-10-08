@@ -82,7 +82,7 @@ def camera_command(args):
         elif verb != "describe":
             print(USAGE, file=sys.stderr)
             return 2
-    except (KeyError, IndexError, ValueError) as e:
+    except (KeyError, IndexError, ValueError, OSError, TypeError, AttributeError) as e:
         print("error: %s" % e, file=sys.stderr)
         return 2
     out.update(camera.describe(cam))
