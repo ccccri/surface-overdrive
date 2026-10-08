@@ -97,6 +97,18 @@ ColumnLayout {
     }
     Timer { id: micTimer; interval: 120; onTriggered: { const v = root.pendingMic; root.pendingMic = null; if (v) root.audio("set", ["mic", "set-all", JSON.stringify(v)]) } }
 
+    // A line of controls that goes on to a second line when the window is too narrow for all of them, instead of pushing
+    // the page wider than the window.
+    component Line: Flow {
+        Layout.fillWidth: true
+        spacing: Kirigami.Units.smallSpacing
+    }
+    // the text in front of such a line, level with the controls after it
+    component Caption: QQC2.Label {
+        height: Math.max(implicitHeight, outputBox.implicitHeight)
+        verticalAlignment: Text.AlignVCenter
+    }
+
     component NameDialog: QQC2.Dialog {
         id: nd
         property var accepted_: null
@@ -145,13 +157,11 @@ ColumnLayout {
 
         Section {
             title: i18n("Volume Boost")
-            RowLayout {
-                Layout.fillWidth: true
-                spacing: Kirigami.Units.smallSpacing
-                QQC2.Label { text: i18n("Settings for:") }
+            Line {
+                Caption { text: i18n("Settings for:") }
                 QQC2.ComboBox {
                     id: outputBox
-                    Layout.preferredWidth: Kirigami.Units.gridUnit * 14
+                    width: Kirigami.Units.gridUnit * 14
                     readonly property var outputs: ["speaker", "headphones"]
                     model: [i18n("Speakers"), i18n("Headphones")].map((t, i) => t + (root.d.active === outputs[i] ? i18n(" (in use)") : ""))
                     enabled: !root.d.eq.sync
@@ -159,12 +169,12 @@ ColumnLayout {
                     onActivated: i => root.editing = outputs[i]
                 }
                 Check {
+                    height: outputBox.implicitHeight          // level with the list next to it
                     text: i18n("Same for both")
                     help: i18n("Use the settings of the speakers for the headphones too. Turn it off to give the headphones their own boost and equalizer, which apply by themselves when headphones are plugged in.")
                     checked: root.d.eq.sync
                     onToggled: { if (checked) root.editing = "speaker"; root.audio("action", ["eq", "sync", checked ? "on" : "off"]) }
                 }
-                Item { Layout.fillWidth: true }
             }
             Adjust {
                 onReset: edited(neutral)
@@ -201,14 +211,11 @@ ColumnLayout {
 
         Section {
             title: i18n("Equalizer")
-            RowLayout {
-                Layout.fillWidth: true
-                spacing: Kirigami.Units.smallSpacing
-                QQC2.Label { text: i18n("Preset:") }
+            Line {
+                Caption { text: i18n("Preset:") }
                 QQC2.ComboBox {
                     id: presetBox
-                    Layout.fillWidth: true
-                    Layout.maximumWidth: Kirigami.Units.gridUnit * 18
+                    width: Kirigami.Units.gridUnit * 14
                     model: root.d.presets.map(p => p.name + (p.builtin ? "" : i18n("  (yours)")))
                 }
                 QQC2.Button {
@@ -228,7 +235,6 @@ ColumnLayout {
                     onClicked: root.audio("action", ["eq", "preset", "delete", preset.name])
                     QQC2.ToolTip.text: text; QQC2.ToolTip.visible: hovered; QQC2.ToolTip.delay: Kirigami.Units.toolTipDelay
                 }
-                Item { Layout.fillWidth: true }
                 QQC2.Button {
                     text: i18n("Reset"); icon.name: "edit-reset"
                     onClicked: root.audio("action", ["eq", "flat", root.editing])
@@ -244,24 +250,22 @@ ColumnLayout {
                 onBandSelected: i => root.sel = i
                 onBandMoved: (i, f, g) => root.setBandPos(i, f, g)
             }
-            RowLayout {
-                Layout.fillWidth: true
-                spacing: Kirigami.Units.smallSpacing
-                QQC2.Label { text: i18n("Band %1:", root.sel + 1) }
+            Line {
+                Caption { text: i18n("Band %1:", root.sel + 1) }
                 QQC2.ComboBox {
-                    Layout.preferredWidth: Kirigami.Units.gridUnit * 12
+                    width: Kirigami.Units.gridUnit * 12
                     model: root.kindsFor(root.sel).map(k => root.kindNames[k])
                     enabled: count > 1
                     currentIndex: Math.max(0, root.kindsFor(root.sel).indexOf(root.band.type))
                     onActivated: i => root.setBand(root.sel, "type", root.kindsFor(root.sel)[i])
                 }
                 Check {
+                    height: outputBox.implicitHeight          // level with the list next to it
                     text: i18n("Active")
                     help: i18n("Turn the band off to hear the sound without it.")
                     checked: root.band.on
                     onToggled: root.setBand(root.sel, "on", checked)
                 }
-                Item { Layout.fillWidth: true }
                 QQC2.Button {
                     text: i18n("Play a Sweep"); icon.name: "media-playback-start"
                     onClicked: kcm.call("play", ["audio", "play", "sweep"])
@@ -316,14 +320,11 @@ ColumnLayout {
                 Layout.fillWidth: true
                 enabled: root.d.mic.available
                 spacing: Kirigami.Units.smallSpacing
-                RowLayout {
-                    Layout.fillWidth: true
-                    spacing: Kirigami.Units.smallSpacing
-                    QQC2.Label { text: i18n("Preset:") }
+                Line {
+                    Caption { text: i18n("Preset:") }
                     QQC2.ComboBox {
                         id: micPreset
-                        Layout.fillWidth: true
-                        Layout.maximumWidth: Kirigami.Units.gridUnit * 18
+                        width: Kirigami.Units.gridUnit * 14
                         model: root.d.mic.presets.map(p => p.name + (p.builtin ? "" : i18n("  (yours)")))
                     }
                     QQC2.Button {
@@ -343,7 +344,6 @@ ColumnLayout {
                         onClicked: root.audio("action", ["mic", "preset", "delete", preset.name])
                         QQC2.ToolTip.text: text; QQC2.ToolTip.visible: hovered; QQC2.ToolTip.delay: Kirigami.Units.toolTipDelay
                     }
-                    Item { Layout.fillWidth: true }
                     QQC2.Button {
                         id: recordButton
                         // 0 idle, 5..1 recording (seconds left), -1 playing back

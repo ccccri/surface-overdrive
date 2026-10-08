@@ -100,7 +100,7 @@ INFO = {
         "overdrivectl volume-hold on"),
     "audio": (
         "Louder speakers and a sane microphone level.",
-        "A boost, an equaliser and a limiter run inside the built-in sound output (the hardware has no headroom). The internal microphone "
+        "A boost, an equalizer and a limiter run inside the built-in sound output (the hardware has no headroom). The internal microphone "
         "path is limited to +18 dB with the boost off.",
         "If the boost is not loaded, restart the service that loads it: systemctl --user restart overdrive-audio-route."),
     "secure-boot": (
