@@ -12,6 +12,9 @@ Kirigami.Page {
     title: kcm.name
     padding: 0
 
+    // the settings column is narrow: a tighter label and value column leaves more of it to the sliders
+    readonly property real labelWidth: Kirigami.Units.gridUnit * 7
+    readonly property real valueWidth: Kirigami.Units.gridUnit * 3.6
     property string cam: "rear"
     property var d: ({ settings: {}, controls: [], presets: [], focus: {}, sizes: [], node: "" })
     property real peak: 1
@@ -291,6 +294,7 @@ Kirigami.Page {
                             onToggled: { const value = checked; root.setLocal("focusManual", value); root.cmd("action", ["set", "focusManual", value ? "1" : "0"]) }
                         }
                         Adjust {
+                            labelWidth: root.labelWidth; valueWidth: root.valueWidth
                             id: lens          // not "focus": inside a button that name is the button's own keyboard focus
                             label: i18n("Lens position")
                             help: i18n("0 is far away, 1023 is as close as the lens goes. Watch the sharpness meter: it is highest when the picture is in focus.")
@@ -330,6 +334,7 @@ Kirigami.Page {
                             Repeater {
                                 model: modelData.items
                                 delegate: Adjust {
+                                    labelWidth: root.labelWidth; valueWidth: root.valueWidth
                                     readonly property var it: modelData
                                     label: it.label
                                     help: it.desc

@@ -130,7 +130,7 @@ def controls(cam):
         {"group": "Detail", "items": [
             {"key": "sharpness", "label": "Sharpness", "min": 0, "max": 3, "step": 0.1, "default": 0, "unit": "",
              "desc": "Makes edges crisper. Small differences are ignored so the noise is not sharpened. Uses some CPU at large sizes."},
-            {"key": "temporal", "label": "Grain removal over time", "min": 0, "max": 5, "step": 1, "default": TNR_DEFAULT,
+            {"key": "temporal", "label": "Grain removal", "min": 0, "max": 5, "step": 1, "default": TNR_DEFAULT,
              "unit": "level", "names": TNR_NAMES,
              "desc": "Averages with the previous frame: removes the crawling grain on flat areas. Strong levels leave faint trails behind fast movement."},
         ]},
