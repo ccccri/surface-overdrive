@@ -6,6 +6,7 @@ pressed and then leaves at once, so on a tablet the password field shows while s
 changes the lock screen so that after a touch
   - lifting the finger does not hide the password field, which goes away after the usual ten seconds without input, and
   - it stays for as long as the on-screen keyboard is open or something is typed, as it does with a mouse over the screen.
+It also adds Restart, Shut Down and Log Out to the actions of the lock screen (Plasma offers Sleep and Switch User only).
 
 The file belongs to Fedora's plasma-desktop package, so it is edited in the image build. When its layout changes the file is left as it
 is and the build goes on with a warning: the lock screen then behaves like the stock one.
@@ -22,6 +23,8 @@ CHANGES = [
     ("""        property bool blockUI: containsMouse && (""",
      """        %s a finger leaves no pointer behind, so once the screen was touched, lifting the finger is not the mouse going away
         property bool touched: false
+        // which of Restart / Shut Down / Log Out was tapped once and waits for the second tap that confirms it
+        property string armed: ""
         property bool blockUI: (containsMouse || touched) && (""" % MARK),
     ("""        onExited: {
             uiVisible = false;
@@ -42,6 +45,44 @@ CHANGES = [
                 fadeoutTimer.restart();
             }
         }
+        Timer { id: disarm; interval: 4000; onTriggered: lockScreenRoot.armed = "" }
+"""),
+    # Restart, Shut Down and Log Out next to Sleep and Switch User. Nobody has typed the password at this point, so each
+    # asks for a second tap within four seconds: a touch by accident (the tablet in a bag) does not switch it off.
+    ("""                        visible: sessionManagement.canSwitchUser
+                    }
+                ]
+""",
+     """                        visible: sessionManagement.canSwitchUser
+                    },
+                    ActionButton {
+                        text: lockScreenRoot.armed === "reboot" ? "Tap Again to Restart" : "Restart"
+                        icon.name: "system-reboot"
+                        visible: sessionManagement.canReboot
+                        onClicked: {
+                            if (lockScreenRoot.armed === "reboot") sessionManagement.requestReboot(SessionManagement.ConfirmationMode.Skip);
+                            else { lockScreenRoot.armed = "reboot"; disarm.restart(); }
+                        }
+                    },
+                    ActionButton {
+                        text: lockScreenRoot.armed === "shutdown" ? "Tap Again to Shut Down" : "Shut Down"
+                        icon.name: "system-shutdown"
+                        visible: sessionManagement.canShutdown
+                        onClicked: {
+                            if (lockScreenRoot.armed === "shutdown") sessionManagement.requestShutdown(SessionManagement.ConfirmationMode.Skip);
+                            else { lockScreenRoot.armed = "shutdown"; disarm.restart(); }
+                        }
+                    },
+                    ActionButton {
+                        text: lockScreenRoot.armed === "logout" ? "Tap Again to Log Out" : "Log Out"
+                        icon.name: "system-log-out"
+                        visible: sessionManagement.canLogout
+                        onClicked: {
+                            if (lockScreenRoot.armed === "logout") sessionManagement.requestLogout(SessionManagement.ConfirmationMode.Skip);
+                            else { lockScreenRoot.armed = "logout"; disarm.restart(); }
+                        }
+                    }
+                ]
 """),
     ("""                    lockScreenRoot.uiVisible = false;
                 }
