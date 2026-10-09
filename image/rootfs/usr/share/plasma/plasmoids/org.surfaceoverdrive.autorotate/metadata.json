@@ -1,0 +1,14 @@
+{
+    "KPackageStructure": "Plasma/Applet",
+    "KPlugin": {
+        "Authors": [ { "Name": "ccccri" } ],
+        "Category": "System Information",
+        "Description": "Switch the automatic screen rotation on and off",
+        "Icon": "rotation-allowed-symbolic",
+        "Id": "org.surfaceoverdrive.autorotate",
+        "License": "MIT",
+        "Name": "Auto-Rotate",
+        "Version": "1.0"
+    },
+    "X-Plasma-API-Minimum-Version": "6.0"
+}
