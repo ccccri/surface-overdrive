@@ -19,6 +19,9 @@ import tarfile
 import tomllib
 from pathlib import Path
 
+# Compile on half of the processors unless told otherwise: a full build on all of them (kernel modules and libcamera in parallel
+# stages) once took this desktop down.
+JOBS = int(os.environ.get("OVERDRIVE_JOBS") or max(1, (os.cpu_count() or 2) // 2))
 ROOT = Path(__file__).resolve().parent.parent
 
 
@@ -115,7 +118,7 @@ def main():
             applied.append({"name": p.name, "sha256": sha256(p)})
         bdir = tree / m["build_dir"]
         (bdir / "Kbuild").write_text("\n".join(m["kbuild"]) + "\n")
-        sh(["make", "-C", str(kdir), f"M={bdir}", "modules", f"-j{os.cpu_count()}"])
+        sh(["make", "-C", str(kdir), f"M={bdir}", "modules", f"-j{JOBS}"])
         for mod in m["modules"]:
             ko = bdir / f"{mod}.ko"
             if not ko.is_file():

@@ -46,6 +46,8 @@ EOF
 dnf -y builddep "$spec"
 # Not declared in Fedora's spec but needed by meson here (libcamera's backtrace support looks for libdw); Koji's buildroot happens to have it.
 dnf -y install --setopt=install_weak_deps=False elfutils-devel
-rpmbuild --define "_topdir $top" -bb "$spec"
+# half of the processors unless told otherwise (see build_kmods.py)
+jobs=${OVERDRIVE_JOBS:-$(( ($(nproc) + 1) / 2 ))}
+rpmbuild --define "_topdir $top" --define "_smp_build_ncpus $jobs" -bb "$spec"
 cp "$top"/RPMS/*/*.rpm "$out"/
 ls -la "$out"
