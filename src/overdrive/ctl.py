@@ -6,7 +6,7 @@ import json
 import subprocess
 import sys
 
-from . import camera, health, helper, pen, sensors
+from . import maintenance, camera, health, helper, pen, sensors
 from .audio import eq, mic, pw, sounds
 
 HELPER = "/usr/libexec/overdrive/helper"
@@ -19,6 +19,10 @@ USAGE = """usage: overdrivectl <command>
   audio describe | eq ... | mic ... | play <kind> | record | stop | volume <sink|source> <0-1.5>
          | mute <sink|source>                                  output equaliser, microphone, test sounds, in JSON
   nfc                      state of the NFC reader and its services, in JSON
+  settings export|inspect|import <file> | settings undo     all the settings of the user in one file, and back
+  repair <check id>        try the repair of one fix (restarts its service), then check again
+  image [changes|go-back|cancel]   the system images on the disk, what differs, start the previous one next time
+  report                   write a report of the state and the logs for a bug report
   sensors                  battery, light sensor, motion and device facts, in JSON
   camera <front|rear> describe | set <key> <value> | reset [<key>] | ui <key> <value>
          | preset save|apply|rename|delete|duplicate <args>    live camera settings, answers in JSON
@@ -39,6 +43,8 @@ def show_status(args):
     checks = health.run_all()
     if "--json" in args:
         data = json.loads(health.as_json(checks))
+        for check in data.get("checks", []):
+            check["repair"] = maintenance.REPAIRS[check["id"]][0] if maintenance.repairable(check["id"]) else ""
         data["settings"] = {"volume_hold": read_state("volume-hold"), "stylus_filter": read_state("stylus-filter")}
         print(json.dumps(data, indent=2))
         return 0 if health.overall(checks) != health.FAIL else 1
@@ -185,6 +191,31 @@ def audio_command(args):
     return 0
 
 
+def maintenance_command(argv):
+    """settings export|inspect|import <file> | settings undo; repair <check>; image [changes|go-back|cancel]; report. One JSON object."""
+    verb, rest = argv[0], argv[1:]
+    try:
+        if verb == "settings" and len(rest) == 2 and rest[0] in ("export", "inspect", "import"):
+            out = {"export": maintenance.export_settings, "inspect": maintenance.inspect_settings, "import": maintenance.import_settings}[rest[0]](rest[1])
+        elif verb == "settings" and rest == ["undo"]:
+            out = maintenance.undo_import()
+        elif verb == "repair" and len(rest) == 1:
+            out = maintenance.repair(rest[0])
+        elif verb == "image" and not rest:
+            out = maintenance.images()
+        elif verb == "image" and rest in (["changes"], ["go-back"], ["cancel"]):
+            out = {"changes": maintenance.changes, "go-back": maintenance.go_back, "cancel": maintenance.cancel_next}[rest[0]]()
+        elif verb == "report" and not rest:
+            out = maintenance.write_report()
+        else:
+            print(USAGE, file=sys.stderr)
+            return 2
+    except (OSError, ValueError, KeyError, TypeError) as e:
+        out = {"result": "failed", "error": str(e)}
+    print(json.dumps(out))
+    return 0
+
+
 def main(argv=None):
     argv = list(sys.argv[1:] if argv is None else argv)
     if argv and argv[0] == "status":
@@ -199,6 +230,8 @@ def main(argv=None):
         return 0
     if argv and argv[0] == "audio":
         return audio_command(argv[1:])
+    if argv and argv[0] in ("settings", "repair", "image", "report"):
+        return maintenance_command(argv)
     if argv and argv[0] == "pen":
         print(json.dumps(pen.describe(read_state("stylus-filter"))))
         return 0

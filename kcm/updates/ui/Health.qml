@@ -24,9 +24,21 @@ ColumnLayout {
         }
     }
     Component.onCompleted: parse()
+    property string repairing: ""          // id of the check whose repair runs
+    property string repairedId: ""
+    property string repairNote: ""
     Connections {
         target: kcm
         function onStatusChanged() { root.parse() }
+        function onCallFinished(tag, ok, output, error) {
+            if (tag !== "repair") return
+            root.repairedId = root.repairing
+            root.repairing = ""
+            let r = null
+            try { r = JSON.parse(output) } catch (e) {}
+            root.repairNote = r && r.result === "ok" ? i18n("Repaired.") : i18n("That did not repair it: %1", (r && (r.error || r.detail)) || error || i18n("no answer"))
+            kcm.refresh()
+        }
     }
 
     Kirigami.ListSectionHeader {
@@ -57,6 +69,7 @@ ColumnLayout {
             id: line
             Layout.fillWidth: true
             readonly property var item: modelData
+            readonly property bool troubled: item.status === "warn" || item.status === "fail"
             property bool expanded: false
             onClicked: expanded = !expanded
             // a line that is not working opens by itself: its remedy is what the user came for
@@ -83,6 +96,24 @@ ColumnLayout {
                         Layout.preferredHeight: Kirigami.Units.iconSizes.small
                         source: line.expanded ? "arrow-up" : "arrow-down"
                         opacity: 0.6
+                    }
+                }
+                RowLayout {
+                    visible: line.expanded && line.troubled && (line.item.repair || "").length > 0
+                    Layout.leftMargin: Kirigami.Units.iconSizes.smallMedium + Kirigami.Units.largeSpacing
+                    spacing: Kirigami.Units.largeSpacing
+                    QQC2.Button {
+                        text: i18n("Repair")
+                        icon.name: "tools-symbolic"
+                        enabled: root.repairing.length === 0
+                        onClicked: { root.repairing = line.item.id; root.repairNote = ""; kcm.call("repair", ["repair", line.item.id]) }
+                    }
+                    QQC2.BusyIndicator { running: root.repairing === line.item.id; visible: running; implicitWidth: Kirigami.Units.gridUnit * 1.5; implicitHeight: implicitWidth }
+                    QQC2.Label {
+                        Layout.fillWidth: true
+                        wrapMode: Text.WordWrap
+                        opacity: 0.7
+                        text: root.repairedId === line.item.id && root.repairNote.length > 0 ? root.repairNote : i18n("It %1, then checks again.", line.item.repair)
                     }
                 }
                 Repeater {
