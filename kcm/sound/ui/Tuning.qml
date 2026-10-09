@@ -338,32 +338,6 @@ ColumnLayout {
                         onClicked: root.audio("action", ["mic", "preset", "delete", preset.name])
                         QQC2.ToolTip.text: text; QQC2.ToolTip.visible: hovered; QQC2.ToolTip.delay: Kirigami.Units.toolTipDelay
                     }
-                    QQC2.Button {
-                        id: recordButton
-                        // 0 idle, 5..1 recording (seconds left), -1 playing back
-                        property int phase: 0
-                        text: phase > 0 ? i18n("Recording: Speak Now (%1)", phase) : phase < 0 ? i18n("Playing It Back…") : i18n("Record 5 Seconds and Play Back")
-                        icon.name: phase < 0 ? "media-playback-start" : "media-record"
-                        enabled: phase === 0
-                        onClicked: { phase = 5; recordTick.start(); kcm.call("record", ["audio", "record"]) }
-                        Timer { id: recordTick; interval: 1000; repeat: true; onTriggered: { recordButton.phase--; if (recordButton.phase <= 0) { recordButton.phase = -1; stop() } } }
-                        Connections {
-                            target: kcm
-                            function onCallFinished(tag, ok, output, error) {
-                                if (tag !== "record") return
-                                recordTick.stop(); recordButton.phase = 0
-                                if (!ok) message.text = error || i18n("The recording did not work.")
-                            }
-                        }
-                        QQC2.ToolTip.text: i18n("Records the microphone as apps hear it, then plays it back, so you can hear what these settings do.")
-                        QQC2.ToolTip.visible: hovered && phase === 0
-                        QQC2.ToolTip.delay: Kirigami.Units.toolTipDelay
-                    }
-                    QQC2.Button {
-                        text: i18n("Stop"); icon.name: "media-playback-stop"
-                        visible: recordButton.phase !== 0
-                        onClicked: kcm.call("stop", ["audio", "stop"])
-                    }
                 }
                 Repeater {
                     model: [{ k: "denoise", t: i18n("Noise suppression"), u: "%", s: 5, h: i18n("How much of the background noise (fans, hiss, the room) is taken out. 0% leaves the sound untouched.") },

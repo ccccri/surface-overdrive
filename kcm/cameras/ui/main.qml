@@ -143,9 +143,12 @@ Kirigami.Page {
                         onClicked: nameDialog.begin("save", "", "")
                     }
                     QQC2.Button {
+                        id: moreButton
                         text: i18n("More"); icon.name: "view-more-symbolic"
                         enabled: root.d.presets.length > 0
-                        onClicked: moreMenu.popup()
+                        // right under the button: without a place the menu opens where the mouse pointer last was, which
+                        // with a finger is anywhere
+                        onClicked: moreMenu.popup(moreButton, 0, moreButton.height)
                         QQC2.Menu {
                             id: moreMenu
                             readonly property var p: root.d.presets.length > 0 ? root.d.presets[Math.min(root.presetIndex, root.d.presets.length - 1)] : ({ id: "", name: "" })

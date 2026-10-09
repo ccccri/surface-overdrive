@@ -97,14 +97,16 @@ GridLayout {
             text: adjust.names ? adjust.names[Math.round(slider.value)] : ""
             opacity: 0.8
             horizontalAlignment: Text.AlignRight
-            Layout.preferredWidth: adjust.valueWidth
+            Layout.preferredWidth: adjust.stacked ? implicitWidth : adjust.valueWidth
         }
         QQC2.TextField {
             id: field
             visible: adjust.names === null
             readonly property string full: adjust.shown(slider.value) + (adjust.unit.length > 0 ? " " + adjust.unit : "")
-            // the same width in every adjustment, so that the sliders of a group all end at the same place
-            Layout.preferredWidth: adjust.valueWidth
+            // One line: the same width in every adjustment, so that the sliders of a group all end at the same place.
+            // Stacked: just as wide as the value, so that the arrow back to the default sits right next to the number.
+            Layout.preferredWidth: adjust.stacked ? Math.ceil(fit.advanceWidth) + leftPadding + rightPadding + 2 : adjust.valueWidth
+            TextMetrics { id: fit; font: field.font; text: field.activeFocus ? "00000000" : field.full }
             horizontalAlignment: Text.AlignRight
             inputMethodHints: Qt.ImhFormattedNumbersOnly
             selectByMouse: true
