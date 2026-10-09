@@ -95,6 +95,44 @@ CHANGES = [
             }
         }
 """),
+    # With a finger the on-screen keyboard opens at once and covers the large action buttons. The strip at the very bottom stays
+    # in sight under the keyboard: while the keyboard is open, the same actions sit there as small buttons.
+    ("""            Item {
+                Layout.fillWidth: true
+            }
+
+            Battery {}
+""",
+     """            Item {
+                Layout.fillWidth: true
+            }
+            Repeater {
+                model: !inputPanel.keyboardActive ? [] : [
+                    { id: "sleep", text: "Sleep", icon: "system-suspend", can: sessionManagement.canSuspend },
+                    { id: "reboot", text: "Restart", icon: "system-reboot", can: sessionManagement.canReboot },
+                    { id: "shutdown", text: "Shut Down", icon: "system-shutdown", can: sessionManagement.canShutdown },
+                    { id: "logout", text: "Log Out", icon: "system-log-out", can: sessionManagement.canLogout }
+                ].filter(a => a.can)
+                delegate: PlasmaComponents3.ToolButton {
+                    focusPolicy: Qt.TabFocus
+                    Layout.fillHeight: true
+                    icon.name: modelData.icon
+                    text: lockScreenRoot.armed === modelData.id ? "Tap Again" : modelData.text
+                    onClicked: {
+                        if (modelData.id === "sleep") { sessionManagement.suspend(); return; }
+                        if (lockScreenRoot.armed !== modelData.id) { lockScreenRoot.armed = modelData.id; disarm.restart(); return; }
+                        if (modelData.id === "reboot") sessionManagement.requestReboot(SessionManagement.ConfirmationMode.Skip);
+                        else if (modelData.id === "shutdown") sessionManagement.requestShutdown(SessionManagement.ConfirmationMode.Skip);
+                        else sessionManagement.requestLogout(SessionManagement.ConfirmationMode.Skip);
+                    }
+                }
+            }
+            Item {
+                Layout.fillWidth: true
+            }
+
+            Battery {}
+"""),
 ]
 
 

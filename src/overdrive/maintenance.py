@@ -21,8 +21,24 @@ ALLOWED = (r"audio\.json", r"ui\.json", r"camera/[A-Za-z0-9_-]+\.profile", r"pre
 REPO = "ccccri/surface-overdrive"
 
 
+PROFILE_LINE = re.compile(r"[a-z_]{1,32}( -?\d{1,9}(\.\d{1,9})?(e[-+]?\d{1,3})?){0,8}")
+
+
 def _allowed(rel):
-    return ".." not in rel and any(re.fullmatch(p, rel) for p in ALLOWED)
+    return ".." not in rel and len(os.path.basename(rel)) <= 80 and any(re.fullmatch(p, rel) for p in ALLOWED)
+
+
+def _well_formed(rel, text):
+    """The content is what a file of this kind holds: a JSON object, or the lines of a camera profile (a name and numbers).
+    The camera profile is read by the camera service itself, so nothing else may get into it."""
+    if "\x00" in text:
+        return False
+    if rel.endswith(".json"):
+        try:
+            return isinstance(json.loads(text), dict)
+        except ValueError:
+            return False
+    return all(not line.strip() or line.lstrip().startswith("#") or PROFILE_LINE.fullmatch(line.strip()) for line in text.splitlines())
 
 
 def _state_dir():
@@ -76,17 +92,25 @@ def summary(files):
 def export_settings(path):
     files = collect()
     data = {"format": FORMAT, "version": VERSION, "created": datetime.datetime.now().isoformat(timespec="seconds"), "files": files}
-    userconfig.write_atomic(path, json.dumps(data, indent=1))
+    try:
+        if os.path.isdir(path):
+            raise IsADirectoryError(path)
+        userconfig.write_atomic(path, json.dumps(data, indent=1))
+    except OSError as exc:
+        return {"result": "failed", "error": "The file could not be written there (%s)." % (exc.strerror or "error")}
     return {"result": "ok", "path": path, "contents": summary(files)}
 
 
 def read_settings(path):
     """(files, error). The files of a settings file after every check, or the reason it is refused."""
     try:
-        if os.path.getsize(path) > 16 * MAX_FILE:
-            return None, "This file is too large to be a settings file."
+        if not os.path.isfile(path):                     # not a folder, and not a device that never ends
+            return None, "This is not a settings file: it could not be read."
         with open(path) as f:
-            data = json.load(f)
+            text = f.read(16 * MAX_FILE + 1)
+        if len(text) > 16 * MAX_FILE:
+            return None, "This file is too large to be a settings file."
+        data = json.loads(text)
     except (OSError, ValueError, UnicodeDecodeError):
         return None, "This is not a settings file: it could not be read."
     if not isinstance(data, dict) or data.get("format") != FORMAT:
@@ -99,11 +123,8 @@ def read_settings(path):
     for rel, text in files.items():
         if not isinstance(rel, str) or not isinstance(text, str) or not _allowed(rel) or len(text) > MAX_FILE:
             return None, "This settings file holds something that does not belong in it (%s)." % str(rel)[:60]
-        if rel.endswith(".json"):
-            try:
-                json.loads(text)
-            except ValueError:
-                return None, "A part of this settings file is damaged (%s)." % rel
+        if not _well_formed(rel, text):
+            return None, "A part of this settings file is damaged (%s)." % rel[:60]
     return files, ""
 
 
@@ -116,7 +137,10 @@ def _write_all(files):
     root = userconfig.CONFIG
     for rel in list(collect()):                         # what is there now and not in the file goes
         if rel not in files:
-            os.remove(os.path.join(root, rel))
+            try:
+                os.remove(os.path.join(root, rel))
+            except FileNotFoundError:
+                pass
     for rel, text in files.items():
         userconfig.write_atomic(os.path.join(root, rel), text)
 
@@ -139,8 +163,17 @@ def import_settings(path):
     files, error = read_settings(path)
     if files is None:
         return {"result": "refused", "error": error}
-    export_settings(backup_path())                       # the way back
-    _write_all(files)
+    before = collect()
+    if export_settings(backup_path())["result"] != "ok":     # no way back, no import
+        return {"result": "failed", "error": "The settings of now could not be kept aside, so nothing was changed."}
+    try:
+        _write_all(files)
+    except OSError as exc:
+        try:
+            _write_all(before)                               # half an import is worse than none
+        except OSError:
+            pass
+        return {"result": "failed", "error": "The settings could not be written (%s). Nothing was changed." % (exc.strerror or "error")}
     _apply_now()
     return {"result": "ok", "contents": summary(files), "undo": True}
 
@@ -204,6 +237,7 @@ def images(run=subprocess.run):
         deployments = data.get("deployments", [])
     except (OSError, ValueError, subprocess.SubprocessError, AttributeError):
         return {"images": [], "can_go_back": False, "error": "The system images could not be read."}
+    booted_built = next((int(d.get("timestamp") or 0) for d in deployments if d.get("booted")), 0)
     out = []
     booted_seen = False
     for d in deployments:
@@ -212,6 +246,8 @@ def images(run=subprocess.run):
         else:
             state = "previous" if booted_seen else "next"
         out.append({"version": str(d.get("version") or "?"), "built": _when(d.get("timestamp")), "state": state,
+                    # an image that starts next and is older than the one in use is there because of "go back": that can be undone
+                    "went_back": state == "next" and 0 < int(d.get("timestamp") or 0) < booted_built,
                     "digest": str(d.get("container-image-reference-digest") or d.get("checksum") or "")[:19]})
     return {"images": out, "can_go_back": any(i["state"] == "previous" for i in out) and not any(i["state"] == "next" for i in out)}
 
@@ -238,12 +274,11 @@ def go_back(run=subprocess.run):
 
 
 def cancel_next(run=subprocess.run):
-    """Undo "go back" (or drop an update that waits for the restart): the image in use stays the one that starts."""
-    try:
-        done = run(["rpm-ostree", "cleanup", "--pending"], capture_output=True, text=True, timeout=120)
-    except (OSError, subprocess.SubprocessError) as exc:
-        return {"result": "failed", "error": str(exc)}
-    return {"result": "ok"} if done.returncode == 0 else {"result": "failed", "error": (done.stderr or "").strip()[-300:]}
+    """Undo "go back": the image in use is again the one that starts next. Done by swapping the two once more; an update that
+    waits for the restart is never touched here (dropping it would throw the download away)."""
+    if not any(i["went_back"] for i in images(run)["images"]):
+        return {"result": "refused", "error": "There is nothing to undo."}
+    return go_back(run)
 
 
 # ---- report for a bug report ----

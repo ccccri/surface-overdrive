@@ -51,8 +51,18 @@ ColumnLayout {
         Layout.topMargin: 0
         visible: root.troubled
         type: root.status.overall === "fail" ? Kirigami.MessageType.Error : Kirigami.MessageType.Warning
-        text: root.status.overall === "fail" ? i18n("Something does not work. The lines marked below say what, and what to do.")
-                                             : i18n("Something needs attention. The lines marked below say what, and what to do.")
+        text: root.status.overall === "fail" ? i18n("Something does not work. The first lines say what, and what to do.")
+                                             : i18n("Something needs attention. The first lines say what, and what to do.")
+    }
+    Kirigami.InlineMessage {
+        // a repaired line turns green and goes back among the others: say that it worked
+        Layout.fillWidth: true
+        Layout.margins: Kirigami.Units.largeSpacing
+        Layout.topMargin: 0
+        visible: root.repairNote.length > 0 && !root.troubled
+        type: Kirigami.MessageType.Positive
+        showCloseButton: true
+        text: root.repairNote
     }
     QQC2.Label {
         Layout.fillWidth: true
@@ -63,7 +73,9 @@ ColumnLayout {
     }
 
     Repeater {
-        model: root.status.checks
+        // what does not work comes first, opened: its remedy is what one came for
+        model: root.status.checks.filter(c => c.status === "fail").concat(root.status.checks.filter(c => c.status === "warn"),
+                                                                            root.status.checks.filter(c => c.status !== "fail" && c.status !== "warn"))
 
         delegate: QQC2.ItemDelegate {
             id: line
@@ -72,8 +84,7 @@ ColumnLayout {
             readonly property bool troubled: item.status === "warn" || item.status === "fail"
             property bool expanded: false
             onClicked: expanded = !expanded
-            // a line that is not working opens by itself: its remedy is what the user came for
-            Component.onCompleted: expanded = item.status === "fail"
+            Component.onCompleted: expanded = troubled
 
             contentItem: ColumnLayout {
                 spacing: Kirigami.Units.smallSpacing

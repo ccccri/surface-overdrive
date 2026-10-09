@@ -64,12 +64,12 @@ ColumnLayout {
                 onClicked: confirm.open()
             }
             QQC2.Button {
-                visible: modelData.state === "next"
+                visible: modelData.went_back === true
                 enabled: !root.busy
-                text: i18n("Cancel")
-                icon.name: "dialog-cancel"
+                text: i18n("Undo")
+                icon.name: "edit-undo"
                 onClicked: { root.busy = true; root.note = ""; kcm.call("image-cancel", ["image", "cancel"]) }
-                QQC2.ToolTip.text: i18n("Do not start this image at the next restart: keep the one in use. Asks for your password.")
+                QQC2.ToolTip.text: i18n("Keep the image in use: do not go back at the next restart. Asks for your password.")
                 QQC2.ToolTip.visible: hovered; QQC2.ToolTip.delay: Kirigami.Units.toolTipDelay
             }
         }

@@ -433,4 +433,4 @@ def verify():
     graph inside a device runs with, so this cannot compare them: it checks that the graph was loaded into the device that is there now."""
     if pw.node_serial(SINK) is None:
         return [("the built-in sound output is not there", "-", "-")]
-    return [] if graph.loaded(SINK, VERSION) else [("the boost and equaliser are not loaded", "-", "-")]
+    return [] if graph.loaded(SINK, VERSION) else [("the boost and equalizer are not loaded", "-", "-")]

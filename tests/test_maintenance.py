@@ -51,7 +51,12 @@ class Settings(unittest.TestCase):
         bad = ["{broken", "[]", json.dumps({"format": "other"}), json.dumps(dict(good, version=99)), json.dumps(dict(good, files={})),
                json.dumps(dict(good, files={"../../.bashrc": "x"})), json.dumps(dict(good, files={"/etc/passwd": "x"})),
                json.dumps(dict(good, files={"camera/../../x.profile": "x"})), json.dumps(dict(good, files={"audio.json": "{broken"})),
-               json.dumps(dict(good, files={"audio.json": 5})), json.dumps(dict(good, files={"evil.sh": "x"}))]
+               json.dumps(dict(good, files={"audio.json": 5})), json.dumps(dict(good, files={"evil.sh": "x"})),
+               json.dumps(dict(good, files={"audio.json": "[1, 2]"})), json.dumps(dict(good, files={"ui.json": '"text"'})),
+               json.dumps(dict(good, files={"camera/ov8865.profile": "gamma abc"})),
+               json.dumps(dict(good, files={"camera/ov8865.profile": "gamma 1.4\n$(reboot)"})),
+               json.dumps(dict(good, files={"camera/ov8865.profile": "gamma 1.4\x00"})),
+               json.dumps(dict(good, files={"presets/rear/" + "a" * 300 + ".json": "{}"})), json.dumps(good) + "trailing"]
         before = self.read("audio.json")
         for text in bad:
             with open(self.file, "w") as f:
@@ -59,8 +64,28 @@ class Settings(unittest.TestCase):
             self.assertEqual(maintenance.inspect_settings(self.file)["result"], "refused", text)
             self.assertEqual(maintenance.import_settings(self.file)["result"], "refused", text)
         self.assertEqual(maintenance.import_settings(os.path.join(self.tmp.name, "missing"))["result"], "refused")
+        for special in ("/dev/zero", "/dev/null", self.tmp.name):
+            self.assertEqual(maintenance.import_settings(special)["result"], "refused")
+        self.assertEqual(maintenance.export_settings(self.tmp.name)["result"], "failed")
         self.assertEqual(self.read("audio.json"), before)
         self.assertFalse(os.path.exists(maintenance.backup_path()))
+
+
+    def test_a_failed_write_changes_nothing(self):
+        maintenance.export_settings(self.file)
+        self.put("camera/ov8865.profile", "gamma 2.0\n")
+        real = userconfig.write_atomic
+        def flaky(path, text):
+            if path.endswith("evening.json") and "config" in path:
+                raise OSError(28, "No space left on device")
+            real(path, text)
+        with mock.patch.object(userconfig, "write_atomic", side_effect=flaky):
+            out = maintenance.import_settings(self.file)
+        self.assertEqual(out["result"], "failed")
+        self.assertEqual(self.read("camera/ov8865.profile"), "gamma 2.0\n")
+
+    def test_good_camera_profile_lines(self):
+        self.assertTrue(maintenance._well_formed("camera/ov8865.profile", "# Written by Surface Control.\ngamma 1.45\ntnr 24 14\nblack 30 34 30 30\nmin_width 2048\n\n"))
 
 
 class Repairs(unittest.TestCase):
@@ -88,6 +113,21 @@ class Images(unittest.TestCase):
         out = maintenance.images(run=self.status([{"version": "2", "booted": True}, {"version": "1"}]))
         self.assertTrue(out["can_go_back"])
         self.assertFalse(maintenance.images(run=self.status([{"version": "2", "booted": True}]))["can_go_back"])
+
+    def test_going_back_can_be_undone_but_an_update_is_left_alone(self):
+        ran = []
+        def run_for(deployments):
+            def run(cmd, **kw):
+                ran.append(cmd)
+                return SimpleNamespace(returncode=0, stdout=json.dumps({"deployments": deployments}), stderr="")
+            return run
+        went_back = [{"version": "1", "timestamp": 100}, {"version": "2", "timestamp": 200, "booted": True}]
+        self.assertTrue(maintenance.images(run=run_for(went_back))["images"][0]["went_back"])
+        self.assertEqual(maintenance.cancel_next(run=run_for(went_back))["result"], "ok")
+        self.assertEqual(ran[-1], ["rpm-ostree", "rollback"])
+        update = [{"version": "3", "timestamp": 300}, {"version": "2", "timestamp": 200, "booted": True}]
+        self.assertEqual(maintenance.cancel_next(run=run_for(update))["result"], "refused")
+        self.assertNotIn(["rpm-ostree", "cleanup", "--pending"], ran)
 
     def test_unreadable(self):
         out = maintenance.images(run=lambda cmd, **kw: SimpleNamespace(returncode=1, stdout="not json", stderr=""))
