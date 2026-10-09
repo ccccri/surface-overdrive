@@ -37,7 +37,6 @@ GridLayout {
     // Stacked: the name and the value on one line and the slider under them over the whole width, for a narrow column of
     // settings where a slider next to its name would be too short to set precisely.
     property bool stacked: false
-    property bool helpButton: true    // the small (i) next to the name, as Plasma has it; the tooltip on the name works either way
 
     columns: stacked ? 2 : 3
     rowSpacing: 0
@@ -57,10 +56,6 @@ GridLayout {
             help: adjust.help
             horizontalAlignment: adjust.stacked ? Text.AlignLeft : Text.AlignRight
             Layout.fillWidth: !adjust.stacked
-        }
-        Kirigami.ContextualHelpButton {
-            visible: adjust.helpButton && adjust.stacked && adjust.help.length > 0
-            toolTipText: adjust.help
         }
         Item { Layout.fillWidth: true; visible: adjust.stacked }
     }
@@ -86,10 +81,6 @@ GridLayout {
         Layout.row: 0; Layout.column: adjust.stacked ? 1 : 2
         spacing: Kirigami.Units.smallSpacing
 
-        Kirigami.ContextualHelpButton {
-            visible: adjust.helpButton && !adjust.stacked && adjust.help.length > 0
-            toolTipText: adjust.help
-        }
         QQC2.ToolButton {
             opacity: adjust.showReset && slider.enabled && Math.abs(slider.value - adjust.neutral) > adjust.step / 2 ? 1 : 0
             enabled: opacity > 0
