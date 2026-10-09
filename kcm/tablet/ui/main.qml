@@ -24,7 +24,11 @@ Kirigami.Page {
     readonly property bool penTab: tabs.length > 0 && tabs.some(t => t.index === stockTab && /pen/i.test(t.text))
     readonly property bool wide: width > Kirigami.Units.gridUnit * 50
     actions: kcm.stockPage ? kcm.stockPage.actions : []
-    Component.onCompleted: kcm.loadStock("kcm_tablet")
+    // The page of Plasma is loaded half a second after ours shows, not at once. It opens its own connection to the pen
+    // (the Wayland tablet protocol) when it is made and closes it when it goes; made and gone again within a few milliseconds,
+    // as when one runs through the sidebar, the answers of the compositor arrive for a connection that is already closed and the
+    // whole of System Settings dies with a Wayland protocol error ("not a valid new object id ... tablet_added").
+    Timer { interval: 500; running: true; onTriggered: kcm.loadStock("kcm_tablet") }
     Bars { target: wrapper }
 
     function findBar(item, depth) {
