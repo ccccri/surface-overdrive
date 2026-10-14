@@ -1,8 +1,8 @@
 /*
     Screen rotation animation of Surface Overdrive.
 
-    This is KWin's own "Transform" effect (src/plugins/screentransform of KWin 6.7.5) with two fixes for what the Surface
-    Go shows when it turns:
+    This is KWin's own "Transform" effect (src/plugins/screentransform of KWin 6.7.5) with three fixes for what the Surface
+    Go shows when it turns (seen frame by frame with a camera in front of the screen):
 
     1. Noise in the part of the screen that the new orientation adds. The effect paints the new screen into an offscreen
        texture that is freshly allocated, so its contents are undefined, and the first frame only paints the damaged
@@ -12,6 +12,9 @@
        orientation and nothing is there yet. The picture of the old screen now stays opaque for the first part of the
        turn and only then fades into the new one, which by then is drawn; the turn lasts a little longer to leave room
        for that.
+    3. The turn started from a cropped picture of the old screen on black: the picture was taken with the screen's
+       logical geometry where the scene expects device pixels, so with a scale above 100% only the top-left part of the
+       screen was captured. It is now taken whole.
 
     SPDX-FileCopyrightText: 2021 Aleix Pol Gonzalez <aleixpol@kde.org>
     SPDX-FileCopyrightText: 2026 ccccri
@@ -111,7 +114,7 @@ void OverdriveRotationEffect::addScreen(LogicalOutput *screen)
         auto &state = m_states[screen];
         state.m_oldTransform = screen->transform();
         state.m_oldGeometry = screen->geometry();
-        state.m_timeLine.setDuration(animationTime(420ms));     // fix 2: room for the delayed fade
+        state.m_timeLine.setDuration(animationTime(350ms));     // fix 2: room for the delayed fade
         state.m_currentFresh = true;
         state.m_timeLine.setEasingCurve(QEasingCurve::InOutCubic);
         state.m_angle = transformAngle(changeSet->transform.value(), state.m_oldTransform);
@@ -124,7 +127,9 @@ void OverdriveRotationEffect::addScreen(LogicalOutput *screen)
         delegate.setViewport(screen->geometryF());
         delegate.setScale(screen->scale());
         scene->prePaint(&delegate);
-        scene->paint(renderTarget, QPoint(), screen->geometry());
+        // fix 3: the region is in device pixels; the logical geometry (1241x828 at 145% on the Surface Go) captured only
+        // the top-left part of the screen, and the turn started from a cropped picture on black
+        scene->paint(renderTarget, QPoint(), Region::infinite());
         scene->postPaint();
     });
 }
@@ -278,8 +283,8 @@ void OverdriveRotationEffect::paintScreen(const RenderTarget &renderTarget, cons
     ShaderManager *sm = ShaderManager::instance();
     sm->pushShader(m_shader.get());
     m_shader->setUniform(m_modelViewProjectioMatrixLocation, modelViewProjectionMatrix);
-    // fix 2: the old picture stays opaque for the first 40% of the turn, then fades out over the rest
-    const qreal fade = std::clamp((blendFactor - 0.4) / 0.6, 0.0, 1.0);
+    // fix 2: the old picture stays opaque for the first quarter of the turn, then fades out over the rest
+    const qreal fade = std::clamp((blendFactor - 0.25) / 0.75, 0.0, 1.0);
     m_shader->setUniform(m_blendFactorLocation, float(fade * fade * (3 - 2 * fade)));
     m_shader->setUniform(m_currentTextureLocation, 0);
     m_shader->setUniform(m_previousTextureLocation, 1);
