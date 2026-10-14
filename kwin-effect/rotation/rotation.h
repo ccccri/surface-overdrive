@@ -13,6 +13,8 @@
 #include "effect/effect.h"
 #include "effect/timeline.h"
 
+#include <QElapsedTimer>
+
 namespace KWin
 {
 
@@ -51,7 +53,8 @@ private:
         TimeLine m_timeLine;
         Snapshot m_prev;
         Snapshot m_current;
-        bool m_currentFresh = true;     // the offscreen texture holds nothing yet: paint all of it
+        bool m_currentFresh = true;
+        QElapsedTimer m_waiting;        // since the change: how long the old picture has been waiting for the desktop     // the offscreen texture holds nothing yet: paint all of it
         Rect m_oldGeometry;
         OutputTransform m_oldTransform;
         qreal m_angle = 0;
@@ -59,6 +62,7 @@ private:
 
     void addScreen(LogicalOutput *screen);
     void removeScreen(LogicalOutput *screen);
+    bool desktopReady(LogicalOutput *screen) const;
 
     QHash<LogicalOutput *, ScreenState> m_states;
 

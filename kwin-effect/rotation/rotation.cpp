@@ -1,7 +1,7 @@
 /*
     Screen rotation animation of Surface Overdrive.
 
-    This is KWin's own "Transform" effect (src/plugins/screentransform of KWin 6.7.5) with four fixes for what the Surface
+    This is KWin's own "Transform" effect (src/plugins/screentransform of KWin 6.7.5) with six fixes for what the Surface
     Go shows when it turns (seen frame by frame with a camera in front of the screen):
 
     1. Noise in the part of the screen that the new orientation adds. The effect paints the new screen into an offscreen
@@ -15,6 +15,10 @@
     3. The turn started from a cropped picture of the old screen on black: the picture was taken with the screen's
        logical geometry where the scene expects device pixels, so with a scale above 100% only the top-left part of the
        screen was captured. It is now taken whole.
+    4. Black corners while the picture turns: the new screen is drawn under the turning picture.
+    5. A turn during a turn started from a picture of the half-resized desktop: it now goes on from the first picture.
+    6. A desktop slower to redraw than the turn: the old picture stays until the desktop has drawn itself at the new
+       size (at most 3 s; after quick turns Plasma takes seconds).
 
     SPDX-FileCopyrightText: 2021 Aleix Pol Gonzalez <aleixpol@kde.org>
     SPDX-FileCopyrightText: 2026 ccccri
@@ -28,12 +32,14 @@
 #include "core/rendertarget.h"
 #include "core/renderviewport.h"
 #include "effect/effecthandler.h"
+#include "effect/effectwindow.h"
 #include "opengl/glutils.h"
 #include "scene/workspacescene.h"
 
 #include <QDebug>
 
 #include <algorithm>
+#include <cmath>
 
 using namespace std::chrono_literals;
 
@@ -99,6 +105,17 @@ void OverdriveRotationEffect::addScreen(LogicalOutput *screen)
             return;
         }
 
+        // fix 5: a turn that comes while one is still running (a quick turn of the tablet, or the sensor passing through
+        // two orientations) keeps the picture taken before the first one, the last one that was whole: a picture taken
+        // now would show the desktop half resized, with black bands. The turn goes on from there to the new orientation.
+        if (auto running = m_states.find(screen); running != m_states.end() && !running->m_timeLine.done()) {
+            running->m_angle = transformAngle(transform, running->m_oldTransform);
+            running->m_timeLine.reset();
+            running->m_currentFresh = true;
+            running->m_waiting.start();
+            return;
+        }
+
         // Avoid including this effect while capturing previous screen state.
         m_capturing = true;
         auto resetCapturing = qScopeGuard([this]() {
@@ -116,6 +133,7 @@ void OverdriveRotationEffect::addScreen(LogicalOutput *screen)
         state.m_oldGeometry = screen->geometry();
         state.m_timeLine.setDuration(animationTime(350ms));     // fix 2: room for the delayed fade
         state.m_currentFresh = true;
+        state.m_waiting.start();
         state.m_timeLine.setEasingCurve(QEasingCurve::InOutCubic);
         state.m_angle = transformAngle(changeSet->transform.value(), state.m_oldTransform);
         state.m_prev.texture = std::move(texture);
@@ -134,6 +152,26 @@ void OverdriveRotationEffect::addScreen(LogicalOutput *screen)
     });
 }
 
+bool OverdriveRotationEffect::desktopReady(LogicalOutput *screen) const
+{
+    const RectF wanted = screen->geometry();
+    bool any = false;
+    const auto windows = effects->stackingOrder();
+    for (EffectWindow *w : windows) {
+        if (!w->isDesktop() || w->isDeleted() || w->screen() != screen) {
+            continue;
+        }
+        any = true;
+        // the size the desktop has really drawn, not the size it was told to take: right after a turn the two differ for a
+        // while, longer after quick turns, and the old-sized desktop then showed with a black band beside it
+        const RectF g = w->bufferGeometry();
+        if (std::abs(g.width() - wanted.width()) < 2 && std::abs(g.height() - wanted.height()) < 2) {
+            return true;
+        }
+    }
+    return !any;    // no desktop window (the lock screen, a session without Plasma): nothing to wait for
+}
+
 void OverdriveRotationEffect::removeScreen(LogicalOutput *screen)
 {
     screen->disconnect(this);
@@ -149,6 +187,12 @@ void OverdriveRotationEffect::prePaintScreen(ScreenPrePaintData &data)
     auto it = m_states.find(data.screen);
     if (it != m_states.end()) {
         it->m_timeLine.advance(data.view);
+        // fix 6: the old picture covers the screen until the desktop has taken the new size (at most 3 s), so the
+        // fade never shows a desktop that is still being redrawn
+        const auto hold = std::chrono::duration_cast<std::chrono::milliseconds>(it->m_timeLine.duration() * 0.25);
+        if (!desktopReady(data.screen) && it->m_waiting.elapsed() < 3000 && it->m_timeLine.elapsed() > hold) {
+            it->m_timeLine.setElapsed(hold);
+        }
         if (it->m_timeLine.done()) {
             m_states.remove(data.screen);
         }
