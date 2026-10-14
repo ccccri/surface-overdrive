@@ -1,0 +1,4 @@
+# Surface Overdrive: the screen rotation animation is our effect (kwin-effect/rotation), KWin's own one is off.
+[Plugins]
+screentransformEnabled=false
+overdrive_rotationEnabled=true

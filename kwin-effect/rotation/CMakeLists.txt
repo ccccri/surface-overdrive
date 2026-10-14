@@ -1,0 +1,17 @@
+# KWin effect: the screen rotation animation (see rotation.cpp). Built against the KWin of the base image; KWin effects have
+# no stable binary interface, so it is built again with every image.
+cmake_minimum_required(VERSION 3.20)
+project(overdrive_rotation LANGUAGES CXX)
+set(CMAKE_CXX_STANDARD 23)
+set(CMAKE_AUTOMOC ON)
+set(CMAKE_AUTORCC ON)
+find_package(ECM REQUIRED NO_MODULE)
+list(APPEND CMAKE_MODULE_PATH ${ECM_MODULE_PATH})
+set(QT_MAJOR_VERSION 6)
+include(KDEInstallDirs6)
+find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets DBus Quick)
+find_package(KWin REQUIRED)
+add_library(overdrive_rotation MODULE main.cpp rotation.cpp overdrive_rotation.qrc)
+target_link_libraries(overdrive_rotation PRIVATE KWin::kwin)
+set_target_properties(overdrive_rotation PROPERTIES PREFIX "")
+install(TARGETS overdrive_rotation DESTINATION ${KDE_INSTALL_PLUGINDIR}/kwin/effects/plugins)

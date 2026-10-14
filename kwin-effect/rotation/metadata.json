@@ -1,0 +1,12 @@
+{
+    "KPlugin": {
+        "Category": "Appearance",
+        "Description": "Animates turning the screen, without the noise and the black band of the stock effect",
+        "EnabledByDefault": true,
+        "License": "GPL",
+        "Name": "Screen Rotation (Surface)"
+    },
+    "org.kde.kwin.effect": {
+        "internal": true
+    }
+}
