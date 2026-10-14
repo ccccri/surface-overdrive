@@ -75,18 +75,25 @@ jobs:
           df -h /
 
       - name: Signing key
+        id: key
         if: steps.changed.outputs.build == 'true'
         env:
           MOK_KEY: ${{ secrets.MOK_KEY }}
           MOK_CERT_B64: ${{ secrets.MOK_CERT_B64 }}
         run: |
-          test -n "$MOK_KEY" && test -n "$MOK_CERT_B64" || { echo "::error::the MOK_KEY and MOK_CERT_B64 secrets are not set"; exit 1; }
+          # Without the signing key the modules cannot be signed for Secure Boot: nothing to build yet, and that is not a
+          # failure (no red run, no Issue, no mail) until the key is set up.
+          if [ -z "$MOK_KEY" ] || [ -z "$MOK_CERT_B64" ]; then
+            echo "::notice::the MOK_KEY and MOK_CERT_B64 secrets are not set: the image is not built"
+            echo "ready=false" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          echo "ready=true" >> "$GITHUB_OUTPUT"
           umask 077; mkdir -p "$RUNNER_TEMP/key"
           printf '%s\n' "$MOK_KEY" > "$RUNNER_TEMP/key/key.pem"
           printf '%s' "$MOK_CERT_B64" | base64 -d > "$RUNNER_TEMP/key/cert.der"
 
       - name: Build
-        if: steps.changed.outputs.build == 'true'
+        if: steps.changed.outputs.build == 'true' && steps.key.outputs.ready == 'true'
         run: |
           podman build \
             --build-arg "BASE=${{ steps.detect.outputs.BASE }}" --build-arg "FEDORA=${{ matrix.release }}" \
@@ -97,7 +104,7 @@ jobs:
           rm -rf "$RUNNER_TEMP/key"
 
       - name: Publish
-        if: steps.changed.outputs.build == 'true' && github.ref == 'refs/heads/main'
+        if: steps.changed.outputs.build == 'true' && steps.key.outputs.ready == 'true' && github.ref == 'refs/heads/main'
         run: |
           echo "${{ secrets.GITHUB_TOKEN }}" | podman login ghcr.io -u "${{ github.actor }}" --password-stdin
           stamp=$(date -u +%Y%m%d)
@@ -122,7 +129,7 @@ jobs:
           fi
 
       - name: Close the Issue when the build works again
-        if: success() && steps.changed.outputs.build == 'true'
+        if: success() && steps.changed.outputs.build == 'true' && steps.key.outputs.ready == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
