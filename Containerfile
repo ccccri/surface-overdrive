@@ -85,6 +85,13 @@ COPY kwin-effect/rotation /src/rotation
 RUN cmake -S /src/rotation -B /build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr -DKDE_INSTALL_USE_QT_SYS_PATHS=ON \
     && cmake --build /build && DESTDIR=/out cmake --install /build && find /out -type f
 
+# ---- Screen-sized copies of the default wallpaper (ci/wallpaper_sizes.sh): the 4096x4096 JPEG XL takes a second to decode on
+# the Surface Go at every turn of the screen
+FROM ${BASE} AS wallpaper
+RUN dnf5 -y install --setopt=install_weak_deps=False libjxl-utils vips-tools && dnf5 clean all
+COPY ci/wallpaper_sizes.sh /src/wallpaper_sizes.sh
+RUN /src/wallpaper_sizes.sh /out
+
 # ---- Stage 4: the image
 # Layer order matters for updates: the tablet pulls only the layers that changed. What changes rarely (kernel modules, the initramfs, libcamera)
 # comes first, what changes often (our files and the Python package) last.
@@ -129,6 +136,7 @@ RUN ldd /usr/lib64/ladspa/overdrive_denoise.so | grep -q "librnnoise.*=> /"
 COPY --from=hidbpf /out/ /
 COPY --from=kcm /out/ /
 COPY --from=kwineffect /out/ /
+COPY --from=wallpaper /out/ /
 # "Sound and EQ", "Power Management", "Drawing Tablet", "Software Update" and "About this System" are pages of ours that show the Plasma page inside: take the Plasma
 # pages out of the sidebar (they stay loadable from overdrive-stock; the About page goes where only Info Center looks, which uses it too). A page Plasma has renamed is simply left where it is; ours then says it could not load it.
 # System Settings itself moves aside: image/rootfs/usr/bin/systemsettings sends the old page names to our pages and then runs it.

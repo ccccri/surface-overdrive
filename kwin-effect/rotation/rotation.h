@@ -54,7 +54,8 @@ private:
         Snapshot m_prev;
         Snapshot m_current;
         bool m_currentFresh = true;
-        QElapsedTimer m_waiting;        // since the change: how long the old picture has been waiting for the desktop     // the offscreen texture holds nothing yet: paint all of it
+        QElapsedTimer m_waiting;
+        qint64 m_readyAt = -1;          // ms after the change when the desktop had the new size, -1 while waiting        // since the change: how long the old picture has been waiting for the desktop     // the offscreen texture holds nothing yet: paint all of it
         Rect m_oldGeometry;
         OutputTransform m_oldTransform;
         qreal m_angle = 0;
@@ -63,6 +64,7 @@ private:
     void addScreen(LogicalOutput *screen);
     void removeScreen(LogicalOutput *screen);
     bool desktopReady(LogicalOutput *screen) const;
+    static qreal fadeOf(const ScreenState &state);
 
     QHash<LogicalOutput *, ScreenState> m_states;
 

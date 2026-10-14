@@ -17,8 +17,11 @@
        screen was captured. It is now taken whole.
     4. Black corners while the picture turns: the new screen is drawn under the turning picture.
     5. A turn during a turn started from a picture of the half-resized desktop: it now goes on from the first picture.
-    6. A desktop slower to redraw than the turn: the old picture stays until the desktop has drawn itself at the new
-       size (at most 3 s; after quick turns Plasma takes seconds).
+    7./8. KWin painted only the damage during the turn, and after some turns nothing asked for a frame at all; Plasma
+       waits for a frame of KWin before it draws its new size, so the two waited for each other for over a second. The
+       turn now paints the whole screen on every frame from the moment it starts.
+    6. A desktop slower to redraw than the turn: the turn runs at its speed, and the old picture stays over the new screen
+       until the desktop has drawn itself at the new size (at most 1.5 s), then fades.
 
     SPDX-FileCopyrightText: 2021 Aleix Pol Gonzalez <aleixpol@kde.org>
     SPDX-FileCopyrightText: 2026 ccccri
@@ -113,6 +116,8 @@ void OverdriveRotationEffect::addScreen(LogicalOutput *screen)
             running->m_timeLine.reset();
             running->m_currentFresh = true;
             running->m_waiting.start();
+            running->m_readyAt = -1;
+            effects->addRepaintFull();
             return;
         }
 
@@ -134,6 +139,7 @@ void OverdriveRotationEffect::addScreen(LogicalOutput *screen)
         state.m_timeLine.setDuration(animationTime(350ms));     // fix 2: room for the delayed fade
         state.m_currentFresh = true;
         state.m_waiting.start();
+        state.m_readyAt = -1;
         state.m_timeLine.setEasingCurve(QEasingCurve::InOutCubic);
         state.m_angle = transformAngle(changeSet->transform.value(), state.m_oldTransform);
         state.m_prev.texture = std::move(texture);
@@ -149,7 +155,22 @@ void OverdriveRotationEffect::addScreen(LogicalOutput *screen)
         // the top-left part of the screen, and the turn started from a cropped picture on black
         scene->paint(renderTarget, QPoint(), Region::infinite());
         scene->postPaint();
+        // fix 8: start painting at once. Nothing else asks for a frame at this moment, and Plasma draws its new size only
+        // after a frame of KWin: the two waited for each other for over a second after some turns.
+        effects->addRepaintFull();
     });
+}
+
+qreal OverdriveRotationEffect::fadeOf(const ScreenState &state)
+{
+    // fix 2: the old picture stays opaque for the first quarter of the turn, then fades out over the rest of it; and
+    // never before the desktop is ready: then it fades out over a short moment, from whatever point the turn is at
+    if (state.m_readyAt < 0) {
+        return 0.0;
+    }
+    const qreal byTurn = state.m_timeLine.done() ? 1.0 : std::clamp((state.m_timeLine.value() - 0.25) / 0.75, 0.0, 1.0);
+    const qreal byTime = std::clamp((state.m_waiting.elapsed() - state.m_readyAt) / 150.0, 0.0, 1.0);
+    return std::min(byTurn, byTime > 0.0 && state.m_readyAt < 120 ? 1.0 : byTime);
 }
 
 bool OverdriveRotationEffect::desktopReady(LogicalOutput *screen) const
@@ -187,14 +208,16 @@ void OverdriveRotationEffect::prePaintScreen(ScreenPrePaintData &data)
     auto it = m_states.find(data.screen);
     if (it != m_states.end()) {
         it->m_timeLine.advance(data.view);
-        // fix 6: the old picture covers the screen until the desktop has taken the new size (at most 3 s), so the
-        // fade never shows a desktop that is still being redrawn
-        const auto hold = std::chrono::duration_cast<std::chrono::milliseconds>(it->m_timeLine.duration() * 0.25);
-        if (!desktopReady(data.screen) && it->m_waiting.elapsed() < 3000 && it->m_timeLine.elapsed() > hold) {
-            it->m_timeLine.setElapsed(hold);
+        // fix 6: the turn always runs at its own speed; only the fade waits until the desktop has drawn itself at the
+        // new size (at most 1.5 s), so it never shows a desktop that is still being redrawn
+        if (it->m_readyAt < 0 && (desktopReady(data.screen) || it->m_waiting.elapsed() > 1500)) {
+            it->m_readyAt = it->m_waiting.elapsed();
+            qCDebug(KWIN_OVERDRIVE_ROTATION) << "desktop ready after" << it->m_readyAt << "ms";
         }
-        if (it->m_timeLine.done()) {
+        if (it->m_timeLine.done() && fadeOf(*it) >= 1.0) {
             m_states.remove(data.screen);
+        } else {
+            effects->addRepaintFull();
         }
     }
 
@@ -287,14 +310,15 @@ void OverdriveRotationEffect::paintScreen(const RenderTarget &renderTarget, cons
 
     GLFramebuffer::pushFramebuffer(it->m_current.framebuffer.get());
     if (it->m_currentFresh) {
-        // fix 1: a new texture holds undefined memory; clear it and paint the whole screen into it, not just the damage
+        // fix 1: a new texture holds undefined memory; clear it before the first paint
         glClearColor(0, 0, 0, 1);
         glClear(GL_COLOR_BUFFER_BIT);
-        effects->paintScreen(fboRenderTarget, fboViewport, mask, Region::infinite(), screen);
         it->m_currentFresh = false;
-    } else {
-        effects->paintScreen(fboRenderTarget, fboViewport, mask, deviceRegion, screen);
     }
+    // fix 7: paint the whole screen on every frame of the turn, not just the damage. Windows that are not painted get no
+    // frame callback, and Plasma does not draw its next frame without one: after some turns (to the inverted landscape)
+    // the desktop and panel kept their old size for as long as the turn waited for them.
+    effects->paintScreen(fboRenderTarget, fboViewport, mask, Region::infinite(), screen);
     GLFramebuffer::popFramebuffer();
 
     const qreal blendFactor = it->m_timeLine.value();
@@ -340,8 +364,7 @@ void OverdriveRotationEffect::paintScreen(const RenderTarget &renderTarget, cons
         return;
     }
     m_shader->setUniform(m_modelViewProjectioMatrixLocation, modelViewProjectionMatrix);
-    // fix 2: the old picture stays opaque for the first quarter of the turn, then fades out over the rest
-    const qreal fade = std::clamp((blendFactor - 0.25) / 0.75, 0.0, 1.0);
+    const qreal fade = fadeOf(*it);
     m_shader->setUniform(m_blendFactorLocation, float(fade * fade * (3 - 2 * fade)));
     m_shader->setUniform(m_currentTextureLocation, 0);
     m_shader->setUniform(m_previousTextureLocation, 1);
