@@ -18,7 +18,7 @@
 + * The optional "ccms" list gives colour correction matrices (sensor RGB to linear sRGB, applied after the white
 + * balance gains) for a number of light sources. Each entry has a key "ct" and a 3x3 "ccm". The key is the position of
 + * the sensor white point of the light source on the illuminant locus, 1000 * ln(B/G / R/G) + 5000 (warm to cool),
-+ * see tools/cpf_to_tuning.py. The matrix used for a frame is interpolated at the white point chosen by the AWB.
++ * measured with our own calibration. The matrix used for a frame is interpolated at the white point chosen by the AWB.
 + */
 +int Awb::init([[maybe_unused]] IPAContext &context, const ValueNode &tuningData)
 +{

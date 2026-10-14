@@ -2,6 +2,25 @@
 
 What was added, what broke, and what fixed it. Newest first. "Verified" means tried on the Surface Go itself.
 
+## 2026-10-14
+
+**Added**
+- Own screen rotation animation (`kwin-effect/rotation`, KWin's Transform effect with fixes): no noise, no cropped
+  picture, no black corners or bands; the turn runs at its speed and only the fade waits for the desktop.
+- Screen-sized copies of the default wallpaper in the image, and `overdrive-wallpaper` (user service) that does the same
+  for any big wallpaper the user picks, desktop and lock screen. Found with a fake accelerometer
+  (`tools/dev/fake_sensor.py`): Plasma decoded the 4096x4096 JPEG XL wallpaper (1 s) at every turn.
+- CI skips the build quietly while the signing secrets are not set (no red runs, Issues or mails).
+- Software Update: the System Image section says where updates come from; the duplicate "System image" check is gone.
+
+**Inherited code (libcamera patches) reviewed**
+- Live profile reader: the change detection overflowed a 64-bit integer (mtime in ns x 7); values from the profile
+  files were used without bounds. Now: finite numbers only, every value bounded where it is read and clamped to its own
+  range where it is used (patch 0021). Streamed with a profile full of absurd values: no crash, 14.7 fps.
+- Comments that pointed at the Windows calibration and the old CPF tool reworded: the lens shading and colour matrix
+  code takes our own calibration (none is shipped yet).
+- Reviewed and kept: crash fixes (0005), black level (0003), colour matrices (0004), lens shading (0006), autofocus (0001).
+
 ## 2026-10-09
 
 **Added**
@@ -60,8 +79,7 @@ of the settings pages, CI workflow, bootstrap script. See `git log`.
 
 ## Not fully verified
 
-- *Report a Problem*: the report file is checked; opening the browser and attaching it on GitHub were not tried.
+- *Report a Problem*: the report file and the browser step are checked; GitHub asks to sign in first on the tablet.
 - Lock screen actions with a real finger on the real lock screen (simulated touch does not reach it; seen by the user).
 - Camera colours (own calibration not done) and the one-frame brightness glitch at camera start.
-- Rotation: the animation shows garbage in the newly exposed area; not fixed.
 - The CI workflow has never run.

@@ -3,7 +3,7 @@
 @@ -0,0 +1,346 @@
 +/* SPDX-License-Identifier: LGPL-2.1-or-later */
 +/*
-+ * IPU3 lens shading correction (Bayer shading block of the ImgU), from a calibration table of the camera module
++ * IPU3 lens shading correction (Bayer shading block of the ImgU), from a calibration table of our own
 + */
 +
 +#include "lsc.h"
@@ -26,8 +26,8 @@
 + * \brief Lens shading (vignetting and colour shading) correction
 + *
 + * The lens and the sensor microlenses make the picture darker and tinted towards the edges (for the Surface Go
-+ * cameras up to 3.7x darker in blue in the corners, magenta centre and green edges on white). The camera module was
-+ * calibrated for the Windows driver: for several light sources, a table with the gain of each Bayer channel
++ * cameras up to 3.7x darker in blue in the corners, magenta centre and green edges on white). The correction comes
++ * from our own calibration of the module: for several light sources, a table with the gain of each Bayer channel
 + * (R, Gr, Gb, B) on a grid of cells of the pixel array, 1.0 in the middle. The ImgU can apply such gains in hardware
 + * from a table of up to 73 x 56 cells expressed in its own pixels (after the Bayer downscaler), so the calibration
 + * table is resampled to the ImgU grid at configuration time, following the crop, binning and scaling between the
@@ -352,7 +352,7 @@
 @@ -0,0 +1,76 @@
 +/* SPDX-License-Identifier: LGPL-2.1-or-later */
 +/*
-+ * IPU3 lens shading correction (Bayer shading block of the ImgU), from a calibration table of the camera module
++ * IPU3 lens shading correction (Bayer shading block of the ImgU), from a calibration table of our own
 + */
 +
 +#pragma once
@@ -397,7 +397,7 @@
 +	/*
 +	 * Optional extra gain of the red and blue channels (and of all the channels, "g", for the brightness) as a function of the distance from the optical centre
 +	 * (normalized to the half size of the BDS output: 0 centre, ~1.41 corner), sampled every kExtraStep. It corrects the
-+	 * colour shading that the calibration tables of the Windows driver leave on the real device.
++	 * colour shading that a table measured under one light leaves under another.
 +	 */
 +	static constexpr unsigned int kExtraPoints = 8;
 +	static constexpr double kExtraStep = 0.2;

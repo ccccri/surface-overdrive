@@ -1,0 +1,159 @@
+diff -ru a/include/libcamera/internal/live_profile.h b/include/libcamera/internal/live_profile.h
+--- a/include/libcamera/internal/live_profile.h
++++ b/include/libcamera/internal/live_profile.h
+@@ -1,6 +1,6 @@
+ /* SPDX-License-Identifier: LGPL-2.1-or-later */
+ /*
+- * Live camera profile of the Surface Linux suite
++ * Live camera profile of Surface Overdrive
+  *
+  * Header-only, shared by the IPU3 pipeline handler and the IPU3 IPA (which run in different processes).
+  *
+@@ -14,7 +14,9 @@
+ 
+ #pragma once
+ 
++#include <algorithm>
+ #include <chrono>
++#include <cmath>
+ #include <cstdlib>
+ #include <fstream>
+ #include <map>
+@@ -55,7 +57,7 @@
+ 		if (now - lastPoll_ < std::chrono::milliseconds(200))
+ 			return false;
+ 		lastPoll_ = now;
+-		const long long sig = signature();
++		const Signature sig = signature();
+ 		if (sig == signature_)
+ 			return false;
+ 		load();
+@@ -93,9 +95,16 @@
+ 	}
+ 
+ 	/* Modification times of both files, plus whether the session owner is alive: any change means "reload". */
+-	long long signature() const
++	struct Signature {
++		long long profile = -1;
++		long long session = -1;
++		bool alive = false;
++		bool operator==(const Signature &) const = default;
++	};
++
++	Signature signature() const
+ 	{
+-		return mtime(profilePath_) * 3 + mtime(sessionPath_) * 7 + (sessionAlive() ? 1 : 0);
++		return { mtime(profilePath_), mtime(sessionPath_), sessionAlive() };
+ 	}
+ 
+ 	bool sessionAlive() const
+@@ -124,10 +133,15 @@
+ 				if (key == "pid")
+ 					continue;
+ 			}
++			/*
++			 * The files are written by our settings page, but a person can edit them too: a value that is not a finite
++			 * number ends the line, and every value is bounded, so that no setting can overflow the arithmetic that
++			 * uses it. Each user of a value still clamps it to its own range.
++			 */
+ 			std::vector<double> v;
+ 			double n;
+-			while (in >> n)
+-				v.push_back(n);
++			while (in >> n && std::isfinite(n))
++				v.push_back(std::clamp(n, -kLimit, kLimit));
+ 			values_[key] = v;
+ 		}
+ 	}
+@@ -144,7 +158,8 @@
+ 	std::string profilePath_;
+ 	std::string sessionPath_;
+ 	std::map<std::string, std::vector<double>> values_;
+-	long long signature_ = -1;
++	Signature signature_;
++	static constexpr double kLimit = 10000.0;
+ 	std::chrono::steady_clock::time_point lastPoll_;
+ };
+ 
+diff -ru a/src/ipa/ipu3/algorithms/blc.cpp b/src/ipa/ipu3/algorithms/blc.cpp
+--- a/src/ipa/ipu3/algorithms/blc.cpp
++++ b/src/ipa/ipu3/algorithms/blc.cpp
+@@ -111,7 +111,7 @@
+ 		const auto ln = profile_->list("bnr");
+ 		if (ln.size() == 6) {
+ 			for (unsigned int i = 0; i < 6; i++)
+-				bnr[i] = std::max(ln[i], 0.0);
++				bnr[i] = static_cast<unsigned int>(std::clamp(ln[i], 0.0, 8191.0));
+ 			hasBnr = true;
+ 		}
+ 	}
+diff -ru a/src/ipa/ipu3/algorithms/tone_mapping.cpp b/src/ipa/ipu3/algorithms/tone_mapping.cpp
+--- a/src/ipa/ipu3/algorithms/tone_mapping.cpp
++++ b/src/ipa/ipu3/algorithms/tone_mapping.cpp
+@@ -119,12 +119,12 @@
+ 	if (profile_) {
+ 		profile_->poll();
+ 		if (profile_->has("gamma")) {
+-			liveGamma = profile_->number("gamma", gamma_);
++			liveGamma = std::clamp(profile_->number("gamma", gamma_), 0.5, 4.0);
+ 			liveSrgb = false;
+ 		}
+-		liveContrast = profile_->number("contrast", contrast_);
+-		liveShadows = profile_->number("shadows", 0.0);
+-		liveHighlights = profile_->number("highlights", 0.0);
++		liveContrast = std::clamp(profile_->number("contrast", contrast_), -1.0, 1.0);
++		liveShadows = std::clamp(profile_->number("shadows", 0.0), -1.0, 1.0);
++		liveHighlights = std::clamp(profile_->number("highlights", 0.0), -1.0, 1.0);
+ 	}
+ 
+ 	if (curGamma_ == liveGamma && curContrast_ == liveContrast && curSrgb_ == liveSrgb &&
+diff -ru a/src/libcamera/pipeline/ipu3/ipu3.cpp b/src/libcamera/pipeline/ipu3/ipu3.cpp
+--- a/src/libcamera/pipeline/ipu3/ipu3.cpp
++++ b/src/libcamera/pipeline/ipu3/ipu3.cpp
+@@ -537,7 +537,7 @@
+ 				unsigned int minW = minWidth ? strtoul(minWidth, nullptr, 10) : 0;
+ 				LiveProfile profile(data->cio2_.sensor()->model());
+ 				if (profile.has("min_width"))
+-					minW = profile.number("min_width", 0);
++					minW = std::clamp(profile.number("min_width", 0), 0.0, 10000.0);
+ 				for (const Size &s : { Size{ 1536, 1152 }, Size{ 2048, 1536 }, Size{ 2560, 1920 }, Size{ 3200, 2400 } })
+ 					if (s.width >= minW)
+ 						rearSizes.emplace_back(s);
+@@ -550,7 +550,7 @@
+ 				/* The front camera: same idea, and "min_width" of its live profile picks the first size offered. */
+ 				std::vector<SizeRange> frontSizes;
+ 				LiveProfile profile(data->cio2_.sensor()->model());
+-				const unsigned int minW = profile.number("min_width", 0);
++				const unsigned int minW = std::clamp(profile.number("min_width", 0), 0.0, 10000.0);
+ 				for (const Size &s : { Size{ 1152, 864 }, Size{ 1536, 1152 }, Size{ 2048, 1536 }, Size{ 2560, 1920 } })
+ 					if (s.width >= minW && s.width <= maxSize.width)
+ 						frontSizes.emplace_back(s);
+@@ -1441,7 +1441,7 @@
+ 	const auto tnr = profile_->list("tnr");
+ 	if (tnr.size() == 2) {
+ 		params.minWeight = std::clamp(static_cast<int>(tnr[0]), 0, 256);
+-		params.threshold = static_cast<int>(tnr[1]);
++		params.threshold = std::clamp(static_cast<int>(tnr[1]), 0, 255);
+ 	}
+ 
+ 	if (params.threshold <= 0)
+@@ -1607,7 +1607,7 @@
+ 		profile_ = std::make_unique<LiveProfile>(cio2_.sensor()->model());
+ 	profile_->poll();
+ 
+-	const double sat = profile_->number("saturation", 1.0);
++	const double sat = std::clamp(profile_->number("saturation", 1.0), 0.0, 3.0);
+ 	/* "hue_spin" (degrees per second) turns the hue wheel all the time: the rainbow effect. */
+ 	const double spin = profile_->number("hue_spin", 0.0);
+ 	double hue = profile_->number("hue", 0.0);
+@@ -1615,8 +1615,8 @@
+ 		const double t = std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();
+ 		hue += std::fmod(spin * t, 360.0);
+ 	}
+-	const double temp = profile_->number("temperature", 0.0);
+-	const double tint = profile_->number("tint", 0.0);
++	const double temp = std::clamp(profile_->number("temperature", 0.0), -1.0, 1.0);
++	const double tint = std::clamp(profile_->number("tint", 0.0), -1.0, 1.0);
+ 	const double sharp = profile_->number("sharpness", 0.0);
+ 	const bool chroma = sat != 1.0 || hue != 0.0 || spin != 0.0 || temp != 0.0 || tint != 0.0;
+ 	if (!chroma && sharp <= 0.0)
