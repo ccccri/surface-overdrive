@@ -1,7 +1,7 @@
 /*
     Screen rotation animation of Surface Overdrive.
 
-    This is KWin's own "Transform" effect (src/plugins/screentransform of KWin 6.7.5) with three fixes for what the Surface
+    This is KWin's own "Transform" effect (src/plugins/screentransform of KWin 6.7.5) with four fixes for what the Surface
     Go shows when it turns (seen frame by frame with a camera in front of the screen):
 
     1. Noise in the part of the screen that the new orientation adds. The effect paints the new screen into an offscreen
@@ -275,13 +275,26 @@ void OverdriveRotationEffect::paintScreen(const RenderTarget &renderTarget, cons
     glClearColor(0, 0, 0, 0);
     glClear(GL_COLOR_BUFFER_BIT);
 
-    GLVertexBuffer *vbo = texturedRectVbo(lerp(it->m_oldGeometry, screenRect, blendFactor), scale);
-    if (!vbo) {
-        return;
-    }
-
     ShaderManager *sm = ShaderManager::instance();
     sm->pushShader(m_shader.get());
+
+    // fix 4: the corners that the turning picture leaves free showed black. Under it, the new screen is drawn as it will
+    // stand (not turned, fully the new picture), so the corners show the new screen instead.
+    if (GLVertexBuffer *under = texturedRectVbo(screenRect, scale)) {
+        m_shader->setUniform(m_modelViewProjectioMatrixLocation, viewport.projectionMatrix());
+        m_shader->setUniform(m_blendFactorLocation, 1.0f);
+        m_shader->setUniform(m_currentTextureLocation, 0);
+        m_shader->setUniform(m_previousTextureLocation, 1);
+        under->bindArrays();
+        under->draw(GL_TRIANGLES, 0, 6);
+        under->unbindArrays();
+    }
+
+    GLVertexBuffer *vbo = texturedRectVbo(lerp(it->m_oldGeometry, screenRect, blendFactor), scale);
+    if (!vbo) {
+        sm->popShader();
+        return;
+    }
     m_shader->setUniform(m_modelViewProjectioMatrixLocation, modelViewProjectionMatrix);
     // fix 2: the old picture stays opaque for the first quarter of the turn, then fades out over the rest
     const qreal fade = std::clamp((blendFactor - 0.25) / 0.75, 0.0, 1.0);
