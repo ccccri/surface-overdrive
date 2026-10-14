@@ -36,6 +36,16 @@ ColumnLayout {
     }
 
     Kirigami.ListSectionHeader { Layout.fillWidth: true; text: i18n("System Image"); visible: root.info.images.length > 0 }
+    QQC2.Label {
+        visible: (root.info.source || "").length > 0
+        Layout.fillWidth: true
+        Layout.leftMargin: Kirigami.Units.largeSpacing
+        Layout.rightMargin: Kirigami.Units.largeSpacing
+        Layout.bottomMargin: Kirigami.Units.smallSpacing
+        wrapMode: Text.WordWrap
+        opacity: 0.7
+        text: i18n("Updates come from %1.", root.info.source || "")
+    }
     Repeater {
         model: root.info.images
         delegate: RowLayout {

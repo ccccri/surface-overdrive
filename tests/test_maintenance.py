@@ -153,3 +153,10 @@ class Commands(unittest.TestCase):
         with mock.patch("sys.stderr"):
             self.assertEqual(ctl.maintenance_command(["settings", "bogus"]), 2)
             self.assertEqual(ctl.maintenance_command(["image", "bogus"]), 2)
+
+
+class Source(unittest.TestCase):
+    def test_words(self):
+        self.assertIn("GitHub", maintenance.source("ostree-image-signed:docker://ghcr.io/ccccri/surface-overdrive:44"))
+        self.assertIn("development", maintenance.source("ostree-unverified-registry:localhost:50000/surface-overdrive:44"))
+        self.assertIn("Fedora", maintenance.source("ostree-unverified-registry:quay.io/fedora-ostree-desktops/kinoite:44"))

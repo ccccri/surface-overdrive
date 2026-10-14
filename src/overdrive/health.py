@@ -258,7 +258,8 @@ def check_image(system):
 
 
 CHECKS = (check_modules, check_kernel_match, check_libcamera, check_cameras, check_tuning, check_nfc,
-          check_pen_battery, check_volume_hold, check_audio, check_secure_boot, check_image)
+          check_pen_battery, check_volume_hold, check_audio, check_secure_boot)
+# check_image is not in the list any more: the System Image section of the page shows the image and where updates come from.
 
 
 def run_all(system=None):

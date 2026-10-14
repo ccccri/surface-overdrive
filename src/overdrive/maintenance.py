@@ -249,7 +249,20 @@ def images(run=subprocess.run):
                     # an image that starts next and is older than the one in use is there because of "go back": that can be undone
                     "went_back": state == "next" and 0 < int(d.get("timestamp") or 0) < booted_built,
                     "digest": str(d.get("container-image-reference-digest") or d.get("checksum") or "")[:19]})
-    return {"images": out, "can_go_back": any(i["state"] == "previous" for i in out) and not any(i["state"] == "next" for i in out)}
+    booted = next((d for d in deployments if d.get("booted")), {})
+    return {"images": out, "can_go_back": any(i["state"] == "previous" for i in out) and not any(i["state"] == "next" for i in out),
+            "source": source(str(booted.get("container-image-reference") or booted.get("origin") or ""))}
+
+
+def source(reference):
+    """Where updates come from, in words: the reference names the registry the image is pulled from."""
+    if "ghcr.io/" in reference:
+        return "the images built on GitHub"
+    if "localhost" in reference or "127.0.0.1" in reference:
+        return "a development computer (test images, not the ones built on GitHub)"
+    if "fedoraproject.org" in reference or "fedora" in reference and "overdrive" not in reference:
+        return "Fedora (stock Kinoite, without the Surface fixes)"
+    return reference or "unknown"
 
 
 def changes(run=subprocess.run):
