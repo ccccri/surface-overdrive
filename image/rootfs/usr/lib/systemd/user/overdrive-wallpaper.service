@@ -1,0 +1,13 @@
+[Unit]
+Description=Surface Overdrive wallpaper fitting (screen-sized copies of big wallpapers, so the screen turns at once)
+After=graphical-session.target plasma-plasmashell.service
+PartOf=graphical-session.target
+
+[Service]
+ExecStart=/usr/libexec/overdrive/wallpaper
+Restart=on-failure
+RestartSec=10
+Nice=10
+
+[Install]
+WantedBy=graphical-session.target
