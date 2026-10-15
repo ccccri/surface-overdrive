@@ -134,7 +134,10 @@ RUN python3 /tmp/patch_acp_mic.py && rm /tmp/patch_acp_mic.py
 COPY --from=login /out/rpms /tmp/login-rpms
 RUN set -eux; \
     if ls /tmp/login-rpms/plasma-login-manager-[0-9]*.rpm >/dev/null 2>&1; then \
-        dnf5 -y install /tmp/login-rpms/plasma-login-manager-[0-9]*.rpm; rpm -q plasma-login-manager | grep -q overdrive; \
+        files=""; for name in plasma-login-manager kcm-plasmalogin; do \
+            if rpm -q "$name" >/dev/null; then files="$files $(ls /tmp/login-rpms/$name-[0-9]*.rpm)"; fi; \
+        done; \
+        dnf5 -y install $files; rpm -q plasma-login-manager | grep -q overdrive; \
     else echo "warning: stock login screen (password only)"; fi; \
     rm -rf /tmp/login-rpms; dnf5 clean all
 # then the lock screen, and PAM (after the login package, which brings its own PAM file)

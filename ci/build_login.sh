@@ -55,5 +55,6 @@ EOF
 # half of the processors unless told otherwise (see build_kmods.py)
 jobs=${OVERDRIVE_JOBS:-$(( ($(nproc) + 1) / 2 ))}
 rpmbuild --define "_topdir $top" --define "_smp_build_ncpus $jobs" --nocheck -bb "$spec"
-cp "$top"/RPMS/*/plasma-login-manager-[0-9]*.rpm "$out"/
+# the main package and its settings page (kcm-plasmalogin requires exactly the same version)
+cp "$top"/RPMS/*/plasma-login-manager-[0-9]*.rpm "$top"/RPMS/*/kcm-plasmalogin-[0-9]*.rpm "$out"/
 ls -la "$out"
