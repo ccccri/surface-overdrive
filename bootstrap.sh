@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Surface Overdrive bootstrap: moves a Fedora Kinoite install onto the Surface Overdrive image with ONE reboot.
 #
-#   curl -fsSL https://raw.githubusercontent.com/ccccri/surface-overdrive/main/bootstrap.sh | bash
+#   curl -L ccccri.github.io | bash
 #
 # What it does, in order:
 #   1. checks that this is Fedora Kinoite on a Surface Go and that Secure Boot is on;
@@ -39,7 +39,7 @@ if [ "$secure" = 1 ]; then
         echo "The certificate is already enrolled: nothing to do here."
     else
         echo "Choose a one-time password of at least 8 characters. You will type it once, on the blue screen at the next boot."
-        sudo mokutil --import "$cert"
+        sudo mokutil --import "$cert" < /dev/tty   # stdin is the script when piped from curl
     fi
 fi
 
