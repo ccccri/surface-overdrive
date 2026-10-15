@@ -23,6 +23,7 @@ What the previous project (`surface-go-kinoite`) did, and where each piece stand
 | 17 | Pen page: pen test (pressure, tilt, buttons), Bluetooth pen battery, filter switch | **done**; the pen itself not yet tried by the user |
 | 18 | Sensors (light, accelerometer/gyro bars, firmware) at the end of "About this System"; battery line (charge, power, health, cycles) above Plasma's Power Management page | **done** (2D bars, the old 3D model view was not ported) |
 | 19 | Updates and log; export/import of presets | not yet |
-| 20 | Installer wizard | replaced by `bootstrap.sh` (one command, one reboot, MOK enrolment); untested until the first CI image exists |
+| 20 | Installer wizard | replaced by `bootstrap.sh` (one command, one reboot, MOK enrolment), started with `curl -L ccccri.github.io\|bash`; verified on a fresh Kinoite 44 install |
 | 21 | Own colour calibration (lens shading) | not yet |
 | 22 | CI that rebuilds the image daily | workflow written (`.github/workflows/build-image.yml`), waits for the push permission and the signing secrets |
+| 23 | Unlock with a PIN or a 9-dot pattern next to the password: lock screen (after idle, after sleep) and login screen (cold start). Chosen in "Screen Locking" (our page around Plasma's), set through polkit after the password; five wrong tries leave the password only until it is used | **done** (`src/overdrive/unlock.py`, PAM line from `ci/patch_pam.py`, pads in `/usr/share/surface-overdrive/unlock`, login screen rebuilt by `ci/build_login.sh`); verified on the tablet from a test install, not yet from a CI image |

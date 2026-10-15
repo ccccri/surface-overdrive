@@ -199,6 +199,11 @@ void OverdriveKCM::changeSetting(const QString &name, const QString &value)
 
 void OverdriveKCM::call(const QString &tag, const QStringList &args)
 {
+    callWithInput(tag, args, QString());
+}
+
+void OverdriveKCM::callWithInput(const QString &tag, const QStringList &args, const QString &input)
+{
     auto *process = new QProcess(this);
     connect(process, &QProcess::finished, this, [this, process, tag](int code, QProcess::ExitStatus status) {
         const QString out = QString::fromUtf8(process->readAllStandardOutput());
@@ -213,4 +218,9 @@ void OverdriveKCM::call(const QString &tag, const QStringList &args)
         }
     });
     process->start(s_ctl, args);
+    // a secret (the new PIN) goes through standard input, never on the command line where any process could read it
+    if (!input.isEmpty()) {
+        process->write(input.toUtf8());
+    }
+    process->closeWriteChannel();
 }

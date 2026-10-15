@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # Install a locally built image on the Surface the way a user would, then log in by typing the password.
 #
-# usage: SURFACE_PW=<password> tools/dev/deploy_to_surface.sh [host, default cri@192.168.0.230]
+# usage: SURFACE_PW=<password> tools/dev/deploy_to_surface.sh [host, default cri@192.168.0.96]
 # Needs build/surface-overdrive-44.tar (see ci/local-build.sh and `podman save --format oci-archive`) and an SSH key on the tablet.
 # The password is read from the environment and is never written to a file.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 : "${SURFACE_PW:?set SURFACE_PW to the password of the account on the Surface}"
-host=${1:-cri@192.168.0.230}
+host=${1:-cri@192.168.0.96}
 ssh_opts=(-o BatchMode=yes -o ConnectTimeout=6)
 remote() { ssh "${ssh_opts[@]}" "$host" "$@"; }
 rsudo() { remote "echo '$SURFACE_PW' | sudo -S -p '' $*"; }

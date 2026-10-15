@@ -3,9 +3,15 @@
 The keyboard button in the panel switches the on-screen keyboard off for good. On a tablet without a keyboard that leaves no way to type
 the password once the screen locks, and the button is out of reach there. This service switches the keyboard back on when the screen
 locks and, if it was the one that did it, off again after unlocking, so the choice made in the panel still holds in the session.
+
+As it watches the lock state anyway, it also tells the PIN and pattern unlock (unlock.py) that the user is in, when the session starts
+and at every unlock: wrong codes typed before are forgotten and a pad blocked by them is back.
 """
+import getpass
 import subprocess
 import sys
+
+from . import unlock
 
 KWIN = ["org.kde.KWin", "/VirtualKeyboard", "org.kde.kwin.VirtualKeyboard"]
 OFF = 0
@@ -59,12 +65,24 @@ def apply(locked, forced):
     return forced
 
 
+def user_is_in():
+    try:
+        unlock.passed(getpass.getuser())
+    except (OSError, ValueError, KeyError):
+        pass
+
+
 def main():
     watch = subprocess.Popen(["gdbus", "monitor", "--session", "--dest", "org.freedesktop.ScreenSaver", "--object-path", "/ScreenSaver"],
                              stdout=subprocess.PIPE, text=True)
-    forced = apply(True, False) if is_locked() else False
+    locked_now = is_locked()
+    forced = apply(True, False) if locked_now else False
+    if not locked_now:
+        user_is_in()
     for line in watch.stdout:
         locked = parse(line)
         if locked is not None:
             forced = apply(locked, forced)
+            if not locked:
+                user_is_in()
     sys.exit(watch.wait() or 1)

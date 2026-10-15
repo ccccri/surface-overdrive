@@ -16,4 +16,15 @@
     <annotate key="org.freedesktop.policykit.exec.path">/usr/libexec/overdrive/helper</annotate>
     <annotate key="org.freedesktop.policykit.exec.allow_gui">true</annotate>
   </action>
+  <action id="org.surfaceoverdrive.unlock">
+    <description>Set the PIN or pattern that unlocks the screen</description>
+    <message>Type your password to change how you unlock the screen</message>
+    <defaults>
+      <allow_any>auth_self</allow_any>
+      <allow_inactive>auth_self</allow_inactive>
+      <allow_active>auth_self</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/libexec/overdrive/unlock</annotate>
+    <annotate key="org.freedesktop.policykit.exec.allow_gui">true</annotate>
+  </action>
 </policyconfig>

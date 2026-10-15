@@ -2,6 +2,28 @@
 
 What was added, what broke, and what fixed it. Newest first. "Verified" means tried on the Surface Go itself.
 
+## 2026-10-15
+
+**Added**
+- Unlock with a PIN or a pattern (nine dots), chosen in Settings > Screen Locking ("Unlock with: Password only / PIN /
+  Pattern", set twice, confirmed with the password through polkit). The pad shows on the lock screen (after idle and
+  after sleep) and on the login screen (cold start): a keypad that turns 4x3 in landscape so Sleep/Restart/Shut Down keep
+  their place, or the dots. "Use Password" switches to the field. The password works everywhere as before; sudo, polkit
+  and the wallet never take the PIN. Five wrong codes leave the password only until it is used once.
+  How: `pam_exec` line in front of the password check of the "kde" and "plasmalogin" PAM services (`ci/patch_pam.py`),
+  scrypt hash in `/var/lib/surface-overdrive/unlock/<user>`, Plasma's lock screen patched in the image, the login
+  screen rebuilt from Fedora's package with the pad (`ci/build_login.sh`; QML is compiled into it).
+- `curl -L ccccri.github.io|bash` (repo `ccccri/ccccri.github.io`, a Pages page that runs `bootstrap.sh`).
+
+**Fixed**
+- `bootstrap.sh` piped from curl: mokutil read the one-time password from the script instead of the keyboard; the
+  "Enroll MOK" steps were printed also when no key was imported.
+
+**Verified**
+- Reinstall from scratch: Kinoite 44 wiped and installed again, bootstrap, one reboot: every check green on the CI image.
+- PIN and pattern on the lock screen (right, wrong, block after five, password after the block), login with the PIN
+  through the rebuilt login screen, setting a PIN from the page.
+
 ## 2026-10-14
 
 **Added**

@@ -35,6 +35,8 @@ public:
     Q_INVOKABLE void changeSetting(const QString &name, const QString &value);
     /** Run `overdrivectl <args>` without privileges; the answer (usually JSON) comes back through callFinished with the same tag. */
     Q_INVOKABLE void call(const QString &tag, const QStringList &args);
+    /** The same, with input written to its standard input (for a secret, which must not appear in the arguments). */
+    Q_INVOKABLE void callWithInput(const QString &tag, const QStringList &args, const QString &input);
     /**
      * Load a page that ships with Plasma (for example "kcm_pulseaudio") so that our page can show it in one of its tabs. Its page is then
      * in stockPage; its Apply/Defaults buttons, its unsaved state and the sub-pages it opens are passed on to System Settings.

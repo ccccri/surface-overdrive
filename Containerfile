@@ -38,7 +38,8 @@ RUN --mount=type=secret,id=modkey --mount=type=secret,id=modcert \
 # ---- Stage 3: libcamera rebuilt from Fedora's own package with our patches
 # The version installed in the base image decides which SRPM is rebuilt (same version = same ABI as the PipeWire plugin).
 FROM ${BASE} AS probe
-RUN rpm -q --qf '%{VERSION}-%{RELEASE}' libcamera > /libcamera-nvr && rpm -qa --qf '%{NAME}\n' | grep '^libcamera' | sort > /libcamera-packages
+RUN rpm -q --qf '%{VERSION}-%{RELEASE}' libcamera > /libcamera-nvr && rpm -qa --qf '%{NAME}\n' | grep '^libcamera' | sort > /libcamera-packages \
+    && rpm -q --qf '%{VERSION}-%{RELEASE}' plasma-login-manager > /login-nvr
 
 FROM registry.fedoraproject.org/fedora:${FEDORA} AS libcamera
 COPY --from=probe /libcamera-nvr /libcamera-packages /
@@ -46,6 +47,13 @@ RUN dnf -y install --setopt=install_weak_deps=False rpm-build dnf-plugins-core p
 COPY ci/build_libcamera.sh /src/ci/build_libcamera.sh
 COPY patches/libcamera /src/patches/libcamera
 RUN /src/ci/build_libcamera.sh "$(cat /libcamera-nvr)" /src/patches/libcamera /out/rpms
+
+# ---- The login screen rebuilt with the PIN and pattern pad (ci/build_login.sh); nothing comes out when the patch does not fit
+FROM registry.fedoraproject.org/fedora:${FEDORA} AS login
+COPY --from=probe /login-nvr /
+RUN dnf -y install --setopt=install_weak_deps=False rpm-build dnf-plugins-core python3 curl diffutils && dnf clean all
+COPY ci/build_login.sh ci/patch_unlock_pad.py /src/ci/
+RUN /src/ci/build_login.sh "$(cat /login-nvr)" /out/rpms
 
 # ---- HID-BPF programs (compiled with the headers of the udev-hid-bpf release that Fedora ships)
 FROM registry.fedoraproject.org/fedora:${FEDORA} AS hidbpf
@@ -122,8 +130,17 @@ RUN set -eux; \
     rm -rf /tmp/libcamera-rpms /tmp/libcamera-packages; dnf5 clean all
 COPY ci/patch_acp_mic.py /tmp/patch_acp_mic.py
 RUN python3 /tmp/patch_acp_mic.py && rm /tmp/patch_acp_mic.py
-COPY ci/patch_lockscreen.py /tmp/patch_lockscreen.py
-RUN python3 /tmp/patch_lockscreen.py && rm /tmp/patch_lockscreen.py
+# The login screen with the PIN and pattern pad, when ci/build_login.sh could make it
+COPY --from=login /out/rpms /tmp/login-rpms
+RUN set -eux; \
+    if ls /tmp/login-rpms/plasma-login-manager-[0-9]*.rpm >/dev/null 2>&1; then \
+        dnf5 -y install /tmp/login-rpms/plasma-login-manager-[0-9]*.rpm; rpm -q plasma-login-manager | grep -q overdrive; \
+    else echo "warning: stock login screen (password only)"; fi; \
+    rm -rf /tmp/login-rpms; dnf5 clean all
+# then the lock screen, and PAM (after the login package, which brings its own PAM file)
+COPY ci/patch_lockscreen.py ci/patch_unlock_pad.py ci/patch_pam.py /tmp/
+RUN python3 /tmp/patch_lockscreen.py && python3 /tmp/patch_unlock_pad.py lockscreen && python3 /tmp/patch_pam.py \
+    && rm /tmp/patch_lockscreen.py /tmp/patch_unlock_pad.py /tmp/patch_pam.py
 # What the sound filters inside the built-in devices need (src/overdrive/audio): the limiter after the speaker boost, and the
 # library and plugin of the microphone noise suppression.
 RUN dnf5 -y install --setopt=install_weak_deps=False ladspa-swh-plugins rnnoise && dnf5 clean all \
@@ -137,12 +154,12 @@ COPY --from=hidbpf /out/ /
 COPY --from=kcm /out/ /
 COPY --from=kwineffect /out/ /
 COPY --from=wallpaper /out/ /
-# "Sound and EQ", "Power Management", "Drawing Tablet", "Software Update" and "About this System" are pages of ours that show the Plasma page inside: take the Plasma
+# "Sound and EQ", "Power Management", "Drawing Tablet", "Software Update", "Screen Locking" and "About this System" are pages of ours that show the Plasma page inside: take the Plasma
 # pages out of the sidebar (they stay loadable from overdrive-stock; the About page goes where only Info Center looks, which uses it too). A page Plasma has renamed is simply left where it is; ours then says it could not load it.
 # System Settings itself moves aside: image/rootfs/usr/bin/systemsettings sends the old page names to our pages and then runs it.
 RUN set -eux; \
     kcms=/usr/lib64/qt6/plugins/plasma/kcms; mkdir -p "$kcms/overdrive-stock"; \
-    for k in kcm_pulseaudio kcm_powerdevilprofilesconfig kcm_tablet kcm_updates; do \
+    for k in kcm_pulseaudio kcm_powerdevilprofilesconfig kcm_tablet kcm_updates kcm_screenlocker; do \
         if [ -f "$kcms/systemsettings/$k.so" ]; then mv "$kcms/systemsettings/$k.so" "$kcms/overdrive-stock/"; \
         else echo "warning: $k is not in the base image"; fi; \
     done; \

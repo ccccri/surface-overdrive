@@ -6,10 +6,13 @@ import json
 import subprocess
 import sys
 
-from . import maintenance, camera, health, helper, pen, sensors
+import getpass
+
+from . import maintenance, camera, health, helper, pen, sensors, unlock
 from .audio import eq, mic, pw, sounds
 
 HELPER = "/usr/libexec/overdrive/helper"
+UNLOCK = "/usr/libexec/overdrive/unlock"
 USAGE = """usage: overdrivectl <command>
 
   status [--json] [-v]     health of every fix (-v adds what it does and what to do when it is not green)
@@ -24,6 +27,7 @@ USAGE = """usage: overdrivectl <command>
   image [changes|go-back|cancel]   the system images on the disk, what differs, start the previous one next time
   report                   write a report of the state and the logs for a bug report
   sensors                  battery, light sensor, motion and device facts, in JSON
+  unlock [set pin|pattern | clear]   PIN or pattern that also unlocks the screen, in JSON (set: the code on standard input)
   camera <front|rear> describe | set <key> <value> | reset [<key>] | ui <key> <value>
          | preset save|apply|rename|delete|duplicate <args>    live camera settings, answers in JSON
 """
@@ -216,6 +220,33 @@ def maintenance_command(argv):
     return 0
 
 
+def unlock_command(argv):
+    """unlock: the state for this user; unlock set pin|pattern (code on stdin) / unlock clear: through polkit, after the password."""
+    user = getpass.getuser()
+    if not argv:
+        print(json.dumps(unlock.status(user)))
+        return 0
+    if argv in (["set", "pin"], ["set", "pattern"]):
+        code = sys.stdin.read(4096).strip()
+        if not unlock.valid(argv[1], code):
+            print(json.dumps({"result": "failed", "error": "a PIN is 4 to 12 digits, a pattern joins at least 4 dots"}))
+            return 0
+        run = subprocess.run(["pkexec", UNLOCK] + argv, input=code, capture_output=True, text=True)
+    elif argv == ["clear"]:
+        run = subprocess.run(["pkexec", UNLOCK, "clear"], capture_output=True, text=True)
+    else:
+        print(USAGE, file=sys.stderr)
+        return 2
+    if run.returncode == 0:
+        out = dict(unlock.status(user), result="done")
+    elif run.returncode in (126, 127):              # pkexec: the password was not given, or the dialog was closed
+        out = dict(unlock.status(user), result="cancelled")
+    else:
+        out = dict(unlock.status(user), result="failed", error=run.stderr.strip().removeprefix("error: "))
+    print(json.dumps(out))
+    return 0
+
+
 def main(argv=None):
     argv = list(sys.argv[1:] if argv is None else argv)
     if argv and argv[0] == "status":
@@ -235,6 +266,8 @@ def main(argv=None):
     if argv and argv[0] == "pen":
         print(json.dumps(pen.describe(read_state("stylus-filter"))))
         return 0
+    if argv and argv[0] == "unlock":
+        return unlock_command(argv[1:])
     if argv and argv[0] == "camera":
         return camera_command(argv[1:])
     if not argv or argv[0] in ("-h", "--help") or argv[0] not in helper.ACTIONS:

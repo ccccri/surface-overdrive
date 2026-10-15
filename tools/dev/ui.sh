@@ -12,7 +12,7 @@
 #   cores                      crash records of System Settings since the last open
 set -euo pipefail
 cd "$(dirname "$0")/../.."
-H=${SURFACE_HOST:-cri@192.168.0.230}
+H=${SURFACE_HOST:-cri@192.168.0.96}
 E='export WAYLAND_DISPLAY=wayland-0 XDG_RUNTIME_DIR=/run/user/1000 DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus;'
 pw() { : "${SURFACE_PW:?set SURFACE_PW to the password of the account on the Surface}"; }
 tools() { ssh "$H" 'test -f /tmp/uinput_mouse.py' || scp -q tools/dev/uinput_*.py "$H:/tmp/"; }

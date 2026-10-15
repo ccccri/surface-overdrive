@@ -2,14 +2,14 @@
 # Fast path to a new image on the Surface: build, publish to a local registry on this desktop, let the tablet pull only the layers
 # that changed, reboot and log in.
 #
-# usage: SURFACE_PW=<password> tools/dev/push_to_surface.sh [host, default cri@192.168.0.230]
+# usage: SURFACE_PW=<password> tools/dev/push_to_surface.sh [host, default cri@192.168.0.96]
 #
 # The tablet reaches the registry through a reverse SSH tunnel (the desktop's firewall stays closed; SELinux on the tablet only lets sshd
 # listen on some ports, 50000 works). It needs /etc/containers/registries.conf.d/50-overdrive-dev.conf marking localhost:50000 insecure.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 : "${SURFACE_PW:?set SURFACE_PW to the password of the account on the Surface}"
-host=${1:-cri@192.168.0.230}
+host=${1:-cri@192.168.0.96}
 opts=(-o BatchMode=yes -o ConnectTimeout=6)
 remote() { ssh "${opts[@]}" "$host" "$@"; }
 rsudo() { remote "echo '$SURFACE_PW' | sudo -S -p '' $*"; }

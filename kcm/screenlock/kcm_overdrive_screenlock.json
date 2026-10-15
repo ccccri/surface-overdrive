@@ -1,0 +1,17 @@
+{
+    "KPlugin": {
+        "Authors": [
+            {
+                "Name": "ccccri"
+            }
+        ],
+        "Description": "Lock the screen automatically, and unlock it with a password, a PIN or a pattern",
+        "Icon": "preferences-desktop-user-password",
+        "Id": "kcm_overdrive_screenlock",
+        "Name": "Screen Locking"
+    },
+    "X-KDE-KeepAlive": true,
+    "X-KDE-Keywords": "lock,screen,screenlock,lockscreen,password,pin,pattern,unlock,keypad,dots,sleep,resume,login",
+    "X-KDE-System-Settings-Parent-Category": "security-privacy",
+    "X-KDE-Weight": 20
+}

@@ -15,6 +15,7 @@ if [ "$name" = systemsettings ]; then
             kcm_about-distro) a=kcm_overdrive_about ;;
             kcm_tablet) a=kcm_overdrive_tablet ;;
             kcm_updates) a=kcm_overdrive_updates ;;
+            kcm_screenlocker) a=kcm_overdrive_screenlock ;;
         esac
         args+=("$a")
     done

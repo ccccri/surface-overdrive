@@ -5,6 +5,7 @@ usage: uinput_touch.py SCREEN_W SCREEN_H    then commands on standard input, one
   tap X Y               a short tap
   hold X Y SECONDS      a finger that stays down that long
   swipe X1 Y1 X2 Y2     a drag lasting about a third of a second
+  path X1 Y1 X2 Y2 ...  one drag through every point in turn, a fifth of a second per stretch (a pattern on the lock screen)
   wait SECONDS
 """
 import fcntl
@@ -73,6 +74,16 @@ class Finger:
             self.move(x1 + (x2 - x1) * i / 20, y1 + (y2 - y1) * i / 20)
         self.up()
 
+    def path(self, *xy):
+        points = list(zip(xy[0::2], xy[1::2]))
+        self.down(*points[0])
+        for (x1, y1), (x2, y2) in zip(points, points[1:]):
+            for i in range(1, 13):
+                time.sleep(0.016)
+                self.move(x1 + (x2 - x1) * i / 12, y1 + (y2 - y1) * i / 12)
+        time.sleep(0.05)
+        self.up()
+
     def close(self):
         fcntl.ioctl(self.fd, UI_DEV_DESTROY)
         os.close(self.fd)
@@ -94,6 +105,8 @@ def main():
                 finger.up()
             elif words[0] == "swipe":
                 finger.swipe(*numbers)
+            elif words[0] == "path":
+                finger.path(*numbers)
             elif words[0] == "wait":
                 time.sleep(numbers[0])
             sys.stdout.write("done %s\n" % line.strip())

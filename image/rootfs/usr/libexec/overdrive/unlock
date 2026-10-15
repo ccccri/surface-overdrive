@@ -1,0 +1,8 @@
+#!/usr/bin/python3 -IS
+# Privileged helper, started through polkit (org.surfaceoverdrive.unlock): set or remove the PIN or pattern of the calling user.
+import sys
+
+sys.path.insert(0, "/usr/lib/overdrive/python")
+from overdrive.unlock import helper_main
+
+sys.exit(helper_main())

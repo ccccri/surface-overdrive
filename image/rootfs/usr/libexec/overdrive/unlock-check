@@ -1,0 +1,9 @@
+#!/usr/bin/python3 -IS
+# PAM (pam_exec expose_authtok) asks this first on the lock and login screens: exit 0 when the typed text is the PIN or pattern
+# of the user. See overdrive/unlock.py. -I -S: run as root by the login screen, so nothing from the environment is loaded.
+import sys
+
+sys.path.insert(0, "/usr/lib/overdrive/python")
+from overdrive.unlock import pam_main
+
+sys.exit(pam_main())

@@ -1,0 +1,2 @@
+kcmutils_add_qml_kcm(kcm_overdrive_screenlock SOURCES page_screenlock.cpp)
+target_link_libraries(kcm_overdrive_screenlock PRIVATE overdrive_common)

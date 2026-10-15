@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Try the files of the image on the Surface without building and installing a new image.
 #
-# usage: SURFACE_PW=<password> tools/dev/overlay_to_surface.sh [host, default cri@192.168.0.230]
+# usage: SURFACE_PW=<password> tools/dev/overlay_to_surface.sh [host, default cri@192.168.0.96]
 #
 # `rpm-ostree usroverlay` makes /usr writable until the next reboot. The files of image/rootfs and the Python package in src/ are copied to
 # the places the image puts them, units are reloaded and the Overdrive services restarted. After a reboot the overlay is gone, so the real
@@ -9,7 +9,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 : "${SURFACE_PW:?set SURFACE_PW to the password of the account on the Surface}"
-host=${1:-cri@192.168.0.230}
+host=${1:-cri@192.168.0.96}
 opts=(-o BatchMode=yes -o ConnectTimeout=6)
 stamp=$(date +%H%M%S)
 
