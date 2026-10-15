@@ -5,7 +5,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 rel=${1:-44}
 eval "$(ci/detect.sh "$rel")"
-keydir=build/dev-key
+keydir=build/dev-key        # the key enrolled in the tablet; the same one is the MOK_KEY secret of the CI
 if [ ! -f "$keydir/key.pem" ]; then
     mkdir -p "$keydir"
     openssl req -new -x509 -newkey rsa:2048 -keyout "$keydir/key.pem" -outform DER -out "$keydir/cert.der" -days 3650 -nodes \
