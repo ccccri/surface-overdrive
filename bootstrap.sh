@@ -28,6 +28,7 @@ command -v rpm-ostree >/dev/null || die "rpm-ostree is missing"
 model=$(cat /sys/class/dmi/id/product_name 2>/dev/null || true)
 [ "$model" = "Surface Go" ] || printf 'warning: this is "%s", not a Surface Go (1824). The fixes are made for the Surface Go only.\n' "$model"
 if mokutil --sb-state 2>/dev/null | grep -qi 'SecureBoot enabled'; then secure=1; else secure=0; fi
+enroll=0
 echo "Fedora $rel, Secure Boot $([ $secure = 1 ] && echo on || echo off)"
 
 if [ "$secure" = 1 ]; then
@@ -39,7 +40,8 @@ if [ "$secure" = 1 ]; then
         echo "The certificate is already enrolled: nothing to do here."
     else
         echo "Choose a one-time password of at least 8 characters. You will type it once, on the blue screen at the next boot."
-        sudo mokutil --import "$cert" < /dev/tty   # stdin is the script when piped from curl
+        sudo mokutil --import "$cert" < /dev/tty
+        enroll=1   # stdin is the script when piped from curl
     fi
 fi
 
@@ -47,7 +49,7 @@ say "Switching to the image (this downloads about 3 GB the first time)"
 sudo rpm-ostree rebase "$image"
 
 say "Done. Restart the tablet to finish."
-if [ "$secure" = 1 ]; then
+if [ "$enroll" = 1 ]; then
     cat <<'MSG'
 At the restart a blue screen "Perform MOK management" appears:
   Enroll MOK  ->  Continue  ->  Yes  ->  type the one-time password  ->  Reboot
