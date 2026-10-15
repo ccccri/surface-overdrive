@@ -236,7 +236,7 @@ Kirigami.Page {
                 if (setup.kind !== "pin") return
                 if (event.key === Qt.Key_Backspace) { setup.code = setup.code.slice(0, -1); event.accepted = true }
                 else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) { if (setup.code.length >= 4) setup.done(setup.code); event.accepted = true }
-                else if (event.text.length === 1 && event.text >= "0" && event.text <= "9" && setup.code.length < 12) { setup.code += event.text; event.accepted = true }
+                else if (event.text.length === 1 && event.text >= "0" && event.text <= "9") { setupPin.type(event.text); event.accepted = true }
             }
             QQC2.Label {
                 Layout.fillWidth: true
@@ -255,9 +255,12 @@ Kirigami.Page {
                 text: setup.problem
             }
             Unlock.PinPad {
+                id: setupPin
                 Layout.alignment: Qt.AlignHCenter
                 visible: setup.kind === "pin"
                 code: setup.code
+                // the second time the length is known: the PIN is taken at its last digit, as on the lock screen
+                length: setup.again ? setup.first.length : 0
                 onEdited: code => setup.code = code
                 onSubmit: setup.done(setup.code)
             }

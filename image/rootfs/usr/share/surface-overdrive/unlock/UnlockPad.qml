@@ -20,10 +20,12 @@ ColumnLayout {
     property string user                    // login name of the user the screen is about to unlock; empty: the user running it
     readonly property string login: user || me.loginName
     property string code                    // what is in the password field of the screen (bound by the screen)
+    property string displayName             // shown above the pad, which takes the place of the face and name of the user
     property bool usePassword: false        // the user asked for the password field instead of the pad
     readonly property string folder: login ? "file:///var/lib/surface-overdrive/unlock/" + encodeURIComponent(login) : ""
     readonly property string mode: marks.has("pin.svg") ? "pin" : marks.has("pattern.svg") ? "pattern" : ""
     readonly property bool blocked: mode !== "" && stateMarks.has("blocked.svg")
+    readonly property int pinLength: mode === "pin" ? marks.number("pin-length-") : 0
     // the screen hides its password field while this is true
     readonly property bool active: mode !== "" && !usePassword && !blocked
 
@@ -43,7 +45,7 @@ ColumnLayout {
         if (!active) return
         if (event.key === Qt.Key_Backspace) { edited(code.slice(0, -1)); event.accepted = true }
         else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) { if (mode === "pin" && code.length >= 4) submit(); event.accepted = true }
-        else if (mode === "pin" && event.text.length === 1 && event.text >= "0" && event.text <= "9" && code.length < 12) { edited(code + event.text); event.accepted = true }
+        else if (mode === "pin" && event.text.length === 1 && event.text >= "0" && event.text <= "9") { pinPad.type(event.text); event.accepted = true }
     }
     onBlockedChanged: if (blocked) passwordWanted()
     Component.onCompleted: if (active) pad.forceActiveFocus()
@@ -57,6 +59,15 @@ ColumnLayout {
         onRowsInserted: revision++
         onRowsRemoved: revision++
         onModelReset: revision++
+        // n of the first file named <prefix><n>.svg, 0 when there is none
+        function number(prefix) {
+            if (revision < 0) return 0
+            for (let i = 0; i < count; i++) {
+                const name = get(i, "fileName")
+                if (name.startsWith(prefix) && name.endsWith(".svg")) return parseInt(name.slice(prefix.length, -4)) || 0
+            }
+            return 0
+        }
         function has(name) {
             if (revision < 0) return false
             for (let i = 0; i < count; i++) if (get(i, "fileName") === name) return true
@@ -69,10 +80,10 @@ ColumnLayout {
     spacing: Kirigami.Units.largeSpacing
     visible: mode !== ""
 
-    readonly property real key: Kirigami.Units.gridUnit * (wide ? 2.6 : 2.9)
-    // on a wide screen the room under the user is short: the keypad goes four keys wide and three rows high, Delete and 0 at the end
-    // of the first two rows, so that the actions of the screen (Sleep, Restart...) still fit under it
-    readonly property bool wide: Window.window ? Window.window.width > Window.window.height : false
+    readonly property real key: Kirigami.Units.gridUnit * 2.9
+    // only on a screen too short for the classic keypad: four keys wide and three rows high, Delete and 0 at the end of the first two
+    // rows, so that the actions of the screen (Sleep, Restart...) still fit under it
+    readonly property bool wide: Window.window ? Window.window.height < Kirigami.Units.gridUnit * 36 : false
 
     SequentialAnimation {
         id: shake
@@ -91,11 +102,21 @@ ColumnLayout {
 
         ColumnLayout {
             id: shaken
+            spacing: Kirigami.Units.largeSpacing
+            PlasmaComponents3.Label {
+                Layout.alignment: Qt.AlignHCenter
+                visible: pad.displayName.length > 0
+                text: pad.displayName
+                font.pointSize: Kirigami.Theme.defaultFont.pointSize + 4
+                textFormat: Text.PlainText
+            }
             PinPad {
+                id: pinPad
                 visible: pad.mode === "pin"
                 code: pad.code
                 key: pad.key
                 wide: pad.wide
+                length: pad.pinLength
                 onEdited: code => pad.edited(code)
                 onSubmit: pad.submit()
             }

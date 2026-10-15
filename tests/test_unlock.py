@@ -28,10 +28,12 @@ class UnlockTest(unittest.TestCase):
 
     def test_no_code_means_no_answer(self):
         self.assertIsNone(unlock.check(USER, "1234", self.store))
-        self.assertEqual(unlock.status(USER, self.store), {"kind": "", "blocked": False})
+        self.assertEqual(unlock.status(USER, self.store), {"kind": "", "blocked": False, "length": 0})
 
     def test_set_check_and_clear(self):
-        self.assertEqual(unlock.set_code(USER, "pin", "2580", self.store), {"kind": "pin", "blocked": False})
+        self.assertEqual(unlock.set_code(USER, "pin", "2580", self.store), {"kind": "pin", "blocked": False, "length": 4})
+        self.assertEqual(unlock.set_code(USER, "pin", "258000", self.store)["length"], 6)
+        self.assertEqual(unlock.set_code(USER, "pin", "2580", self.store)["length"], 4)
         self.assertTrue(unlock.check(USER, "2580", self.store))
         self.assertFalse(unlock.check(USER, "2581", self.store))
         secret = open(os.path.join(self.store, USER, "secret")).read()
@@ -40,6 +42,8 @@ class UnlockTest(unittest.TestCase):
         unlock.set_code(USER, "pattern", "14789", self.store)
         self.assertEqual(unlock.status(USER, self.store)["kind"], "pattern")
         self.assertFalse(os.path.exists(os.path.join(self.store, USER, "pin.svg")))
+        self.assertEqual(unlock.status(USER, self.store)["length"], 0)
+        self.assertEqual([n for n in os.listdir(os.path.join(self.store, USER)) if n.startswith("pin-length")], [])
         self.assertFalse(unlock.check(USER, "2580", self.store))
         self.assertTrue(unlock.check(USER, "14789", self.store))
         unlock.clear(USER, self.store)

@@ -76,17 +76,30 @@ Item {
             Behavior on width { NumberAnimation { duration: Kirigami.Units.shortDuration } }
         }
     }
-    MouseArea {
-        anchors.fill: parent
-        preventStealing: true
-        onPressed: mouse => { pattern.dots = []; pattern.join(pattern.dotAt(mouse.x, mouse.y)); pattern.finger = Qt.point(mouse.x, mouse.y) }
-        onPositionChanged: mouse => { pattern.join(pattern.dotAt(mouse.x, mouse.y)); pattern.finger = Qt.point(mouse.x, mouse.y) }
-        onReleased: {
+    // A pointer handler, not a MouseArea: the login screen does not turn touches into mouse events, and a finger must draw there too
+    DragHandler {
+        target: null
+        dragThreshold: 1
+        grabPermissions: PointerHandler.CanTakeOverFromAnything
+        function finish(tried) {
             pattern.finger = Qt.point(-1, -1)
             const joined = pattern.dots.join("")
             pattern.dots = []
-            if (joined.length > 0) pattern.drawn(joined)
+            if (tried && joined.length > 0) pattern.drawn(joined)
         }
-        onCanceled: { pattern.finger = Qt.point(-1, -1); pattern.dots = [] }
+        onActiveChanged: {
+            if (active) {
+                pattern.dots = []
+                pattern.join(pattern.dotAt(centroid.pressPosition.x, centroid.pressPosition.y))
+            } else {
+                finish(true)
+            }
+        }
+        onCentroidChanged: {
+            if (!active) return
+            pattern.join(pattern.dotAt(centroid.position.x, centroid.position.y))
+            pattern.finger = centroid.position
+        }
+        onCanceled: finish(false)
     }
 }

@@ -36,34 +36,52 @@ FIELD_ROW_NEW = """    RowLayout {
             id: passwordBox
 """ % MARK
 
-LOADER = """    %s the keypad of a PIN or the dots of a pattern, when the user chose one (/usr/share/surface-overdrive/unlock/UnlockPad.qml)
-    Loader {
-        id: overdrivePad
-        readonly property bool padActive: item !== null && item.active
+LOADER = """    %(mark)s the keypad of a PIN or the dots of a pattern, when the user chose one (/usr/share/surface-overdrive/unlock/UnlockPad.qml).
+    // While it is in use the face and name of the user give way to it: the pad shows the name itself and the column of the prompts
+    // moves up into their place (moving the column, not the pad: a screen delivers touches only inside the item that holds them),
+    // so that the classic keypad fits above the actions.
+    Item {
+        id: overdrivePadSlot
+        readonly property real lift: overdrivePad.padActive && overdrivePad.users ? overdrivePad.users.height : 0
         Layout.alignment: Qt.AlignHCenter
-        source: "%s"
-        onLoaded: {
-            item.user = Qt.binding(() => %s)          // "": the user of this session
-            item.code = Qt.binding(() => passwordBox.text)
-            // the column of the prompts is at most ten grid units high, made for a password field: give the pad the room it needs
-            // (only taken when the screen has it; the action buttons below stay where they are)
-            try {
-                const box = overdrivePad.parent.parent
-                box.Layout.maximumHeight = Qt.binding(() => Math.max(Kirigami.Units.gridUnit * 10, overdrivePad.implicitHeight + Kirigami.Units.largeSpacing))
-            } catch (e) {
-                console.warn("Surface Overdrive: could not make room for the unlock pad:", e)
+        Layout.preferredWidth: overdrivePad.implicitWidth
+        Layout.preferredHeight: overdrivePad.implicitHeight
+        Loader {
+            id: overdrivePad
+            readonly property bool padActive: item !== null && item.active
+            readonly property Item users: %(users)s
+            source: "%(pad)s"
+            onLoaded: {
+                item.user = Qt.binding(() => %(user)s)          // "": the user of this session
+                item.code = Qt.binding(() => passwordBox.text)
+                item.displayName = Qt.binding(() => overdrivePad.padActive && overdrivePad.users && overdrivePad.users.currentItem
+                                              ? overdrivePad.users.currentItem.name : "")
+                try {
+                    // hidden and out of the way: on the login screen the list scrolls, and would take the drags of a pattern
+                    overdrivePad.users.opacity = Qt.binding(() => overdrivePad.padActive ? 0 : 1)
+                    overdrivePad.users.enabled = Qt.binding(() => !overdrivePad.padActive)
+                    // the column of the prompts is at most ten grid units high, made for a password field: give the pad the room
+                    // it needs (only taken when the screen has it; the action buttons below stay where they are)
+                    const box = overdrivePadSlot.parent.parent
+                    box.Layout.maximumHeight = Qt.binding(() => Math.max(Kirigami.Units.gridUnit * 10,
+                                                                         overdrivePadSlot.Layout.preferredHeight + Kirigami.Units.largeSpacing))
+                    const prompts = box.parent
+                    prompts.anchors.topMargin = Qt.binding(() => Kirigami.Units.largeSpacing - overdrivePadSlot.lift)
+                } catch (e) {
+                    console.warn("Surface Overdrive: could not make room for the unlock pad:", e)
+                }
             }
-        }
-        // inside the Loader: the column of the screen takes visual items only
-        Connections {
-            target: overdrivePad.item
-            function onEdited(code) { passwordBox.text = code }
-            function onSubmit() { if (passwordBox.text.length > 0) %s }
-            function onPasswordWanted() { Qt.callLater(() => passwordBox.forceActiveFocus()) }
-        }
-        Connections {
-            target: %s
-            %s
+            // inside the Loader: the column of the screen takes visual items only
+            Connections {
+                target: overdrivePad.item
+                function onEdited(code) { passwordBox.text = code }
+                function onSubmit() { if (passwordBox.text.length > 0) %(login)s }
+                function onPasswordWanted() { Qt.callLater(() => passwordBox.forceActiveFocus()) }
+            }
+            Connections {
+                target: %(auth)s
+                %(failed)s
+            }
         }
     }
 
@@ -75,8 +93,9 @@ TARGETS = {
         "changes": [
             (FIELD_ROW, FIELD_ROW_NEW),
             ("    component FailableLabel : PlasmaComponents3.Label {\n",
-             LOADER % (MARK, PAD, '""', "sessionManager.startLogin()", "authenticator",
-                       "function onFailed(kind) { if (kind == 0 && overdrivePad.item) overdrivePad.item.failed() }")
+             LOADER % dict(mark=MARK, pad=PAD, user='""', users="sessionManager.userList", login="sessionManager.startLogin()",
+                           auth="authenticator",
+                           failed="function onFailed(kind) { if (kind == 0 && overdrivePad.item) overdrivePad.item.failed() }")
              + "    component FailableLabel : PlasmaComponents3.Label {\n"),
         ],
     },
@@ -85,9 +104,10 @@ TARGETS = {
         "changes": [
             (FIELD_ROW, FIELD_ROW_NEW),
             ("    // Synchronise state\n",
-             LOADER % (MARK, PAD, "root.showUsernamePrompt ? userNameInput.text : root.userList.selectedUser", "root.startLogin()",
-                       "PlasmaLogin.Authenticator",
-                       "function onLoginFailed() { if (overdrivePad.item) overdrivePad.item.failed() }")
+             LOADER % dict(mark=MARK, pad=PAD, user="root.showUsernamePrompt ? userNameInput.text : root.userList.selectedUser",
+                           users="root.showUsernamePrompt ? null : root.userList", login="root.startLogin()",
+                           auth="PlasmaLogin.Authenticator",
+                           failed="function onLoginFailed() { if (overdrivePad.item) overdrivePad.item.failed() }")
              + "    // Synchronise state\n"),
         ],
     },

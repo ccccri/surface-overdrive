@@ -4,9 +4,9 @@ import QtQuick.Layouts
 import QtQuick.Controls as QQC2
 import org.kde.kirigami as Kirigami
 
-// A keypad for a PIN: one dot per digit typed above the keys. The digits are not kept here: code comes from whoever owns them and
-// every key asks for a new value (edited), so that the lock screen can keep the PIN in its password field. Used by UnlockPad.qml
-// (lock and login screens) and by the Screen Locking page of System Settings.
+// A keypad for a PIN: one dot per digit typed above the keys; with length set it tries the PIN at its last digit. The digits are
+// not kept here: code comes from whoever owns them and every key asks for a new value (edited), so that the lock screen can keep
+// the PIN in its password field. Used by UnlockPad.qml (lock and login screens) and by the Screen Locking page of System Settings.
 ColumnLayout {
     id: pin
 
@@ -14,14 +14,20 @@ ColumnLayout {
     property real key: Kirigami.Units.gridUnit * 2.9
     // four keys wide and three rows high, Delete and 0 at the end of the first two rows: for a screen short of height
     property bool wide: false
-    readonly property int longest: 12
+    // digits of the PIN when known: it is tried as soon as the last one is typed, and there is no Enter key
+    property int length: 0
+    readonly property int longest: length > 0 ? length : 12
 
     signal edited(string code)
     signal submit()
 
     spacing: Kirigami.Units.largeSpacing
 
-    function type(digit) { if (code.length < longest) edited(code + digit) }
+    function type(digit) {
+        if (code.length >= longest) return
+        edited(code + digit)
+        if (length > 0 && code.length === length) Qt.callLater(submit)
+    }
     function erase() { edited(code.slice(0, -1)) }
 
     Row {
@@ -53,6 +59,7 @@ ColumnLayout {
                 width: pin.key
                 height: pin.key
                 enabled: modelData !== "go" || pin.code.length >= 4
+                visible: modelData !== "go" || pin.length === 0
                 focusPolicy: Qt.NoFocus
                 Accessible.name: modelData === "back" ? "Delete" : modelData === "go" ? "Done" : modelData
                 background: Rectangle {

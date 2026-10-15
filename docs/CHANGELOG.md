@@ -13,6 +13,10 @@ What was added, what broke, and what fixed it. Newest first. "Verified" means tr
   How: `pam_exec` line in front of the password check of the "kde" and "plasmalogin" PAM services (`ci/patch_pam.py`),
   scrypt hash in `/var/lib/surface-overdrive/unlock/<user>`, Plasma's lock screen patched in the image, the login
   screen rebuilt from Fedora's package with the pad (`ci/build_login.sh`; QML is compiled into it).
+- Pad, second version: while the pad is in use the face of the user goes away, the name stays above the pad and the
+  whole column moves up into its place, so the classic 3x4 keypad fits in landscape too. A PIN is tried at its last
+  digit (no Enter key; the length is kept next to the hash), also when a new PIN is typed the second time in Settings.
+  The dots take touches through a pointer handler: the login screen does not turn touches into mouse events.
 - `curl -L ccccri.github.io|bash` (repo `ccccri/ccccri.github.io`, a Pages page that runs `bootstrap.sh`).
 
 **Fixed**

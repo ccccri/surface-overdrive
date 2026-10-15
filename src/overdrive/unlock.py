@@ -6,7 +6,8 @@ unlocked or a session starts (the lock screen and the login screen), never by su
 
 How it fits together:
   - the choice of the user is kept in STORE/<user>/: `secret` (scrypt hash of the code, root:<user group> 0640), an empty picture
-    `pin.svg` or `pattern.svg` that the lock and login screens look for to know which pad to show, and `state/` (tries, block);
+    `pin.svg` or `pattern.svg` that the lock and login screens look for to know which pad to show (with `pin-length-<n>.svg`,
+    so that the keypad tries the PIN at its last digit), and `state/` (tries, block);
   - the PAM services of the lock screen ("kde") and of the login screen ("plasmalogin") ask CHECK first (pam_exec, see
     ci/patch_pam.py): when the typed text is the code the user is in, otherwise PAM goes on with the password as before;
   - after MAX_TRIES wrong codes the pad is off until the password is used once: the lock screen then shows the password field.
@@ -68,11 +69,26 @@ def _write(path, text, mode, uid=None, gid=None):
     os.replace(tmp, path)
 
 
+def _length_marks(d):
+    try:
+        return [n for n in os.listdir(d) if n.startswith("pin-length-") and n.endswith(".svg")]
+    except OSError:
+        return []
+
+
 def status(user, store=STORE):
-    """{"kind": "pin"|"pattern"|"", "blocked": bool}. Readable by anyone: it is what the lock and login screens show."""
+    """{"kind": "pin"|"pattern"|"", "blocked": bool, "length": digits of the PIN or 0}. Readable by anyone: it is what the lock
+    and login screens show. The length lets the keypad try the PIN as soon as the last digit is typed, with no Enter (the
+    screen shows one dot per digit anyway)."""
     d = _user_dir(user, store)
     kind = next((k for k in KINDS if os.path.isfile(os.path.join(d, k + ".svg"))), "")
-    return {"kind": kind, "blocked": bool(kind) and os.path.isfile(os.path.join(d, "state", "blocked.svg"))}
+    length = 0
+    if kind == "pin":
+        for name in _length_marks(d):
+            digits = name[len("pin-length-"):-len(".svg")]
+            if digits.isdigit():
+                length = int(digits)
+    return {"kind": kind, "blocked": bool(kind) and os.path.isfile(os.path.join(d, "state", "blocked.svg")), "length": length}
 
 
 def set_code(user, kind, code, store=STORE):
@@ -97,6 +113,10 @@ def set_code(user, kind, code, store=STORE):
     for other in KINDS:
         if other != kind:
             _remove(os.path.join(d, other + ".svg"))
+    for name in _length_marks(d):
+        _remove(os.path.join(d, name))
+    if kind == "pin":
+        _write(os.path.join(d, "pin-length-%d.svg" % len(code)), MARKER, 0o644, 0, 0)
     passed(user, store)
     return status(user, store)
 
