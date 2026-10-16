@@ -136,24 +136,57 @@ def _remove(path):
         pass
 
 
+def _write_in_place(path, text, mode, gid):
+    """Write over the file itself, never replace or delete it: the login screen runs this as root in SELinux's xdm_t domain,
+    which may create and write files in STORE but not rename or unlink them."""
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, mode)
+    try:
+        os.write(fd, text.encode())
+        if os.geteuid() == 0:
+            os.fchown(fd, 0, gid)
+            os.fchmod(fd, mode)
+    finally:
+        os.close(fd)
+
+
+# Each side counts in its own file: SELinux lets the login screen (root, xdm_t) write only files it created itself, and the lock
+# screen runs as the user. The block counts both.
+COUNTS = ("tries", "tries-login")
+
+
+def _own_count():
+    return "tries-login" if os.geteuid() == 0 else "tries"
+
+
+def _read_count(path):
+    try:
+        with open(path) as f:
+            return max(0, int(f.read().strip() or 0))
+    except (OSError, ValueError):
+        return 0
+
+
 def passed(user, store=STORE):
-    """The user is in (password or code): forget the wrong tries and lift the block."""
+    """The user is in (password or code): forget the wrong tries and lift the block. Best effort: what this side may not delete
+    it sets to zero (its own count); the session, which may delete everything, clears the rest when it starts or unlocks."""
     state = os.path.join(_user_dir(user, store), "state")
-    for name in ("tries", "blocked.svg"):
-        _remove(os.path.join(state, name))
+    for name in COUNTS + ("blocked.svg", "tries.new"):
+        try:
+            _remove(os.path.join(state, name))
+        except OSError:
+            pass
+    own = os.path.join(state, _own_count())
+    if os.path.exists(own):
+        _write_in_place(own, "0\n", 0o660, os.stat(state).st_gid)
 
 
 def _failed(state, gid):
-    path = os.path.join(state, "tries")
-    try:
-        with open(path) as f:
-            tries = int(f.read().strip() or 0)
-    except (OSError, ValueError):
-        tries = 0
-    tries += 1
-    _write(path, "%d\n" % tries, 0o660, 0, gid)
-    if tries >= MAX_TRIES:
-        _write(os.path.join(state, "blocked.svg"), MARKER, 0o644, 0, gid)
+    own = os.path.join(state, _own_count())
+    _write_in_place(own, "%d\n" % (_read_count(own) + 1), 0o660, gid)
+    tries = sum(_read_count(os.path.join(state, name)) for name in COUNTS)
+    blocked = os.path.join(state, "blocked.svg")
+    if tries >= MAX_TRIES and not os.path.exists(blocked):
+        _write_in_place(blocked, MARKER, 0o644, gid)
     return tries
 
 
@@ -173,7 +206,10 @@ def check(user, token, store=STORE):
     if status(user, store)["blocked"] or len(token) > LONGEST or not valid(kind, token):
         return False
     if hmac.compare_digest(_digest(token, salt, cost), expected):
-        passed(user, store)
+        try:
+            passed(user, store)
+        except OSError:
+            pass                                 # the right code lets the user in, whatever happens to the count of tries
         return True
     try:
         _failed(os.path.join(d, "state"), pwd.getpwnam(user).pw_gid)

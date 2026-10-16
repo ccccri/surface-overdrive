@@ -161,7 +161,13 @@ ColumnLayout {
                                  : "Too many wrong patterns. Use your password; the pattern works again after that."
     }
 
+    // A finger on a button outside the screen's own items arrives twice (as a touch and as the mouse click made from it), which
+    // switched to the password and straight back: one switch per half second.
+    property double lastToggle: 0
     function toggle() {
+        const now = Date.now()
+        if (now - lastToggle < 500) return
+        lastToggle = now
         edited("")
         usePassword = !usePassword
         if (usePassword) passwordWanted()

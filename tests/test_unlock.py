@@ -88,5 +88,31 @@ class UnlockTest(unittest.TestCase):
         self.assertIsNone(unlock.check(USER, "2580", self.store))
 
 
+    def test_count_kept_in_place(self):
+        unlock.set_code(USER, "pin", "2580", self.store)
+        state = os.path.join(self.store, USER, "state")
+        unlock.check(USER, "0000", self.store)
+        inode = os.stat(os.path.join(state, "tries")).st_ino
+        unlock.check(USER, "0001", self.store)
+        self.assertEqual(open(os.path.join(state, "tries")).read().strip(), "2")
+        self.assertEqual(os.stat(os.path.join(state, "tries")).st_ino, inode)    # written over, not replaced
+        self.assertTrue(unlock.check(USER, "2580", self.store))
+        self.assertFalse(os.path.exists(os.path.join(state, "tries")))
+
+    def test_block_counts_both_screens(self):
+        unlock.set_code(USER, "pin", "2580", self.store)
+        state = os.path.join(self.store, USER, "state")
+        with open(os.path.join(state, "tries-login"), "w") as f:
+            f.write("%d\n" % (unlock.MAX_TRIES - 1))                             # wrong codes on the login screen
+        self.assertFalse(unlock.check(USER, "0000", self.store))                 # one more on the lock screen
+        self.assertTrue(unlock.status(USER, self.store)["blocked"])
+
+    def test_right_code_wins_over_a_broken_count(self):
+        unlock.set_code(USER, "pin", "2580", self.store)
+        state = os.path.join(self.store, USER, "state")
+        os.mkdir(os.path.join(state, "tries"))                                    # cannot be written as a file
+        self.assertTrue(unlock.check(USER, "2580", self.store))
+
+
 if __name__ == "__main__":
     unittest.main()

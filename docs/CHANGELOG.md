@@ -26,6 +26,19 @@ What was added, what broke, and what fixed it. Newest first. "Verified" means tr
   dozens of quick taps, cancelled password prompts, mismatched second entries, landscape and upright.
 - On-screen keyboard no longer dimmed behind a password prompt (polkit): KWin's dim screen effect leaves the input method
   window alone (`ci/patch_dimscreen.py`).
+- No splash screen after logging in (`/etc/xdg/ksplashrc`): the desktop shows as it is drawn instead of behind the KDE logo.
+- "Show the Surface fixes" in the health notification opens Software Update: System Settings was started inside the oneshot
+  service and stopped with it, and the button worked for two minutes only.
+
+**Fixed (unlock)**
+- A right PIN or pattern could be refused on the login screen after wrong tries: SELinux lets the login screen create and
+  write files in the state directory but not replace, delete or write files made by the session, and that error turned the
+  right code into a failure. Each side now counts in its own file, written in place; a right code always lets the user in.
+- The face of the user came back behind the pad after a wrong try on the login screen (it dims the list itself).
+- "Use Password" in the bottom row took a finger tap twice (touch, then the mouse click made from it) and switched straight
+  back: one switch per half second.
+- The lock screen's keyboard button hides while the pad is in use (nothing to type; the keyboard it opened covered the pad),
+  and a keyboard left open by the password field goes away when the pad comes back.
 - `curl -L ccccri.github.io|bash` (repo `ccccri/ccccri.github.io`, a Pages page that runs `bootstrap.sh`).
 
 **Fixed**

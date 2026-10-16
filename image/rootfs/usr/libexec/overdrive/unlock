@@ -1,4 +1,4 @@
-#!/usr/bin/python3 -IS
+#!/usr/bin/python3 -IBS
 # Privileged helper, started through polkit (org.surfaceoverdrive.unlock): set or remove the PIN or pattern of the calling user.
 import sys
 

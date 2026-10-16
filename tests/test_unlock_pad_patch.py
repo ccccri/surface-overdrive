@@ -25,6 +25,12 @@ class UnlockPadPatch(unittest.TestCase):
         self.assertIn("function onLoginFailed()", once)
         self.assertLess(once.index("overdrivePad"), once.index("// Synchronise state"))
 
+    def test_lock_screen_footer(self):
+        footer = "Item {\n" + patch_unlock_pad.TARGETS["lockscreen-footer"]["changes"][0][0] + "}\n"
+        once = patch_unlock_pad.patch("// Surface Overdrive: other change\n" + footer, "lockscreen-footer")
+        self.assertIn("!mainBlock.overdrivePadActive", once)
+        self.assertEqual(patch_unlock_pad.patch(once, "lockscreen-footer"), once)
+
     def test_leaves_an_unknown_layout_alone(self):
         self.assertIsNone(patch_unlock_pad.patch("SessionManagementScreen { }\n", "lockscreen"))
         self.assertIsNone(patch_unlock_pad.patch("SessionManagementScreen { }\n", "login"))

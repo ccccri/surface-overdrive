@@ -44,9 +44,13 @@ def decide(previous, checks):
 def notify(note):
     cmd = ["notify-send", "--app-name=Surface Control", "--icon=preferences-desktop-tablet", "--action=open=Show the Surface fixes",
            "--urgency=%s" % ("critical" if note["urgent"] else "normal"), "--wait", note["title"], note["body"]]
-    out = subprocess.run(cmd, capture_output=True, text=True, timeout=120).stdout.strip()
+    # waits for as long as the notification can be clicked (it stays in the history), not two minutes
+    out = subprocess.run(cmd, capture_output=True, text=True, timeout=12 * 3600).stdout.strip()
     if out == "open":
-        subprocess.Popen(["systemsettings", "kcm_overdrive_updates"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        # in a unit of its own: this check runs as a oneshot service, and systemd stops whatever is left in its group when it
+        # ends, which closed System Settings as soon as it opened
+        subprocess.run(["systemd-run", "--user", "--quiet", "--collect", "--unit=overdrive-show-fixes-%d" % os.getpid(),
+                        "systemsettings", "kcm_overdrive_updates"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=30)
 
 
 def main():

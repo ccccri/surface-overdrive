@@ -7,11 +7,12 @@ in use, and give the pad what it needs: the user, the text of the password field
 with it exactly as with a typed password) and the news of a wrong try.
 
   lockscreen   MainBlock.qml of Plasma's lock screen (plasma-desktop's look and feel, patched in the image build)
+  lockscreen-footer  LockScreenUi.qml of the lock screen: its keyboard button hides while the pad is in use
   login        Login.qml in the source tree of plasma-login-manager (compiled into the greeter, see ci/build_srpm.sh)
 
 When a file has a layout this was not written for, it is left alone with a warning: that screen then has the password field only.
 
-usage: patch_unlock_pad.py lockscreen|login [path]
+usage: patch_unlock_pad.py lockscreen|lockscreen-footer|login [path]
 """
 import sys
 from pathlib import Path
@@ -52,6 +53,8 @@ LOADER = """    %(mark)s the keypad of a PIN or the dots of a pattern, when the 
             anchors.horizontalCenter: parent.horizontalCenter
             y: Math.max(0, (parent.height - height) / 2)
             readonly property bool padActive: item !== null && item.active
+            // a keyboard left open by the password field would cover the pad
+            onPadActiveChanged: if (padActive) Qt.inputMethod.hide()
             readonly property Item users: %(users)s
             source: "%(pad)s"
             onLoaded: {
@@ -83,6 +86,15 @@ LOADER = """    %(mark)s the keypad of a PIN or the dots of a pattern, when the 
                     console.warn("Surface Overdrive: could not make room for the unlock pad:", e)
                 }
             }
+            // The login screen dims the list to 0.75 when it tries a login, which would bring the face back behind the pad:
+            // whenever something sets the opacity of the list while the pad is in use, hide it again
+            Connections {
+                target: overdrivePad.users
+                function onOpacityChanged() {
+                    if (overdrivePad.padActive && overdrivePad.users.opacity !== 0)
+                        overdrivePad.users.opacity = Qt.binding(() => overdrivePad.padActive ? 0 : 1)
+                }
+            }
             // inside the Loader: the column of the screen takes visual items only
             Connections {
                 target: overdrivePad.item
@@ -104,11 +116,25 @@ TARGETS = {
         "path": "/usr/share/plasma/shells/org.kde.plasma.desktop/contents/lockscreen/MainBlock.qml",
         "changes": [
             (FIELD_ROW, FIELD_ROW_NEW),
+            ("    readonly property alias mainPasswordBox: passwordBox\n",
+             "    readonly property alias mainPasswordBox: passwordBox\n"
+             "    %s the PIN or pattern pad is in use (the lock screen hides its keyboard button then, see lockscreen-footer)\n"
+             "    readonly property bool overdrivePadActive: overdrivePad.padActive\n" % MARK),
             ("    component FailableLabel : PlasmaComponents3.Label {\n",
              LOADER % dict(mark=MARK, pad=PAD, user='""', users="sessionManager.userList", login="sessionManager.startLogin()",
                            auth="authenticator",
                            failed="function onFailed(kind) { if (kind == 0 && overdrivePad.item) overdrivePad.item.failed() }")
              + "    component FailableLabel : PlasmaComponents3.Label {\n"),
+        ],
+    },
+    # LockScreenUi.qml (after ci/patch_lockscreen.py): no keyboard button while the pad is in use. There is nothing to type
+    # into then, and the keyboard it opened covered the pad and the buttons under it.
+    "lockscreen-footer": {
+        "path": "/usr/share/plasma/shells/org.kde.plasma.desktop/contents/lockscreen/LockScreenUi.qml",
+        "changes": [
+            ("                visible: inputPanel.status === Loader.Ready\n",
+             "                %s nothing to type while the PIN or pattern pad is in use\n"
+             "                visible: inputPanel.status === Loader.Ready && !mainBlock.overdrivePadActive\n" % MARK),
         ],
     },
     "login": {
@@ -128,7 +154,7 @@ TARGETS = {
 
 def patch(text, target):
     """The changed text, the same text when already changed, None when the file does not look like the one this was written for."""
-    if MARK in text:
+    if all(new in text for _, new in TARGETS[target]["changes"]):
         return text
     for old, new in TARGETS[target]["changes"]:
         if text.count(old) != 1:
