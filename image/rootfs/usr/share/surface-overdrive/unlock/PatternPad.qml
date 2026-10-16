@@ -11,8 +11,11 @@ Item {
     property real key: Kirigami.Units.gridUnit * 2.9
     signal drawn(string dots)
 
-    implicitWidth: key * 3 + Kirigami.Units.largeSpacing * 4
+    implicitWidth: key * 3.4
     implicitHeight: implicitWidth
+    function heightFor(k) { return k * 3.4 }
+    function keyFor(h) { return h / 3.4 }
+    readonly property real dot: Math.max(Kirigami.Units.gridUnit * 0.9, cell * 0.2)
 
     readonly property real cell: width / 3
     property var dots: []
@@ -47,7 +50,7 @@ Item {
             ctx.reset()
             if (!pattern.dots.length) return
             ctx.strokeStyle = Kirigami.Theme.highlightColor
-            ctx.lineWidth = Kirigami.Units.gridUnit * 0.3
+            ctx.lineWidth = pattern.dot * 0.33
             ctx.lineCap = "round"
             ctx.lineJoin = "round"
             ctx.beginPath()
@@ -67,7 +70,7 @@ Item {
             required property int index
             readonly property bool on: pattern.dots.indexOf(index + 1) >= 0
             readonly property point c: pattern.centre(index + 1)
-            width: on ? Kirigami.Units.gridUnit * 1.4 : Kirigami.Units.gridUnit * 0.9
+            width: on ? pattern.dot * 1.55 : pattern.dot
             height: width
             radius: width / 2
             x: c.x - width / 2

@@ -48,7 +48,7 @@ ColumnLayout {
         else if (mode === "pin" && event.text.length === 1 && event.text >= "0" && event.text <= "9") { pinPad.type(event.text); event.accepted = true }
     }
     onBlockedChanged: if (blocked) passwordWanted()
-    Component.onCompleted: if (active) pad.forceActiveFocus()
+    Component.onCompleted: { if (active) pad.forceActiveFocus(); Qt.callLater(placeFooterToggle) }
 
     KCoreAddons.KUser { id: me }
     component Marks: FolderListModel {
@@ -80,10 +80,23 @@ ColumnLayout {
     spacing: Kirigami.Units.largeSpacing
     visible: mode !== ""
 
-    readonly property real key: Kirigami.Units.gridUnit * 2.9
-    // only on a screen too short for the classic keypad: four keys wide and three rows high, Delete and 0 at the end of the first two
-    // rows, so that the actions of the screen (Sleep, Restart...) still fit under it
-    readonly property bool wide: Window.window ? Window.window.height < Kirigami.Units.gridUnit * 36 : false
+    // Height the screen has for the pad (from under the name of the user to above its actions); 0 when it does not say. The keys or
+    // dots are made as big as that allows, within reasonable bounds.
+    property real room: 0
+    readonly property real overhead: nameLabel.implicitHeight + shaken.spacing
+    readonly property real smallest: Kirigami.Units.gridUnit * 2.4
+    // never wider than four fifths of the screen (a phone held upright), and keys not bigger than a thumb needs
+    readonly property real screenWidth: Window.window ? Window.window.width : Kirigami.Units.gridUnit * 40
+    readonly property real biggest: Math.min(Kirigami.Units.gridUnit * (mode === "pattern" ? 8 : 5.5),
+                                             screenWidth * 0.8 / (mode === "pattern" ? 3.4 : 3.44))
+    readonly property real key: room <= 0 ? Kirigami.Units.gridUnit * 2.9
+        : Math.max(smallest, Math.min(biggest, (mode === "pattern" ? patternPad : pinPad).keyFor(room - overhead)))
+    // only when even the smallest classic keypad does not fit: four keys wide and three rows high
+    readonly property bool wide: room > 0 && mode === "pin" && pinPadProbe.keyFor(room - overhead) < smallest
+    QtObject {
+        id: pinPadProbe
+        function keyFor(h) { return (h - Kirigami.Units.gridUnit - Kirigami.Units.largeSpacing) / (4 + 3 * 0.22) }
+    }
 
     SequentialAnimation {
         id: shake
@@ -104,6 +117,7 @@ ColumnLayout {
             id: shaken
             spacing: Kirigami.Units.largeSpacing
             PlasmaComponents3.Label {
+                id: nameLabel
                 Layout.alignment: Qt.AlignHCenter
                 visible: pad.displayName.length > 0
                 text: pad.displayName
@@ -121,6 +135,7 @@ ColumnLayout {
                 onSubmit: pad.submit()
             }
             PatternPad {
+                id: patternPad
                 Layout.alignment: Qt.AlignHCenter
                 visible: pad.mode === "pattern"
                 key: pad.key
@@ -146,15 +161,45 @@ ColumnLayout {
                                  : "Too many wrong patterns. Use your password; the pattern works again after that."
     }
 
+    function toggle() {
+        edited("")
+        usePassword = !usePassword
+        if (usePassword) passwordWanted()
+    }
+    // with the password field: the way back to the pad, under the field
     PlasmaComponents3.ToolButton {
         Layout.alignment: Qt.AlignHCenter
-        visible: !pad.blocked
-        text: pad.active ? "Use Password" : pad.mode === "pin" ? "Use PIN" : "Use Pattern"
-        icon.name: pad.active ? "lock-symbolic" : pad.mode === "pin" ? "input-dialpad-symbolic" : "view-grid-symbolic"
-        onClicked: {
-            pad.edited("")
-            pad.usePassword = !pad.usePassword
-            if (pad.usePassword) pad.passwordWanted()
+        visible: !pad.blocked && !pad.active
+        text: pad.mode === "pin" ? "Use PIN" : "Use Pattern"
+        icon.name: pad.mode === "pin" ? "input-dialpad-symbolic" : "view-grid-symbolic"
+        onClicked: pad.toggle()
+    }
+    // with the pad: "Use Password" sits in the bottom row of the screen, between its keyboard button and the battery, so that the
+    // pad has the height. It fades in and out with the rest of the screen (the product of the opacities above the pad).
+    Component {
+        id: footerToggleComponent
+        PlasmaComponents3.ToolButton {
+            z: 100
+            // light on the dark picture, like the rest of the screen (outside the screen's items it would not inherit that)
+            Kirigami.Theme.inherit: false
+            Kirigami.Theme.colorSet: Kirigami.Theme.Complementary
+            anchors.horizontalCenter: parent.horizontalCenter
+            anchors.bottom: parent.bottom
+            anchors.bottomMargin: Kirigami.Units.smallSpacing
+            visible: pad.active && pad.visible && opacity > 0
+            opacity: {
+                let o = 1
+                for (let item = pad; item; item = item.parent) o *= item.opacity
+                return o
+            }
+            text: "Use Password"
+            icon.name: "lock-symbolic"
+            onClicked: pad.toggle()
         }
+    }
+    property Item footerToggle: null
+    function placeFooterToggle() {
+        if (footerToggle || !Window.window) return
+        footerToggle = footerToggleComponent.createObject(Window.window.contentItem)
     }
 }

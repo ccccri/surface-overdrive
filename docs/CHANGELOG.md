@@ -17,6 +17,9 @@ What was added, what broke, and what fixed it. Newest first. "Verified" means tr
   whole column moves up into its place, so the classic 3x4 keypad fits in landscape too. A PIN is tried at its last
   digit (no Enter key; the length is kept next to the hash), also when a new PIN is typed the second time in Settings.
   The dots take touches through a pointer handler: the login screen does not turn touches into mouse events.
+- Pad, third version: the keys and dots are sized from the height between the name and the actions (and at most four fifths
+  of the screen width), so the keypad and the grid are as big as the screen allows, landscape and upright like a phone;
+  Sleep/Restart/... stay at the bottom; "Use Password" moved to the bottom row, between the keyboard button and the battery.
 - `curl -L ccccri.github.io|bash` (repo `ccccri/ccccri.github.io`, a Pages page that runs `bootstrap.sh`).
 
 **Fixed**

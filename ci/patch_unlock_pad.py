@@ -45,9 +45,12 @@ LOADER = """    %(mark)s the keypad of a PIN or the dots of a pattern, when the 
         readonly property real lift: overdrivePad.padActive && overdrivePad.users ? overdrivePad.users.height : 0
         Layout.alignment: Qt.AlignHCenter
         Layout.preferredWidth: overdrivePad.implicitWidth
-        Layout.preferredHeight: overdrivePad.implicitHeight
+        // all the room the screen has (the actions stay at the bottom), the pad in its middle
+        Layout.preferredHeight: overdrivePad.padActive ? Math.max(overdrivePad.implicitHeight, overdrivePad.item.room) : overdrivePad.implicitHeight
         Loader {
             id: overdrivePad
+            anchors.horizontalCenter: parent.horizontalCenter
+            y: Math.max(0, (parent.height - height) / 2)
             readonly property bool padActive: item !== null && item.active
             readonly property Item users: %(users)s
             source: "%(pad)s"
@@ -65,8 +68,17 @@ LOADER = """    %(mark)s the keypad of a PIN or the dots of a pattern, when the 
                     const box = overdrivePadSlot.parent.parent
                     box.Layout.maximumHeight = Qt.binding(() => Math.max(Kirigami.Units.gridUnit * 10,
                                                                          overdrivePadSlot.Layout.preferredHeight + Kirigami.Units.largeSpacing))
+                    // and as wide as the pad (the column is made sixteen grid units wide at most, for a password field)
+                    box.Layout.maximumWidth = Qt.binding(() => Math.max(Kirigami.Units.gridUnit * 16, overdrivePadSlot.Layout.preferredWidth))
                     const prompts = box.parent
                     prompts.anchors.topMargin = Qt.binding(() => Kirigami.Units.largeSpacing - overdrivePadSlot.lift)
+                    // the column is: messages, prompts, actions, filler, and it runs past the bottom of the screen. The pad gets the
+                    // height from the top of the column to the bottom of the window that the messages, the actions and the bottom row
+                    // of the screen (keyboard button, battery) leave, so that the actions stay above that row
+                    const messages = prompts.children[0], actions = prompts.children[2]
+                    const top = () => { let y = 0; for (let i = prompts; i; i = i.parent) y += i.y; return y }
+                    item.room = Qt.binding(() => (prompts.Window.window ? prompts.Window.window.height : prompts.height) - top()
+                                                 - messages.height - actions.height - 3 * prompts.spacing - Kirigami.Units.gridUnit * 3)
                 } catch (e) {
                     console.warn("Surface Overdrive: could not make room for the unlock pad:", e)
                 }

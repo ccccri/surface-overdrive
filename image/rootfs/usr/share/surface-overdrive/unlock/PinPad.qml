@@ -17,6 +17,12 @@ ColumnLayout {
     // digits of the PIN when known: it is tried as soon as the last one is typed, and there is no Enter key
     property int length: 0
     readonly property int longest: length > 0 ? length : 12
+    // the room between keys grows with them, as on a phone: about a fifth of a key
+    readonly property real gap: Math.round(key * 0.22)
+    // height of the whole pad for a key size, and the key size that fills a height (used to make the pad as big as the screen allows)
+    readonly property int rows: wide ? 3 : 4
+    function heightFor(k) { return Kirigami.Units.gridUnit + spacing + rows * k + (rows - 1) * Math.round(k * 0.22) }
+    function keyFor(h) { return (h - Kirigami.Units.gridUnit - spacing) / (rows + (rows - 1) * 0.22) }
 
     signal edited(string code)
     signal submit()
@@ -37,7 +43,7 @@ ColumnLayout {
         Repeater {
             model: pin.code.length
             Rectangle {
-                width: Kirigami.Units.gridUnit * 0.6
+                width: Math.max(Kirigami.Units.gridUnit * 0.6, pin.key * 0.16)
                 height: width
                 radius: width / 2
                 color: Kirigami.Theme.textColor
@@ -48,7 +54,7 @@ ColumnLayout {
     Grid {
         Layout.alignment: Qt.AlignHCenter
         columns: pin.wide ? 4 : 3
-        spacing: Kirigami.Units.largeSpacing
+        spacing: pin.gap
         Repeater {
             model: pin.wide ? ["1", "2", "3", "back", "4", "5", "6", "0", "7", "8", "9", "go"]
                             : ["1", "2", "3", "4", "5", "6", "7", "8", "9", "back", "0", "go"]
@@ -72,12 +78,12 @@ ColumnLayout {
                         anchors.centerIn: parent
                         visible: keyButton.digit
                         text: keyButton.modelData
-                        font.pointSize: Kirigami.Theme.defaultFont.pointSize * 2
+                        font.pixelSize: Math.round(pin.key * 0.4)
                     }
                     Kirigami.Icon {
                         anchors.centerIn: parent
                         visible: !keyButton.digit
-                        width: Kirigami.Units.iconSizes.smallMedium
+                        width: Math.max(Kirigami.Units.iconSizes.smallMedium, Math.round(pin.key * 0.36))
                         height: width
                         opacity: keyButton.enabled ? 1 : 0.4
                         source: keyButton.modelData === "back" ? "edit-clear-symbolic"
