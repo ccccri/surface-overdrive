@@ -43,6 +43,9 @@ What was added, what broke, and what fixed it. Newest first. "Verified" means tr
   <screen>" (overdrive-unlock, auth facility), so that every unlock can be told apart (a code, or else the password).
   Added after an unlock nobody could account for; random taps, swipes and wrong passwords on the locked screen (150 actions)
   never unlocked it.
+- Fedora 45: libcamera 0.7.2 dropped the request argument of the CIO2 queueBuffer(); adapted in
+  `patches/libcamera/since-0.7.2/`, which `ci/build_libcamera.sh` applies only from that version on (the F44 series is
+  unchanged). Compiled locally against 0.7.2-3.fc45.
 - `curl -L ccccri.github.io|bash` (repo `ccccri/ccccri.github.io`, a Pages page that runs `bootstrap.sh`).
 
 **Fixed**

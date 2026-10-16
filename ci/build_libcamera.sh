@@ -21,9 +21,19 @@ curl -fsSL -o /tmp/libcamera.src.rpm "https://kojipkgs.fedoraproject.org/package
 rpm --define "_topdir $top" -i /tmp/libcamera.src.rpm
 spec=$top/SPECS/libcamera.spec
 
+# The series in <patch dir> is written for the oldest libcamera we build; a later libcamera that changed an interface gets the
+# adaptations in <patch dir>/since-<version>/ too, for every such version not newer than the one being built (applied after
+# the series, in version then file name order).
+series=$(ls "$patches"/*.patch | sort)
+for dir in $(ls -d "$patches"/since-*/ 2>/dev/null | sort -V); do
+    since=$(basename "$dir"); since=${since#since-}
+    if [ "$(printf '%s\n%s\n' "$since" "$ver" | sort -V | head -1)" = "$since" ]; then
+        series="$series $(ls "$dir"*.patch | sort)"
+    fi
+done
 i=1000
 add_lines=""
-for p in $(ls "$patches"/*.patch | sort); do
+for p in $series; do
     cp "$p" "$top/SOURCES/"
     add_lines+="Patch$i: $(basename "$p")"$'\n'
     i=$((i + 1))

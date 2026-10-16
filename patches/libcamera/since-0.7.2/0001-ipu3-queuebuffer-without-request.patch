@@ -1,0 +1,20 @@
+From: Surface Overdrive <noreply@surface-overdrive>
+Subject: [PATCH] ipu3: requeue a dropped startup frame with the 0.7.2 CIO2 interface
+
+libcamera 0.7.2 dropped the request argument of CIO2Device::queueBuffer(): the buffer alone goes back to the CIO2. Patch
+0016 (drop startup frames) is written against 0.7.1, where the request is passed too; this adapts its one call.
+
+---
+diff --git a/src/libcamera/pipeline/ipu3/ipu3.cpp b/src/libcamera/pipeline/ipu3/ipu3.cpp
+index 2c5d4f3..884ac00 100644
+--- a/src/libcamera/pipeline/ipu3/ipu3.cpp
++++ b/src/libcamera/pipeline/ipu3/ipu3.cpp
+@@ -1747,7 +1747,7 @@ void IPU3CameraData::cio2BufferReady(FrameBuffer *buffer)
+ 	 */
+ 	if (startupFramesToDrop_ > 0) {
+ 		startupFramesToDrop_--;
+-		cio2_.queueBuffer(request, buffer);
++		cio2_.queueBuffer(buffer);
+ 		return;
+ 	}
+ 
