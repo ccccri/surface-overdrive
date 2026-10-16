@@ -82,6 +82,7 @@ def main():
     for line in watch.stdout:
         locked = parse(line)
         if locked is not None:
+            print("screen %s" % ("locked" if locked else "unlocked"), flush=True)
             forced = apply(locked, forced)
             if not locked:
                 user_is_in()

@@ -218,6 +218,22 @@ def check(user, token, store=STORE):
     return False
 
 
+def _kind_of(user):
+    try:
+        return status(user)["kind"].upper() if status(user)["kind"] == "pin" else status(user)["kind"] or "code"
+    except (OSError, ValueError):
+        return "code"
+
+
+def _log(message):
+    try:
+        import syslog
+        syslog.openlog("overdrive-unlock", 0, syslog.LOG_AUTH)
+        syslog.syslog(syslog.LOG_NOTICE, message)
+    except OSError:
+        pass
+
+
 def pam_main():
     """pam_exec ... expose_authtok: the typed text arrives on stdin, the user in PAM_USER. Exit 0 lets the user in."""
     user = os.environ.get("PAM_USER", "")
@@ -225,7 +241,12 @@ def pam_main():
         if os.getuid() != 0 and pwd.getpwuid(os.getuid()).pw_name != user:
             return 1                             # the lock screen of one user cannot try the code of another
         token = sys.stdin.buffer.read(4096).rstrip(b"\0").decode("utf-8", "replace")
-        return 0 if check(user, token) else 1
+        if check(user, token):
+            # an unlock that leaves a trace: with the "screen unlocked" line of overdrive-osk-guard, every unlock can be told apart
+            # (code here, password otherwise)
+            _log("%s accepted for %s on %s" % (_kind_of(user), user, os.environ.get("PAM_SERVICE", "?")))
+            return 0
+        return 1
     except (OSError, ValueError, KeyError):
         return 1
 

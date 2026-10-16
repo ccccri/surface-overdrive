@@ -39,6 +39,10 @@ What was added, what broke, and what fixed it. Newest first. "Verified" means tr
   back: one switch per half second.
 - The lock screen's keyboard button hides while the pad is in use (nothing to type; the keyboard it opened covered the pad),
   and a keyboard left open by the password field goes away when the pad comes back.
+- Unlock trail in the journal: "screen locked/unlocked" (overdrive-osk-guard) and "pattern|PIN accepted for <user> on
+  <screen>" (overdrive-unlock, auth facility), so that every unlock can be told apart (a code, or else the password).
+  Added after an unlock nobody could account for; random taps, swipes and wrong passwords on the locked screen (150 actions)
+  never unlocked it.
 - `curl -L ccccri.github.io|bash` (repo `ccccri/ccccri.github.io`, a Pages page that runs `bootstrap.sh`).
 
 **Fixed**
