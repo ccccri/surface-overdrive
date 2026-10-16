@@ -1,0 +1,75 @@
+<title>Surface Camera Colour Chart</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<style>
+/* One fixed look on purpose: the chart has to be the same sRGB values on a black ground whatever the viewer's theme.
+   Layout: the 6 x 4 patches fill the screen with black gaps; a thin white frame marks the patch area; controls hide in fullscreen. */
+:root {
+  --ground: #000000;
+  --ink: #e8e8e8;
+  --muted: #8c8c8c;
+  --frame: #ffffff;
+  --button: #1c1c1c;
+  --ui: "IBM Plex Sans", "Helvetica Neue", Arial, sans-serif;
+  color-scheme: dark;
+}
+html, body { height: 100%; }
+body {
+  background: var(--ground); color: var(--ink); font-family: var(--ui);
+  display: flex; flex-direction: column; gap: 12px;
+  padding-block: 16px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  box-sizing: border-box;
+}
+header { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; justify-content: space-between; }
+header p { margin: 0; color: var(--muted); max-width: 70ch; line-height: 1.45; }
+header strong { color: var(--ink); font-weight: 600; }
+button {
+  font: 600 14px var(--ui); color: var(--ink); background: var(--button);
+  border: 1px solid #3a3a3a; border-radius: 6px; padding: 10px 16px; cursor: pointer;
+}
+button:focus-visible { outline: 2px solid var(--frame); outline-offset: 2px; }
+.stage { flex: 1; min-height: 0; display: grid; place-items: center; }
+.chart {
+  /* the patch area keeps the 3:2 shape of the chart and fills what the screen allows */
+  width: min(100%, calc((100vh - 120px) * 1.5)); aspect-ratio: 3 / 2; max-width: 100%;
+  box-sizing: border-box; padding: 1.2%; outline: 3px solid var(--frame); outline-offset: 6px;
+  display: grid; grid-template-columns: repeat(6, 1fr); grid-template-rows: repeat(4, 1fr); gap: 2.4%;
+}
+.chart div { border-radius: 2px; }
+:fullscreen body, body.full { padding: 0; }
+body.full header { display: none; }
+body.full .chart { width: min(100vw, calc(100vh * 1.5)); outline-offset: -3px; }
+</style>
+
+<header>
+  <p><strong>Camera colour chart.</strong> Open full screen on the Mac, brightness at about three quarters, Night Shift and True Tone off.
+    Hold the tablet so the white frame fills most of the camera's view, square on, with no reflections on the screen.</p>
+  <button id="go" type="button">Full screen</button>
+</header>
+<div class="stage"><div class="chart" id="chart" aria-label="24 colour patches, bottom row neutral greys"></div></div>
+
+<script>
+// sRGB values of the patches, row by row: the classic 24-patch chart; the last row is the neutral scale (white to black).
+// The same values are in tools/calib/ccm.py, which compares them with what the camera sees.
+const PATCHES = [
+  [115,82,68],[194,150,130],[98,122,157],[87,108,67],[133,128,177],[103,189,170],
+  [214,126,44],[80,91,166],[193,90,99],[94,60,108],[157,188,64],[224,163,46],
+  [56,61,150],[70,148,73],[175,54,60],[231,199,31],[187,86,149],[8,133,161],
+  [243,243,242],[200,200,200],[160,160,160],[122,122,121],[85,85,85],[52,52,52]
+];
+const chart = document.getElementById("chart");
+for (const [r, g, b] of PATCHES) {
+  const d = document.createElement("div");
+  d.style.background = `rgb(${r}, ${g}, ${b})`;
+  chart.appendChild(d);
+}
+document.getElementById("go").addEventListener("click", async () => {
+  document.body.classList.add("full");
+  try { await document.documentElement.requestFullscreen(); } catch (e) { /* fullscreen refused: the page still fills the window */ }
+});
+document.addEventListener("fullscreenchange", () => {
+  if (!document.fullscreenElement) document.body.classList.remove("full");
+});
+document.addEventListener("keydown", e => { if (e.key === "Escape") document.body.classList.remove("full"); });
+</script>
