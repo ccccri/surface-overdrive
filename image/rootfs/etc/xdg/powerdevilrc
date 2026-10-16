@@ -1,0 +1,35 @@
+# Surface Overdrive: longer idle times than Plasma's (5/10/15 minutes on AC, 2/5/10 on battery), which turned a tablet left on
+# the table with a page open off too soon. Users' own choices in Power Management (~/.config/powerdevilrc) still win.
+#
+# On AC: dim after 10 minutes, screen off after 15, sleep after 45
+[AC][Display]
+DimDisplayWhenIdle=true
+DimDisplayIdleTimeoutSec=600
+TurnOffDisplayWhenIdle=true
+TurnOffDisplayIdleTimeoutSec=900
+
+[AC][SuspendAndShutdown]
+AutoSuspendAction=1
+AutoSuspendIdleTimeoutSec=2700
+
+# On battery: dim after 4 minutes, screen off after 8, sleep after 20
+[Battery][Display]
+DimDisplayWhenIdle=true
+DimDisplayIdleTimeoutSec=240
+TurnOffDisplayWhenIdle=true
+TurnOffDisplayIdleTimeoutSec=480
+
+[Battery][SuspendAndShutdown]
+AutoSuspendAction=1
+AutoSuspendIdleTimeoutSec=1200
+
+# Low battery: dim after 2 minutes, screen off after 4, sleep after 10
+[LowBattery][Display]
+DimDisplayWhenIdle=true
+DimDisplayIdleTimeoutSec=120
+TurnOffDisplayWhenIdle=true
+TurnOffDisplayIdleTimeoutSec=240
+
+[LowBattery][SuspendAndShutdown]
+AutoSuspendAction=1
+AutoSuspendIdleTimeoutSec=600
