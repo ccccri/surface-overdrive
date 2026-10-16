@@ -20,6 +20,12 @@ What was added, what broke, and what fixed it. Newest first. "Verified" means tr
 - Pad, third version: the keys and dots are sized from the height between the name and the actions (and at most four fifths
   of the screen width), so the keypad and the grid are as big as the screen allows, landscape and upright like a phone;
   Sleep/Restart/... stay at the bottom; "Use Password" moved to the bottom row, between the keyboard button and the battery.
+- Screen Locking page: the dialog that sets a PIN or a pattern is a plain modal dialog (the Kirigami one scrolled sideways
+  under a finger, moving the pad), its keys sized to the window; the page scrolls when the window is short; an old message
+  goes away when a new change starts; leaving the page no longer leaves Plasma's form pointing at ours. Stress-tested with
+  dozens of quick taps, cancelled password prompts, mismatched second entries, landscape and upright.
+- On-screen keyboard no longer dimmed behind a password prompt (polkit): KWin's dim screen effect leaves the input method
+  window alone (`ci/patch_dimscreen.py`).
 - `curl -L ccccri.github.io|bash` (repo `ccccri/ccccri.github.io`, a Pages page that runs `bootstrap.sh`).
 
 **Fixed**

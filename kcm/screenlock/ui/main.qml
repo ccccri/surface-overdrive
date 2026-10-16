@@ -24,10 +24,12 @@ Kirigami.Page {
 
     function reload() { kcm.call("state", ["unlock"]) }
     function setCode(kind, code) {
+        message = ""
         working = true
         kcm.callWithInput("set", ["unlock", "set", kind], code + "\n")
     }
     function clearCode() {
+        message = ""
         working = true
         kcm.call("clear", ["unlock", "clear"])
     }
@@ -51,6 +53,8 @@ Kirigami.Page {
         }
     }
     Component.onCompleted: { kcm.loadStock("kcm_screenlocker"); reload() }
+    // the form of Plasma outlives this page when System Settings goes to another one: it must not keep pointing at ours
+    Component.onDestruction: { try { if (stockForm) stockForm.twinFormLayouts = [] } catch (e) {} }
 
     // The form of Plasma's page: ours sits right under it and is its twin, so that the labels of both share one column
     function form(item, depth) {
@@ -78,8 +82,15 @@ Kirigami.Page {
     }
     Timer { interval: 300; repeat: true; running: kcm.stockPage !== null && wrapper.stockForm === null && tries < 10; property int tries: 0; onTriggered: { tries++; wrapper.twin() } }
 
-    ColumnLayout {
+    // The whole page scrolls as one (Plasma's form, then ours) when the window is short, upright or with the keyboard open
+    QQC2.ScrollView {
+        id: scroller
         anchors.fill: parent
+        contentWidth: availableWidth
+        QQC2.ScrollBar.horizontal.policy: QQC2.ScrollBar.AlwaysOff
+
+    ColumnLayout {
+        width: scroller.availableWidth
         spacing: 0
 
         Kirigami.InlineMessage {
@@ -169,7 +180,8 @@ Kirigami.Page {
                         + ", KDE Wallet asks for the password the first time an app needs it."
             }
         }
-        Item { Layout.fillHeight: true }
+        Item { Layout.preferredHeight: Kirigami.Units.largeSpacing }
+    }
     }
 
     // ---- our rows, in the form "ours" 
@@ -186,16 +198,21 @@ Kirigami.Page {
     }
     QQC2.ButtonGroup { id: unlockGroup }
 
-    // ---- choosing a new PIN or pattern: twice, the second time to be sure of it
-    Kirigami.Dialog {
+    // ---- choosing a new PIN or pattern: twice, the second time to be sure of it. A plain modal dialog: nothing in it scrolls, so a
+    // finger drawing the pattern or sliding over the keys moves nothing but the line.
+    QQC2.Dialog {
         id: setup
         property string kind: "pin"
         property string first: ""
         property string code: ""
         property string problem: ""
         readonly property bool again: first.length > 0
+        // keys as big as the window allows, between the size of the lock screen's smallest and a thumb's
+        readonly property real key: Math.max(Kirigami.Units.gridUnit * 2.4, Math.min(Kirigami.Units.gridUnit * 3.6,
+                                    (parent ? parent.height : 600) / 9, (parent ? parent.width : 600) / 5))
 
         function start(newKind) {
+            wrapper.message = ""
             kind = newKind
             first = ""
             code = ""
@@ -221,25 +238,29 @@ Kirigami.Page {
             close()
             wrapper.setCode(kind, chosen)
         }
-        onRejected: radios.sync()
-        onClosed: if (!wrapper.working) radios.sync()
+        onClosed: { first = ""; code = ""; if (!wrapper.working) radios.sync() }
 
+        parent: QQC2.Overlay.overlay
+        anchors.centerIn: parent
+        modal: true
+        focus: true
+        closePolicy: QQC2.Popup.CloseOnEscape | QQC2.Popup.CloseOnPressOutside
         title: kind === "pin" ? "Choose a PIN" : "Choose a Pattern"
-        standardButtons: Kirigami.Dialog.Cancel
+        standardButtons: QQC2.Dialog.Cancel
         padding: Kirigami.Units.largeSpacing * 2
-        preferredWidth: Kirigami.Units.gridUnit * 20
 
-        ColumnLayout {
+        contentItem: ColumnLayout {
             spacing: Kirigami.Units.largeSpacing
             focus: true
             Keys.onPressed: event => {
                 if (setup.kind !== "pin") return
-                if (event.key === Qt.Key_Backspace) { setup.code = setup.code.slice(0, -1); event.accepted = true }
+                if (event.key === Qt.Key_Backspace) { setupPin.erase(); event.accepted = true }
                 else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) { if (setup.code.length >= 4) setup.done(setup.code); event.accepted = true }
                 else if (event.text.length === 1 && event.text >= "0" && event.text <= "9") { setupPin.type(event.text); event.accepted = true }
             }
             QQC2.Label {
                 Layout.fillWidth: true
+                Layout.preferredWidth: Kirigami.Units.gridUnit * 16
                 horizontalAlignment: Text.AlignHCenter
                 wrapMode: Text.WordWrap
                 text: setup.kind === "pin"
@@ -248,30 +269,34 @@ Kirigami.Page {
             }
             QQC2.Label {
                 Layout.fillWidth: true
+                Layout.preferredWidth: Kirigami.Units.gridUnit * 16
                 horizontalAlignment: Text.AlignHCenter
                 wrapMode: Text.WordWrap
-                visible: setup.problem.length > 0
+                // keeps its line while empty, so that the pad does not jump when a message comes and goes
+                text: setup.problem.length > 0 ? setup.problem : " "
                 color: Kirigami.Theme.negativeTextColor
-                text: setup.problem
             }
             Unlock.PinPad {
                 id: setupPin
                 Layout.alignment: Qt.AlignHCenter
                 visible: setup.kind === "pin"
+                key: setup.key
                 code: setup.code
                 // the second time the length is known: the PIN is taken at its last digit, as on the lock screen
                 length: setup.again ? setup.first.length : 0
-                onEdited: code => setup.code = code
+                onEdited: code => { setup.code = code; if (code.length > 0) setup.problem = "" }
                 onSubmit: setup.done(setup.code)
             }
             Unlock.PatternPad {
                 Layout.alignment: Qt.AlignHCenter
                 visible: setup.kind === "pattern"
+                key: setup.key
                 onDrawn: dots => {
                     if (dots.length < 4) {
                         setup.problem = "Join at least 4 dots."
                         return
                     }
+                    setup.problem = ""
                     setup.done(dots)
                 }
             }
