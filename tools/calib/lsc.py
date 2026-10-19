@@ -40,7 +40,7 @@ def table(frames, width, height, black, cell):
                 grid[r, c] = np.median(block) if block.size else np.nan
         grid = smooth(grid)
         centre = np.median(grid[rows // 2 - 1:rows // 2 + 1, cols // 2 - 1:cols // 2 + 1])
-        out.append(np.clip(centre / grid, 1.0, 3.99))
+        out.append(np.clip(centre / grid, 1.0, 4.9))       # the shading block takes 1.0 to 4.99
     return cols, rows, out
 
 

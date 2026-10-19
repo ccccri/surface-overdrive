@@ -9,7 +9,8 @@ off; the neutral patches give the white balance; then the 3x3 matrix from white-
 by least squares, each row summing to 1 so that greys stay grey. Printed as the "ccms" entry of the Awb algorithm (see
 patches/libcamera/0004-ipu3-ccm.patch), with its "ct": 1000 * ln((B/G) / (R/G)) + 5000 of the white point.
 
-usage: ccm.py --size WxH --black N --cfa BGGR --corners x0,y0,x1,y1,x2,y2,x3,y3 frame.bin
+usage: ccm.py --size WxH --black N --cfa BGGR --corners x0,y0,x1,y1,x2,y2,x3,y3 [--lsc lsc.yaml [--cell 64]] frame.bin
+(lsc.yaml: the output of lsc.py)
 """
 import argparse
 import sys
@@ -59,6 +60,23 @@ def camera_rgb(img, cfa, x, y, radius):
     return np.array([np.mean(sums["R"]), np.mean(sums["G"]), np.mean(sums["B"])])
 
 
+def load_lsc(path, width, height, cell):
+    """Gains of every pixel from the "sets" entry printed by lsc.py: each cell holds one gain per position of the quad."""
+    planes = {}
+    for line in open(path):
+        line = line.strip()
+        if line[:1] == "c" and line[1:2].isdigit():
+            planes[int(line[1])] = np.array([float(v) for v in line.split("[")[1].split("]")[0].split(",")]) / 4096
+    cols, rows = -(-width // cell), -(-height // cell)
+    gains = np.ones((height, width))
+    half = cell // 2
+    for i, (dy, dx) in enumerate(((0, 0), (0, 1), (1, 0), (1, 1))):
+        grid = planes[i].reshape(rows, cols)
+        full = np.repeat(np.repeat(grid, half, axis=0), half, axis=1)
+        gains[dy::2, dx::2] = full[:height // 2, :width // 2]
+    return gains
+
+
 def fit(cam, ref):
     """3x3 matrix M with rows summing to 1, minimising |M cam - ref|."""
     m = np.zeros((3, 3))
@@ -77,10 +95,14 @@ def main():
     ap.add_argument("--black", type=float, required=True)
     ap.add_argument("--cfa", default="BGGR", help="colours of the quad in raster order")
     ap.add_argument("--corners", required=True)
+    ap.add_argument("--lsc", help="lens shading table from lsc.py, applied before measuring")
+    ap.add_argument("--cell", type=int, default=64)
     ap.add_argument("frame")
     a = ap.parse_args()
     width, height = map(int, a.size.split("x"))
     img = unpack(open(a.frame, "rb").read(), width, height).astype(np.float64) - a.black
+    if a.lsc:
+        img *= load_lsc(a.lsc, width, height, a.cell)
     v = [float(n) for n in a.corners.split(",")]
     corners = list(zip(v[0::2], v[1::2]))
     pts = patch_points(corners)
@@ -92,11 +114,20 @@ def main():
     balanced = cam * wb
     scale = (ref[18:24, 1].sum() / balanced[18:24, 1].sum())     # exposure: match the greys' level
     balanced *= scale
+    # The chart is a screen seen from close by: its brightness falls off towards the edges and its tone curve is not exactly
+    # sRGB, so every patch is let free in brightness and only its colour counts. Iterate: fit, rescale each patch so its
+    # corrected luminance matches the reference, fit again.
+    luma = np.array([0.2126, 0.7152, 0.0722])
     m = fit(balanced, ref)
+    for _ in range(20):
+        balanced *= ((ref @ luma) / ((balanced @ m.T) @ luma))[:, None]
+        m = fit(balanced, ref)
     err = np.abs(balanced @ m.T - ref).mean()
     rg, bg = 1 / wb[0], 1 / wb[2]
     ct = int(round(1000 * np.log(bg / rg))) + 5000
     print("# white balance gains R %.3f B %.3f, mean error %.4f (linear)" % (wb[0], wb[2], err), file=sys.stderr)
+    for i, (c, r) in enumerate(zip(balanced @ m.T, ref)):
+        print("# patch %2d  error %s" % (i, " ".join("%+.3f" % e for e in c - r)), file=sys.stderr)
     print("      - ct: %d" % ct)
     print("        ccm: [ %s ]" % ", ".join("%.4f" % x for x in m.ravel()))
 

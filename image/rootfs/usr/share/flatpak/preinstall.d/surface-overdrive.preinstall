@@ -1,0 +1,32 @@
+# Apps of the Surface Overdrive image, installed by overdrive-flatpaks.service (flatpak preinstall) from the first remote
+# that has them (Fedora's, then Flathub). An app the user removes stays removed.
+
+# Handwritten notes with the pen
+[Flatpak Preinstall com.github.xournalpp.xournalpp]
+Branch=stable
+
+# Camera (through PipeWire, so with the image's libcamera)
+[Flatpak Preinstall org.kde.kamoso]
+Branch=stable
+
+# Kept from Kinoite's own set, so that a fresh install has them too
+[Flatpak Preinstall org.kde.okular]
+Branch=stable
+
+[Flatpak Preinstall org.kde.gwenview]
+Branch=stable
+
+[Flatpak Preinstall org.kde.kcalc]
+Branch=stable
+
+[Flatpak Preinstall org.kde.kmahjongg]
+Branch=stable
+
+[Flatpak Preinstall org.kde.krdc]
+Branch=stable
+
+[Flatpak Preinstall org.kde.qrca]
+Branch=stable
+
+[Flatpak Preinstall org.kde.skanpage]
+Branch=stable

@@ -1,0 +1,131 @@
+--- a/src/ipa/ipu3/algorithms/awb.cpp	2026-10-18 18:18:10.782793886 +0200
++++ b/src/ipa/ipu3/algorithms/awb.cpp	2026-10-18 18:18:10.797793924 +0200
+@@ -8,6 +8,8 @@
+ 
+ #include <algorithm>
+ #include <cmath>
++#include <limits>
++#include <utility>
+ 
+ #include <libcamera/base/log.h>
+ 
+@@ -206,9 +208,34 @@
+  * balance gains) for a number of light sources. Each entry has a key "ct" and a 3x3 "ccm". The key is the position of
+  * the sensor white point of the light source on the illuminant locus, 1000 * ln(B/G / R/G) + 5000 (warm to cool),
+  * measured with our own calibration. The matrix used for a frame is interpolated at the white point chosen by the AWB.
++ *
++ * The optional "locus" list gives the white points of real light sources as seen by the sensor, [ R/G, B/G ] each, from
++ * warm to cool (a white sheet under each light, black level taken off). The grey world estimate is then moved onto that
++ * line: a scene whose average is not grey (a blue wall, a red sofa, a whole screen of one colour) can no longer push the
++ * white balance off it, towards green or magenta. "locusGreen" and "locusMagenta" are how far, in natural log units, the
++ * estimate may stay on either side of the line (some LED and fluorescent lights are greener than daylight and
++ * incandescent ones, no real light is magenta), "locusExtend" how far it may go past the warmest and coolest points.
+  */
+ int Awb::init([[maybe_unused]] IPAContext &context, const ValueNode &tuningData)
+ {
++	if (tuningData.contains("locus")) {
++		for (const auto &point : tuningData["locus"].asList()) {
++			const auto v = point.get<std::vector<double>>();
++			if (!v || v->size() != 2 || (*v)[0] <= 0 || (*v)[1] <= 0) {
++				LOG(IPU3Awb, Error) << "Each 'locus' point needs [ R/G, B/G ] above 0";
++				return -EINVAL;
++			}
++			locus_.push_back({ std::log((*v)[0]), std::log((*v)[1]) });
++		}
++		if (locus_.size() < 2) {
++			LOG(IPU3Awb, Error) << "The 'locus' needs at least two points";
++			return -EINVAL;
++		}
++		locusGreen_ = tuningData["locusGreen"].get<double>(0.06);
++		locusMagenta_ = tuningData["locusMagenta"].get<double>(0.02);
++		locusExtend_ = tuningData["locusExtend"].get<double>(0.15);
++	}
++
+ 	if (!tuningData.contains("ccms"))
+ 		return 0;
+ 
+@@ -459,6 +486,12 @@
+ 	 * Gain values are unsigned integer value ranging [0, 8) with 13 bit
+ 	 * fractional part.
+ 	 */
++	if (!locus_.empty() && redGain > 0.0 && blueGain > 0.0) {
++		const auto [x, y] = constrainToLocus(-std::log(redGain), -std::log(blueGain));
++		redGain = std::exp(-x);
++		blueGain = std::exp(-y);
++	}
++
+ 	redGain = std::clamp(redGain, 0.0, 65535.0 / 8192);
+ 	blueGain = std::clamp(blueGain, 0.0, 65535.0 / 8192);
+ 
+@@ -468,6 +501,48 @@
+ 	asyncResults_.blueGain = blueGain;
+ }
+ 
++/*
++ * Move a white point (natural logs of R/G and B/G) onto the locus: to the nearest point of the polyline (the end segments
++ * extended by locusExtend_), then back off it by what is left of the distance within the band allowed on that side. The
++ * green side is the one where both ratios are lower, i.e. green stronger.
++ */
++std::pair<double, double> Awb::constrainToLocus(double x, double y) const
++{
++	double bestDist = std::numeric_limits<double>::max();
++	double bx = x, by = y, nx = 0.0, ny = 0.0, side = 0.0;
++
++	for (size_t i = 0; i + 1 < locus_.size(); i++) {
++		const double ax = locus_[i].first, ay = locus_[i].second;
++		const double dx = locus_[i + 1].first - ax, dy = locus_[i + 1].second - ay;
++		const double len = std::hypot(dx, dy);
++		if (len <= 0.0)
++			continue;
++		const double ux = dx / len, uy = dy / len;
++		double t = (x - ax) * ux + (y - ay) * uy;
++		const double lo = i == 0 ? -locusExtend_ : 0.0;
++		const double hi = i + 2 == locus_.size() ? len + locusExtend_ : len;
++		t = std::clamp(t, lo, hi);
++		const double px = ax + ux * t, py = ay + uy * t;
++		const double dist = std::hypot(x - px, y - py);
++		if (dist < bestDist) {
++			bestDist = dist;
++			bx = px;
++			by = py;
++			/* Unit normal pointing to the green side (both coordinates lower). */
++			nx = -uy;
++			ny = ux;
++			if (nx + ny > 0) {
++				nx = -nx;
++				ny = -ny;
++			}
++			side = (x - px) * nx + (y - py) * ny;
++		}
++	}
++
++	const double offset = std::clamp(side, -locusMagenta_, locusGreen_);
++	return { bx + nx * offset, by + ny * offset };
++}
++
+ void Awb::calculateWBGains(const ipu3_uapi_stats_3a *stats)
+ {
+ 	ASSERT(stats->stats_3a_status.awb_en);
+--- a/src/ipa/ipu3/algorithms/awb.h	2026-10-18 18:18:10.782793886 +0200
++++ b/src/ipa/ipu3/algorithms/awb.h	2026-10-18 18:18:10.799056193 +0200
+@@ -68,6 +68,7 @@
+ 	void generateAwbStats(const ipu3_uapi_stats_3a *stats);
+ 	void clearAwbStats();
+ 	void awbGreyWorld();
++	std::pair<double, double> constrainToLocus(double x, double y) const;
+ 	static constexpr uint16_t threshold(float value);
+ 	static constexpr uint16_t gainValue(double gain);
+ 
+@@ -79,6 +80,12 @@
+ 	Interpolator<Matrix<float, 3, 3>> ccms_;
+ 	bool hasCcms_ = false;
+ 
++	/* White points of real lights (natural logs of R/G and B/G), warm to cool, and the band allowed around them. */
++	std::vector<std::pair<double, double>> locus_;
++	double locusGreen_ = 0.06;
++	double locusMagenta_ = 0.02;
++	double locusExtend_ = 0.15;
++
+ 	uint32_t stride_;
+ 	uint32_t cellsPerZoneX_;
+ 	uint32_t cellsPerZoneY_;

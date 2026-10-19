@@ -5,7 +5,7 @@ What the previous project (`surface-go-kinoite`) did, and where each piece stand
 | # | Feature | State |
 |---|---|---|
 | 1 | Patched kernel modules: cameras, NFC, volume buttons | **done**, built in CI-style stage, verified on the tablet |
-| 2 | Patched libcamera (crash fixes, autofocus, exposure, black level, flicker, start-up behaviour) | **done**; colour (lens shading) waits for our own calibration |
+| 2 | Patched libcamera (crash fixes, autofocus, exposure, black level per sensor mode, flicker, start-up behaviour) | **done** |
 | 3 | NFC reader daemon (`overdrive-nfcd`) | **done**, running from the image; reading a real tag still to be tried |
 | 4 | NFC notifications (`overdrive-nfc-notify`) | **done** |
 | 5 | Volume buttons: hold to repeat, with an on/off switch (`overdrivectl volume-hold`) | **done** |
@@ -24,6 +24,9 @@ What the previous project (`surface-go-kinoite`) did, and where each piece stand
 | 18 | Sensors (light, accelerometer/gyro bars, firmware) at the end of "About this System"; battery line (charge, power, health, cycles) above Plasma's Power Management page | **done** (2D bars, the old 3D model view was not ported) |
 | 19 | Updates and log; export/import of presets | not yet |
 | 20 | Installer wizard | replaced by `bootstrap.sh` (one command, one reboot, MOK enrolment), started with `curl -L ccccri.github.io\|bash`; verified on a fresh Kinoite 44 install |
-| 21 | Own colour calibration (lens shading) | not yet |
-| 22 | CI that rebuilds the image daily | workflow written (`.github/workflows/build-image.yml`), waits for the push permission and the signing secrets |
+| 21 | Own colour calibration: black level, lens shading, colour matrix (tools in `tools/calib`, the laptop screen as a light source driven by `screen.py`) | **rear camera done** (2026-10-18: corners within 3% in colour in every stream size, matrix error 0.006); front camera and the white balance under warm lights (a locus between real lights) not yet |
+| 22 | CI that rebuilds the image daily | **done**: the nightly image of 2026-10-18 reached the tablet through Discover and booted |
 | 23 | Unlock with a PIN or a 9-dot pattern next to the password: lock screen (after idle, after sleep) and login screen (cold start). Chosen in "Screen Locking" (our page around Plasma's), set through polkit after the password; five wrong tries leave the password only until it is used | **done** (`src/overdrive/unlock.py`, PAM line from `ci/patch_pam.py`, pads in `/usr/share/surface-overdrive/unlock`, login screen rebuilt by `ci/build_login.sh`); verified on the tablet from a test install, not yet from a CI image |
+| 24 | Apps of the image: Xournal++ and Kamoso added, KMines, Elisa and KolourPaint removed (`overdrive-flatpaks.service`: `flatpak preinstall` plus a remove-once list) | **done**, tried on the tablet |
+| 25 | Tablet mode of our own: Plasma 6.7 only enlarges the tray icons in tablet mode, so follow KWin's tablet mode ourselves (larger title bar buttons, taller and wider spaced task bar; back to normal with a keyboard or mouse) | not yet |
+| 26 | Pictures in Kamoso: every shot restarts the camera at the picture size, so exposure and focus start over and some pictures come out blurred or dark (and focus feels worse than in our Cameras page) | not yet |

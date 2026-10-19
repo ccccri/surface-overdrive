@@ -2,6 +2,37 @@
 
 What was added, what broke, and what fixed it. Newest first. "Verified" means tried on the Surface Go itself.
 
+## 2026-10-18
+
+**Added**
+- Rear camera calibrated with our own measurements (tools in `tools/calib`). The laptop screen is the light source, driven
+  from the PC (`screen.py`: a page that shows the colour it is told), which makes every measurement repeatable:
+  - Black level per sensor mode (patch `0022`): the ImgU's optical black counts about twice the sensor's codes, so the
+    pedestal of 16 is written as 34 (full resolution) and 30 (2x2 binned). Too little left part of the pedestal in, which
+    the lens shading gains blew up in the corners: up to +11% red in the 3200x2400 mode, where Kamoso takes pictures.
+  - Lens shading: brightness from paper on the screen showing white with the camera pressed against it, colour from a
+    matt white sheet lit from the front by a window (`lsc_colour.py`). Light leaving backlit paper at a slant is warmer,
+    which made the corners 8% too red and left a pink centre in pictures (+34% to +42% red); now about +5%. Checked in
+    every stream size (`shading_probe.py`).
+  - Colour matrix from the 24 colours of the chart shown one at a time on the whole screen and measured on the optical
+    axis (`ccm_screen.py`), saturated colours dimmed so they do not clip.
+  - White balance held to the line of real lights (patch `0023`, "locus" in the tuning file): a dual white LED desk lamp at
+    its five settings, daylight and the screen's D65 white. The grey world estimate can no longer drift towards green or
+    magenta; some room for greenish LED and fluorescent lights.
+  - sRGB tone curve (`curve: srgb`) with lower exposure targets. The default nearly linear curve, read as sRGB, made
+    pictures about twice as saturated as an iPhone's of the same scene.
+- Apps of the image: Xournal++ and Kamoso preinstalled, KMines, Elisa and KolourPaint removed
+  (`overdrive-flatpaks.service`: `flatpak preinstall` from `/usr/share/flatpak/preinstall.d`, and a list of apps removed
+  once, so that one installed again by hand stays).
+
+**Verified**
+- The nightly image of 2026-10-18 came to the tablet through Discover and booted: the whole update path works.
+
+**Open**
+- The colour matrix still turns orange towards red on real objects (a screen emits three narrow lights, real surfaces
+  reflect broad ones); a printed reference chart would settle it. Front camera not calibrated yet. Kamoso restarts the
+  camera for every picture (blurred or dark shots). Tablet mode of our own (Plasma 6.7 only enlarges the tray icons).
+
 ## 2026-10-15
 
 **Added**

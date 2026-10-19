@@ -1,0 +1,62 @@
+--- a/src/ipa/ipu3/algorithms/blc.cpp	2026-10-18 15:20:18.123087035 +0200
++++ b/src/ipa/ipu3/algorithms/blc.cpp	2026-10-18 15:20:18.138193879 +0200
+@@ -56,6 +56,9 @@
+  * The optional "black" list gives the black level of the Gr, R, B and Gb channels. The sensor adds a pedestal of its own
+  * to the data, different for every module (and per channel); subtracting more than that crushes the shadows.
+  *
++ * The optional "blackBinned" list gives the same for the binned sensor modes (2x2, the whole field of view at a quarter of
++ * the pixels), whose pedestal is not the one of the full resolution modes.
++ *
+  * The optional "bnr" list [cf, cg, alpha, beta, gamma, max_inf] tunes the Bayer noise reduction that the Awb algorithm
+  * enables with the Intel defaults: cf is the constant part of the noise threshold (1700 in the defaults, up to 8191), cg makes the noise threshold grow with the analogue gain (0 in the defaults, so the
+  * filter does not get stronger in dim light), alpha/beta/gamma are the weights of the smoothing filter. It is applied
+@@ -83,12 +86,27 @@
+ 	for (unsigned int i = 0; i < 4; i++)
+ 		black_[i] = std::min<unsigned int>((*black)[i], 255);
+ 
++	if (tuningData.contains("blackBinned")) {
++		const auto binned = tuningData["blackBinned"].get<std::vector<unsigned int>>();
++		if (!binned || binned->size() != 4)
++			return -EINVAL;
++
++		for (unsigned int i = 0; i < 4; i++)
++			blackBinned_[i] = std::min<unsigned int>((*binned)[i], 255);
++		hasBlackBinned_ = true;
++	}
++
+ 	return 0;
+ }
+ 
+ int BlackLevelCorrection::configure([[maybe_unused]] IPAContext &context, const IPAConfigInfo &configInfo)
+ {
+ 	profile_ = std::make_unique<LiveProfile>(configInfo.sensorInfo.model);
++
++	/* Binned modes read the whole array into half the width, as in the Lsc algorithm. */
++	const Size &active = configInfo.sensorInfo.activeAreaSize;
++	const Size &output = configInfo.sensorInfo.outputSize;
++	binned_ = output.width && static_cast<double>(active.width) / output.width >= 1.5;
+ 	return 0;
+ }
+ 
+@@ -99,7 +117,7 @@
+ {
+ 	/* The Optical Black Level correction values: from the tuning data ("black"), 64 otherwise. */
+ 	/* The live profile ("black" and "bnr" keys) overrides the tuning data. */
+-	std::array<uint16_t, 4> black = black_;
++	std::array<uint16_t, 4> black = binned_ && hasBlackBinned_ ? blackBinned_ : black_;
+ 	std::array<unsigned int, 6> bnr = bnr_;
+ 	bool hasBnr = hasBnr_;
+ 	if (profile_) {
+--- a/src/ipa/ipu3/algorithms/blc.h	2026-10-18 15:20:18.123087035 +0200
++++ b/src/ipa/ipu3/algorithms/blc.h	2026-10-18 15:20:18.138310680 +0200
+@@ -32,6 +32,10 @@
+ private:
+ 	/* Black level of the Gr, R, B and Gb channels, as 10 bit values (optical black grid of the ImgU). */
+ 	std::array<uint16_t, 4> black_{ 64, 64, 64, 64 };
++	/* The same for the binned sensor modes, when the tuning data has them ("blackBinned"). */
++	std::array<uint16_t, 4> blackBinned_{ 64, 64, 64, 64 };
++	bool hasBlackBinned_ = false;
++	bool binned_ = false;
+ 	std::array<unsigned int, 6> bnr_{};
+ 	bool hasBnr_ = false;
+ 	std::unique_ptr<LiveProfile> profile_;

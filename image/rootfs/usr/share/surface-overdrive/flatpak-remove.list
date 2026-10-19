@@ -1,0 +1,4 @@
+# Flatpak apps of Kinoite's installer that the image does not want (overdrive-flatpaks.service uninstalls each once)
+org.kde.kmines
+org.kde.elisa
+org.kde.kolourpaint

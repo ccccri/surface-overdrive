@@ -1,0 +1,11 @@
+[Unit]
+Description=Surface Overdrive: remove and preinstall the Flatpak apps of the image
+Wants=network-online.target
+After=network-online.target flatpak-add-fedora-repos.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/overdrive/flatpaks
+
+[Install]
+WantedBy=multi-user.target
