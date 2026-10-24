@@ -1,0 +1,12 @@
+{
+    "KPlugin": {
+        "Id": "overdrive_prompt_keyboard",
+        "Name": "Keyboard for Password Prompts",
+        "Description": "In tablet mode, opens the on-screen keyboard when a password prompt appears",
+        "License": "MIT",
+        "EnabledByDefault": true
+    },
+    "X-Plasma-API": "javascript",
+    "X-Plasma-MainScript": "code/main.js",
+    "KPackageStructure": "KWin/Script"
+}

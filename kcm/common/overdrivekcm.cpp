@@ -10,6 +10,7 @@
 #include <QProcess>
 #include <QQmlEngine>
 #include <QQuickItem>
+#include <QQuickWindow>
 #include <mutex>
 
 static const QString s_ctl = QStringLiteral("/usr/bin/overdrivectl");
@@ -183,8 +184,37 @@ void OverdriveKCM::refresh()
     process->start(s_ctl, {QStringLiteral("status"), QStringLiteral("--json")});
 }
 
+/*
+ * Before an action that asks for the password: take the keyboard focus away from a text field of the window (System Settings
+ * puts it in its search field). Otherwise, when the password prompt closes, the focus goes back to that field while the
+ * on-screen keyboard is still up, and KWin keeps the keyboard and shrinks the window to make room for it.
+ */
+static void releaseTextFocus(QQuickItem *ui)
+{
+    if (!ui || !ui->window())
+        return;
+    QQuickItem *focused = ui->window()->activeFocusItem();
+    if (focused && (focused->inherits("QQuickTextInput") || focused->inherits("QQuickTextEdit")))
+        ui->forceActiveFocus();
+}
+
+/* overdrivectl commands that go through pkexec (the others only read). */
+static bool asksPassword(const QStringList &args)
+{
+    if (args.isEmpty())
+        return false;
+    const QString &command = args.first();
+    if (command == QLatin1String("repair"))
+        return true;
+    if (command == QLatin1String("unlock") && args.size() > 1)
+        return true;
+    return command == QLatin1String("image") && args.size() > 1
+        && (args.at(1) == QLatin1String("cancel") || args.at(1) == QLatin1String("go-back"));
+}
+
 void OverdriveKCM::changeSetting(const QString &name, const QString &value)
 {
+    releaseTextFocus(mainUi());
     auto *process = new QProcess(this);
     setBusy(true);
     connect(process, &QProcess::finished, this, [this, process](int code, QProcess::ExitStatus) {
@@ -204,6 +234,8 @@ void OverdriveKCM::call(const QString &tag, const QStringList &args)
 
 void OverdriveKCM::callWithInput(const QString &tag, const QStringList &args, const QString &input)
 {
+    if (asksPassword(args))
+        releaseTextFocus(mainUi());
     auto *process = new QProcess(this);
     connect(process, &QProcess::finished, this, [this, process, tag](int code, QProcess::ExitStatus status) {
         const QString out = QString::fromUtf8(process->readAllStandardOutput());

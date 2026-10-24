@@ -1,4 +1,10 @@
-# Surface Overdrive: the screen rotation animation is our effect (kwin-effect/rotation), KWin's own one is off.
+# Surface Overdrive: the screen rotation animation is our effect (kwin-effect/rotation), KWin's own one is off; the script
+# overdrive_prompt_keyboard opens the on-screen keyboard with a password prompt in tablet mode. The keyboard is drawn over the
+# windows instead of shrinking the one that has the focus: when a prompt closed, the window behind it got shrunk and stayed so.
 [Plugins]
 screentransformEnabled=false
 overdrive_rotationEnabled=true
+overdrive_prompt_keyboardEnabled=true
+
+[Windows]
+OverlayVirtualKeyboardOnWindows=true

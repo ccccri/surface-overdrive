@@ -5,6 +5,13 @@ What was added, what broke, and what fixed it. Newest first. "Verified" means tr
 ## 2026-10-24
 
 **Fixed**
+- Password prompt in tablet mode (verified on the tablet, driven through a virtual touchscreen): the on-screen keyboard now
+  opens with the prompt (KWin script `overdrive_prompt_keyboard`; KWin shows it only after a touch on a field), and it is
+  drawn over the windows (`OverlayVirtualKeyboardOnWindows`): when the prompt closed, KWin shrank the window behind it to
+  make room and left it in the top half of the screen. Our pages also take the focus off text fields before an action that
+  asks for the password.
+- Serial number in "About this System": shown in its line (dots, an eye to show it, a button to copy it) instead of
+  Plasma's dialog, which opened off centre inside our page.
 - Cameras start without the flash and the green tint (verified after a reboot, in Kamoso and in the Cameras page):
   - Sensor delays (patch `0011`): a new exposure or gain shows in the frame after the one it was written in, on both
     sensors (measured by logging the controls pushed and the brightness of every frame). The delay of 2 made the AE judge
