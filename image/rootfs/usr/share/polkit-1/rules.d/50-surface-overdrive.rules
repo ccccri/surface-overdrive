@@ -1,0 +1,7 @@
+// Surface Overdrive: the wallpaper of the desktop is copied to the login screen by a user service (overdrive-wallpaper), which
+// is not part of the session at the screen, so the "allow_active" of the action does not reach it. The copy only ever writes
+// a picture it decoded itself and the line pointing the login screen at it: allowed without a password for administrators.
+polkit.addRule(function (action, subject) {
+    if (action.id == "org.surfaceoverdrive.login-wallpaper" && subject.isInGroup("wheel"))
+        return polkit.Result.YES;
+});

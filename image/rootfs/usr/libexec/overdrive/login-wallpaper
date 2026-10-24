@@ -1,0 +1,9 @@
+#!/usr/bin/python3
+# Privileged, started through polkit (see /usr/share/polkit-1/actions/org.surfaceoverdrive.policy): the desktop wallpaper on the
+# login screen. Reads the pictures on standard input, never a path.
+import sys
+
+sys.path.insert(0, "/usr/lib/overdrive/python")
+from overdrive.loginwallpaper import main
+
+sys.exit(main())

@@ -8,6 +8,11 @@ So, whenever the wallpaper of the desktop or of the lock screen is an image bigg
 wallpaper package with two JPEGs at the size of the screen, one per orientation (Plasma picks the one that fits), and
 points the setting at it. The picture looks the same; the original file is not touched. A package keeps the name of the
 original and remembers where it came from, so it is made once per picture.
+
+One wallpaper everywhere: when the wallpaper of the desktop changes, the lock screen and the login screen get it too. The
+login screen runs as another user and cannot read the home folder, so its copy goes to the system through
+/usr/libexec/overdrive/login-wallpaper (polkit, no password for the user at the screen), which gets the pictures themselves.
+A lock screen wallpaper chosen on its own stays until the desktop one changes again.
 """
 import hashlib
 import json
@@ -23,6 +28,7 @@ PREFIX = "surface-fit-"
 APPLETS = "plasma-org.kde.plasma.desktop-appletsrc"
 LOCKER = "kscreenlockerrc"
 DEFAULT_SCREEN = (1800, 1200)
+LOGIN_HELPER = "/usr/libexec/overdrive/login-wallpaper"
 KEEP = 8                                  # packages of earlier wallpapers kept, so going back to one is instant
 IMAGE_EXT = (".jpg", ".jpeg", ".png", ".jxl", ".webp", ".avif", ".heic", ".heif", ".tif", ".tiff", ".bmp", ".svg", ".svgz")
 
@@ -235,6 +241,92 @@ def tidy():
             shutil.rmtree(path, ignore_errors=True)
 
 
+def synced_file():
+    state = os.environ.get("XDG_STATE_HOME") or os.path.expanduser("~/.local/state")
+    return os.path.join(state, "surface-overdrive", "wallpaper-synced")
+
+
+def read_synced():
+    try:
+        with open(synced_file()) as f:
+            return f.read().strip()
+    except OSError:
+        return None
+
+
+def write_synced(value):
+    os.makedirs(os.path.dirname(synced_file()), exist_ok=True)
+    with open(synced_file(), "w") as f:
+        f.write(value + "\n")
+
+
+def plasma_theme_is_dark():
+    """Whether the Plasma style is a dark one: Plasma then shows the dark variant of a wallpaper package (Fedora's look sets
+    Breeze Dark, so F44 is blue on the desktop and green-white in its light variant)."""
+    for name in ("plasmarc", os.path.join("kdedefaults", "plasmarc")):
+        try:
+            with open(os.path.join(config_dir(), name)) as f:
+                text = f.read()
+        except OSError:
+            continue
+        m = re.search(r"^\[Theme\][^\[]*?^name=(.+)$", text, re.M | re.S)
+        if m:
+            return "dark" in m.group(1).lower()
+    return False
+
+
+def screen_pictures(location, screen, dark=False):
+    """(landscape, portrait) JPEG bytes of a wallpaper at the size of the screen, in the variant the desktop shows: the
+    package's own when it has them (the fitted ones and Fedora's do), made from its biggest picture otherwise."""
+    import tempfile
+    long_side, short_side = max(screen), min(screen)
+    sizes = ((long_side, short_side), (short_side, long_side))
+    variant = "images_dark" if dark and os.path.isdir(os.path.join(location, "contents", "images_dark")) else "images"
+    folder = os.path.join(location, "contents", variant)
+    found = {}
+    if os.path.isdir(folder):
+        for name in os.listdir(folder):
+            for size in sizes:
+                if name.lower() in ("%dx%d.jpg" % size, "%dx%d.jpeg" % size):
+                    found[size] = os.path.join(folder, name)
+    if len(found) < 2:
+        srcs = sources(location)
+        src = srcs.get(variant) or srcs.get("images")
+        if not src:
+            raise OSError("no picture in " + location)
+        with tempfile.TemporaryDirectory() as tmp:
+            write_fitted(src, tmp, screen)
+            return tuple(open(os.path.join(tmp, "%dx%d.jpg" % size), "rb").read() for size in sizes)
+    return tuple(open(found[size], "rb").read() for size in sizes)
+
+
+def sync_from_desktop(screen):
+    """The lock screen and the login screen take the wallpaper of the desktop, once per change of it."""
+    from .loginwallpaper import pack
+    desktops = desktop_wallpapers()
+    if not desktops:
+        return
+    value = desktops[sorted(desktops)[0]]
+    if value == read_synced():
+        return
+    location = to_path(value) or default_package()
+    url = value or "file://%s/" % location
+    if lock_wallpaper() != url:
+        set_lock_wallpaper(url)
+        print("lock screen: %s (from the desktop)" % url, flush=True)
+    try:
+        landscape, portrait = screen_pictures(location, screen, plasma_theme_is_dark())
+        run = subprocess.run(["pkexec", LOGIN_HELPER], input=pack(landscape, portrait), capture_output=True, timeout=120)
+    except (OSError, subprocess.SubprocessError) as exc:
+        print("login screen: could not copy %s: %s" % (location, exc), flush=True)
+        return
+    if run.returncode != 0:
+        print("login screen: %s" % run.stderr.decode(errors="replace").strip(), flush=True)
+        return
+    write_synced(value)
+    print("login screen: %s (from the desktop)" % location, flush=True)
+
+
 def check_once():
     screen = screen_size()
     changed = False
@@ -244,6 +336,7 @@ def check_once():
             set_desktop_wallpaper(desktop_id, new)
             print("desktop %s: %s -> %s" % (desktop_id, value or "(default)", new), flush=True)
             changed = True
+    sync_from_desktop(screen)
     value = lock_wallpaper()
     if value or changed:
         new = fit(value, screen)

@@ -30,3 +30,7 @@ What the previous project (`surface-go-kinoite`) did, and where each piece stand
 | 24 | Apps of the image: Xournal++ and Kamoso added, KMines, Elisa and KolourPaint removed (`overdrive-flatpaks.service`: `flatpak preinstall` plus a remove-once list) | **done**, tried on the tablet |
 | 25 | Tablet mode of our own: Plasma 6.7 only enlarges the tray icons in tablet mode, so follow KWin's tablet mode ourselves (larger title bar buttons, taller and wider spaced task bar; back to normal with a keyboard or mouse) | not yet |
 | 26 | Pictures in Kamoso: every shot restarts the camera at the picture size, so exposure and focus start over and some pictures come out blurred or dark (and focus feels worse than in our Cameras page) | not yet |
+| 27 | One wallpaper for desktop, lock screen and login screen (the desktop's, copied on every change; the login copy through a polkit helper that gets only pixels) | **done** (`overdrive-wallpaper` user service + `login-wallpaper`) |
+| 28 | Opinionated KDE settings of the owner, shipped as defaults of the image | not yet (list to come) |
+| 29 | Front camera colours and noise | tuning on the tablet only (`/etc/libcamera/ipa/ipu3/ov5693.yaml`), not good enough yet |
+| 30 | Touch in the GRUB menu (the firmware passes touch to boot programs: rEFInd could use it; the volume keys do not reach GRUB) | idea for later: a GRUB build signed with our key, risky for little use |

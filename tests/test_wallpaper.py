@@ -53,3 +53,60 @@ class Wallpaper(unittest.TestCase):
             self.assertIsNone(wallpaper.fit("file:///x/.local/share/wallpapers/surface-fit-abc/", (1800, 1200)))
             self.assertIsNone(wallpaper.fit("file:///nowhere/at/all.jpg", (1800, 1200)))
         make.assert_not_called()
+
+
+class LoginWallpaper(unittest.TestCase):
+    def test_pack_round_trip_and_bad_input(self):
+        from overdrive import loginwallpaper as lw
+        data = lw.pack(b"landscape", b"portrait!")
+        self.assertEqual(lw.unpack(data), [b"landscape", b"portrait!"])
+        for bad in (b"", b"hello", data[:-1], data + b"x", lw.MAGIC + b"\xff\xff\xff\xff"):
+            with self.assertRaises(ValueError):
+                lw.unpack(bad)
+
+    def test_only_pictures_of_the_right_shape(self):
+        try:
+            from PIL import Image
+        except ImportError:
+            self.skipTest("no Pillow")
+        import io
+        from overdrive import loginwallpaper as lw
+        buf = io.BytesIO()
+        Image.new("RGB", (180, 120), "blue").save(buf, "PNG")
+        jpeg, size = lw.clean_jpeg(buf.getvalue(), True)
+        self.assertEqual(size, (180, 120))
+        self.assertTrue(jpeg.startswith(b"\xff\xd8"))
+        with self.assertRaises(ValueError):
+            lw.clean_jpeg(buf.getvalue(), False)              # landscape where a portrait picture is expected
+        with self.assertRaises(ValueError):
+            lw.clean_jpeg(b"#!/bin/sh\necho not a picture\n", True)
+
+    def test_install_writes_package_and_login_configuration(self):
+        try:
+            from PIL import Image  # noqa: F401
+        except ImportError:
+            self.skipTest("no Pillow")
+        from pathlib import Path
+        from overdrive import loginwallpaper as lw
+        with tempfile.TemporaryDirectory() as tmp:
+            dest, conf = Path(tmp, "login-wallpaper"), Path(tmp, "plasmalogin.conf")
+            with mock.patch("subprocess.run") as run:
+                for _ in range(2):                              # a second install replaces the first
+                    lw.install([(b"L", (1800, 1200)), (b"P", (1200, 1800))], dest, conf)
+            self.assertEqual(sorted(p.name for p in (dest / "contents" / "images").iterdir()), ["1200x1800.jpg", "1800x1200.jpg"])
+            written = [c.args[0] for c in run.call_args_list]
+            self.assertIn(["kwriteconfig6", "--file", str(conf)] + lw.GROUP + ["--key", "Image", "file://%s/" % dest], written)
+            self.assertFalse(Path(tmp, "login-wallpaper.new").exists() or Path(tmp, "login-wallpaper.old").exists())
+
+
+class PlasmaTheme(unittest.TestCase):
+    def test_dark_style_from_user_or_look_and_feel_defaults(self):
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.dict(os.environ, {"XDG_CONFIG_HOME": tmp}):
+            self.assertFalse(wallpaper.plasma_theme_is_dark())
+            os.makedirs(os.path.join(tmp, "kdedefaults"))
+            with open(os.path.join(tmp, "kdedefaults", "plasmarc"), "w") as f:
+                f.write("[Theme]\nname=breeze-dark\n")
+            self.assertTrue(wallpaper.plasma_theme_is_dark())
+            with open(os.path.join(tmp, "plasmarc"), "w") as f:
+                f.write("[Other]\nname=x\n\n[Theme]\nname=breeze-light\n")
+            self.assertFalse(wallpaper.plasma_theme_is_dark())

@@ -27,4 +27,14 @@
     <annotate key="org.freedesktop.policykit.exec.path">/usr/libexec/overdrive/unlock</annotate>
     <annotate key="org.freedesktop.policykit.exec.allow_gui">true</annotate>
   </action>
+  <action id="org.surfaceoverdrive.login-wallpaper">
+    <description>Show the desktop wallpaper on the login screen</description>
+    <message>Authentication is required to change the wallpaper of the login screen</message>
+    <defaults>
+      <allow_any>auth_admin</allow_any>
+      <allow_inactive>auth_admin</allow_inactive>
+      <allow_active>yes</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/libexec/overdrive/login-wallpaper</annotate>
+  </action>
 </policyconfig>

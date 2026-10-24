@@ -4,6 +4,16 @@ What was added, what broke, and what fixed it. Newest first. "Verified" means tr
 
 ## 2026-10-24
 
+**Added**
+- One wallpaper everywhere (verified on the tablet, the login screen photographed after switching to it): when the wallpaper
+  of the desktop changes, the lock screen and the login screen get it too, in the variant the desktop shows (Fedora's look is
+  Breeze Dark, so F44 is the blue one). The login screen runs as its own user and cannot read the home folder: the user
+  service sends the two screen-sized JPEGs to `/usr/libexec/overdrive/login-wallpaper` (polkit, no password for
+  administrators: rule in `/usr/share/polkit-1/rules.d`), which decodes them, writes them again into
+  `/var/lib/surface-overdrive/login-wallpaper` and points `/etc/plasmalogin.conf` at them (the login screen reads its
+  wallpaper from that file only, not from `plasmalogin.conf.d`). A lock screen wallpaper chosen on its own stays until the
+  desktop one changes again.
+
 **Fixed**
 - Password prompt in tablet mode (verified on the tablet, driven through a virtual touchscreen): the on-screen keyboard now
   opens with the prompt (KWin script `overdrive_prompt_keyboard`; KWin shows it only after a touch on a field), and it is
