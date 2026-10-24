@@ -1,6 +1,0 @@
-# Surface Overdrive: no splash screen after logging in (the KDE logo with a spinner). The session starts the same; the desktop
-# shows as soon as it is drawn, after a moment of black, instead of behind the logo. A user who wants it back picks a splash
-# screen in System Settings > Colors & Themes > Splash Screen.
-[KSplash]
-Engine=none
-Theme=None

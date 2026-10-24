@@ -2,6 +2,24 @@
 
 What was added, what broke, and what fixed it. Newest first. "Verified" means tried on the Surface Go itself.
 
+## 2026-10-24
+
+**Fixed**
+- Cameras start without the flash and the green tint (verified after a reboot, in Kamoso and in the Cameras page):
+  - Sensor delays (patch `0011`): a new exposure or gain shows in the frame after the one it was written in, on both
+    sensors (measured by logging the controls pushed and the brightness of every frame). The delay of 2 made the AE judge
+    one frame at every change with the old values, so it overshot and bounced, seen as a flash in the first two seconds.
+  - White balance start (patch `0024`): it started from gains of 1, the sensor's own green, until a frame bright enough
+    to measure; it now starts from the last session, or the middle of the locus, and moves towards a new estimate
+    instead of jumping. The AE weighed the channels with the blue and green gains swapped (upstream bug), fixed too.
+  - Memory across reboots (patch `0025`): the settled exposure and white balance are kept in
+    `~/.local/state/surface-overdrive/camera/<sensor>.exposure|white-balance`, so the first picture after a reboot starts
+    from them.
+- Nightly build: the registry of the base image answered 503 for a few minutes and the build failed in 15 s.
+  `ci/detect.sh` now asks once (not twice), without listing the tags, and tries again up to five times.
+- Splash screen after logging in back (the `/etc/xdg/ksplashrc` that turned it off is gone): without it the Surface did
+  not look faster, only blank for a moment.
+
 ## 2026-10-18
 
 **Added**

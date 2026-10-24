@@ -1,0 +1,82 @@
+diff --git a/src/ipa/ipu3/algorithms/agc.cpp b/src/ipa/ipu3/algorithms/agc.cpp
+index f09be27..820c37c 100644
+--- a/src/ipa/ipu3/algorithms/agc.cpp
++++ b/src/ipa/ipu3/algorithms/agc.cpp
+@@ -269,8 +269,8 @@ void Agc::process(IPAContext &context, const uint32_t frame,
+ 	haveValidFrame_ = true;
+ 
+ 	rGain_ = context.activeState.awb.gains.red;
+-	gGain_ = context.activeState.awb.gains.blue;
+-	bGain_ = context.activeState.awb.gains.green;
++	gGain_ = context.activeState.awb.gains.green;
++	bGain_ = context.activeState.awb.gains.blue;
+ 
+ 	/*
+ 	 * The Agc algorithm needs to know the effective exposure value that was
+diff --git a/src/ipa/ipu3/algorithms/awb.cpp b/src/ipa/ipu3/algorithms/awb.cpp
+index 5b7c39e..c4a112e 100644
+--- a/src/ipa/ipu3/algorithms/awb.cpp
++++ b/src/ipa/ipu3/algorithms/awb.cpp
+@@ -269,6 +269,25 @@ int Awb::configure(IPAContext &context,
+ 	cellsPerZoneThreshold_ = cellsPerZoneX_ * cellsPerZoneY_ * kMaxCellSaturationRatio;
+ 	LOG(IPU3Awb, Debug) << "Threshold for AWB is set to " << cellsPerZoneThreshold_;
+ 
++	/*
++	 * Where the white balance starts. Gains of 1 show the sensor's own colour, which is green, until the first frames
++	 * bright enough to measure (a second or more while the exposure settles). Start instead from where the previous
++	 * session ended, or the first time from the middle of the locus (an ordinary indoor light).
++	 */
++	if (!haveLast_ && !locus_.empty()) {
++		const auto &mid = locus_[locus_.size() / 2];
++		lastRedGain_ = std::exp(-mid.first);
++		lastBlueGain_ = std::exp(-mid.second);
++	}
++	asyncResults_.redGain = lastRedGain_;
++	asyncResults_.greenGain = 1.0;
++	asyncResults_.blueGain = lastBlueGain_;
++	context.activeState.awb.gains.red = lastRedGain_;
++	context.activeState.awb.gains.green = 1.0;
++	context.activeState.awb.gains.blue = lastBlueGain_;
++	context.activeState.awb.temperatureK = asyncResults_.temperatureK;
++	estimates_ = 0;
++
+ 	return 0;
+ }
+ 
+@@ -554,7 +573,19 @@ void Awb::calculateWBGains(const ipu3_uapi_stats_3a *stats)
+ 	LOG(IPU3Awb, Debug) << "Valid zones: " << zones_.size();
+ 
+ 	if (zones_.size() > 10) {
++		const double red = asyncResults_.redGain, blue = asyncResults_.blueGain;
+ 		awbGreyWorld();
++		/*
++		 * Move towards the new estimate instead of jumping to it: a jump is seen as the picture changing colour at once, and
++		 * the exposure, which weighs the channels by these gains, jumps with it. Quicker at the start of a session.
++		 */
++		const double speed = estimates_ < 10 ? 0.5 : 0.25;
++		estimates_++;
++		asyncResults_.redGain = std::exp(std::log(red) + speed * (std::log(asyncResults_.redGain) - std::log(red)));
++		asyncResults_.blueGain = std::exp(std::log(blue) + speed * (std::log(asyncResults_.blueGain) - std::log(blue)));
++		lastRedGain_ = asyncResults_.redGain;
++		lastBlueGain_ = asyncResults_.blueGain;
++		haveLast_ = true;
+ 		LOG(IPU3Awb, Debug) << "Gain found for red: " << asyncResults_.redGain
+ 				    << " and for blue: " << asyncResults_.blueGain;
+ 	}
+diff --git a/src/ipa/ipu3/algorithms/awb.h b/src/ipa/ipu3/algorithms/awb.h
+index 54c32fa..0756f23 100644
+--- a/src/ipa/ipu3/algorithms/awb.h
++++ b/src/ipa/ipu3/algorithms/awb.h
+@@ -86,6 +86,12 @@ private:
+ 	double locusMagenta_ = 0.02;
+ 	double locusExtend_ = 0.15;
+ 
++	/* Gains of the last frame of the previous session (they start the next one), and how many estimates this session made. */
++	bool haveLast_ = false;
++	double lastRedGain_ = 1.0;
++	double lastBlueGain_ = 1.0;
++	uint32_t estimates_ = 0;
++
+ 	uint32_t stride_;
+ 	uint32_t cellsPerZoneX_;
+ 	uint32_t cellsPerZoneY_;

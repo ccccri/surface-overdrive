@@ -1,37 +1,41 @@
 --- a/src/libcamera/sensor/camera_sensor_properties.cpp
 +++ b/src/libcamera/sensor/camera_sensor_properties.cpp
-@@ -415,7 +415,17 @@
+@@ -415,7 +415,19 @@
  				 * Rolling Bar".
  				 */
  			},
 -			.sensorDelays = { },
 +			.sensorDelays = {
 +				/*
-+				 * Measured on a Surface Go (IPU3): with the libcamera defaults for
-+				 * unknown sensors (exposure 2, gain 1) the AE oscillates, with 2 and 2
-+				 * it is stable.
++				 * Measured on a Surface Go (IPU3), logging the controls pushed and the
++				 * brightness of every frame: a new exposure or gain shows in the frame
++				 * after the one it was written in, both on this sensor and the other.
++				 * With a longer delay the AE takes one frame at every change for one
++				 * made with the old values and bounces (the flash seen on start-up).
 +				 */
-+				.exposureDelay = 2,
-+				.gainDelay = 2,
++				.exposureDelay = 1,
++				.gainDelay = 1,
 +				.vblankDelay = 2,
 +				.hblankDelay = 2
 +			},
  		} },
  		{ "ov64a40", {
  			.unitCellSize = { 1008, 1008 },
-@@ -473,7 +483,17 @@
+@@ -473,7 +485,19 @@
  				 * 5: "Color squares with rolling bar"
  				 */
  			},
 -			.sensorDelays = { },
 +			.sensorDelays = {
 +				/*
-+				 * Measured on a Surface Go (IPU3): with the libcamera defaults for
-+				 * unknown sensors (exposure 2, gain 1) the AE oscillates, with 2 and 2
-+				 * it is stable.
++				 * Measured on a Surface Go (IPU3), logging the controls pushed and the
++				 * brightness of every frame: a new exposure or gain shows in the frame
++				 * after the one it was written in, both on this sensor and the other.
++				 * With a longer delay the AE takes one frame at every change for one
++				 * made with the old values and bounces (the flash seen on start-up).
 +				 */
-+				.exposureDelay = 2,
-+				.gainDelay = 2,
++				.exposureDelay = 1,
++				.gainDelay = 1,
 +				.vblankDelay = 2,
 +				.hblankDelay = 2
 +			},

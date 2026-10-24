@@ -1,0 +1,199 @@
+diff --git a/include/libcamera/internal/camera_memory.h b/include/libcamera/internal/camera_memory.h
+new file mode 100644
+index 0000000..a16dab1
+--- /dev/null
++++ b/include/libcamera/internal/camera_memory.h
+@@ -0,0 +1,81 @@
++/* SPDX-License-Identifier: LGPL-2.1-or-later */
++/*
++ * What a camera settled on, kept across restarts of the system (Surface Overdrive)
++ *
++ * Header-only. The exposure and the white balance a session ends with are the best guess for the next one: the light
++ * where the tablet is used rarely changes between two uses. Within a process the algorithms remember them on their own;
++ * this keeps them across a reboot too, so that the first picture after one starts right instead of green and dark.
++ *
++ * <dir>/<sensor model>.<name>, one line of numbers. <dir> is $XDG_STATE_HOME/surface-overdrive/camera, else
++ * $HOME/.local/state/surface-overdrive/camera. Written to a temporary file and renamed, so a reader never sees half a file.
++ */
++
++#pragma once
++
++#include <cmath>
++#include <cstdlib>
++#include <fstream>
++#include <string>
++#include <vector>
++
++#include <stdio.h>
++#include <sys/stat.h>
++#include <unistd.h>
++
++namespace libcamera {
++
++namespace CameraMemory {
++
++inline std::string dir()
++{
++	const char *x = getenv("XDG_STATE_HOME");
++	const char *h = getenv("HOME");
++	if (x && *x)
++		return std::string(x) + "/surface-overdrive/camera";
++	if (h && *h)
++		return std::string(h) + "/.local/state/surface-overdrive/camera";
++	return {};
++}
++
++/* The numbers stored under name, empty when there are none (or they are not finite). */
++inline std::vector<double> load(const std::string &model, const std::string &name)
++{
++	const std::string d = dir();
++	std::vector<double> values;
++	if (d.empty())
++		return values;
++	std::ifstream f(d + "/" + model + "." + name);
++	double v;
++	while (f >> v) {
++		if (!std::isfinite(v))
++			return {};
++		values.push_back(v);
++	}
++	return values;
++}
++
++inline void save(const std::string &model, const std::string &name, const std::vector<double> &values)
++{
++	const std::string d = dir();
++	if (d.empty())
++		return;
++	/* Make the directory and its parents (mode 0700, as the state of one user). */
++	for (size_t i = 1; i <= d.size(); i++)
++		if (i == d.size() || d[i] == '/')
++			mkdir(d.substr(0, i).c_str(), 0700);
++	const std::string path = d + "/" + model + "." + name;
++	const std::string tmp = path + ".tmp" + std::to_string(getpid());
++	{
++		std::ofstream f(tmp);
++		for (size_t i = 0; i < values.size(); i++)
++			f << (i ? " " : "") << values[i];
++		f << "\n";
++		if (!f)
++			return;
++	}
++	rename(tmp.c_str(), path.c_str());
++}
++
++} /* namespace CameraMemory */
++
++} /* namespace libcamera */
+diff --git a/src/ipa/ipu3/algorithms/agc.cpp b/src/ipa/ipu3/algorithms/agc.cpp
+index 820c37c..6cb0559 100644
+--- a/src/ipa/ipu3/algorithms/agc.cpp
++++ b/src/ipa/ipu3/algorithms/agc.cpp
+@@ -7,6 +7,8 @@
+ 
+ #include "agc.h"
+ 
++#include "libcamera/internal/camera_memory.h"
++
+ #include <algorithm>
+ #include <chrono>
+ #include <cmath>
+@@ -137,6 +139,17 @@ int Agc::configure(IPAContext &context,
+ 	stableFrames_ = 0;
+ 
+ 	/* Start from what the previous session settled on, within the limits of this sensor mode. */
++	/* The first session after a reboot starts from where the last one before it settled. */
++	model_ = configInfo.sensorInfo.model;
++	if (!haveSettled_) {
++		const std::vector<double> last = CameraMemory::load(model_, "exposure");
++		if (last.size() == 2 && last[0] > 0 && last[1] > 0) {
++			haveSettled_ = true;
++			settledExposureTime_ = last[0] * 1us;
++			settledAnalogueGain_ = last[1];
++		}
++	}
++
+ 	if (haveSettled_) {
+ 		activeState.agc.gain = std::clamp(settledAnalogueGain_, minAnalogueGain_, maxAnalogueGain_);
+ 		activeState.agc.exposure = std::clamp(settledExposureTime_, minExposureTime_, maxExposureTime_)
+@@ -325,6 +338,8 @@ void Agc::process(IPAContext &context, const uint32_t frame,
+ 		haveSettled_ = true;
+ 		settledExposureTime_ = newExposureTime;
+ 		settledAnalogueGain_ = aGain;
++		if (stableFrames_ == kSettledFrames)
++			CameraMemory::save(model_, "exposure", { newExposureTime.get<std::micro>(), aGain });
+ 	}
+ 
+ 	metadata.set(controls::AnalogueGain, frameContext.sensor.gain);
+diff --git a/src/ipa/ipu3/algorithms/agc.h b/src/ipa/ipu3/algorithms/agc.h
+index b8254be..6438585 100644
+--- a/src/ipa/ipu3/algorithms/agc.h
++++ b/src/ipa/ipu3/algorithms/agc.h
+@@ -65,6 +65,7 @@ private:
+ 	 * fixed default, so that stopping and restarting the camera (switching cameras, mirroring) does not flash.
+ 	 */
+ 	bool haveSettled_ = false;
++	std::string model_;
+ 
+ 	/* Per streaming session: whether a valid (not blank) frame was seen, and for how many frames the exposure has been stable. */
+ 	bool haveValidFrame_ = false;
+diff --git a/src/ipa/ipu3/algorithms/awb.cpp b/src/ipa/ipu3/algorithms/awb.cpp
+index c4a112e..a2a4682 100644
+--- a/src/ipa/ipu3/algorithms/awb.cpp
++++ b/src/ipa/ipu3/algorithms/awb.cpp
+@@ -6,6 +6,8 @@
+  */
+ #include "awb.h"
+ 
++#include "libcamera/internal/camera_memory.h"
++
+ #include <algorithm>
+ #include <cmath>
+ #include <limits>
+@@ -253,7 +255,7 @@ int Awb::init([[maybe_unused]] IPAContext &context, const ValueNode &tuningData)
+  * \copydoc libcamera::ipa::Algorithm::configure
+  */
+ int Awb::configure(IPAContext &context,
+-		   [[maybe_unused]] const IPAConfigInfo &configInfo)
++		   const IPAConfigInfo &configInfo)
+ {
+ 	const ipu3_uapi_grid_config &grid = context.configuration.grid.bdsGrid;
+ 	stride_ = context.configuration.grid.stride;
+@@ -274,6 +276,15 @@ int Awb::configure(IPAContext &context,
+ 	 * bright enough to measure (a second or more while the exposure settles). Start instead from where the previous
+ 	 * session ended, or the first time from the middle of the locus (an ordinary indoor light).
+ 	 */
++	model_ = configInfo.sensorInfo.model;
++	if (!haveLast_) {
++		const std::vector<double> last = CameraMemory::load(model_, "white-balance");
++		if (last.size() == 2 && last[0] > 0.1 && last[0] < 8 && last[1] > 0.1 && last[1] < 8) {
++			haveLast_ = true;
++			lastRedGain_ = last[0];
++			lastBlueGain_ = last[1];
++		}
++	}
+ 	if (!haveLast_ && !locus_.empty()) {
+ 		const auto &mid = locus_[locus_.size() / 2];
+ 		lastRedGain_ = std::exp(-mid.first);
+@@ -586,6 +597,9 @@ void Awb::calculateWBGains(const ipu3_uapi_stats_3a *stats)
+ 		lastRedGain_ = asyncResults_.redGain;
+ 		lastBlueGain_ = asyncResults_.blueGain;
+ 		haveLast_ = true;
++		/* Kept for after a reboot: once the session has settled (about a second), then every ten seconds. */
++		if (estimates_ % 300 == 30)
++			CameraMemory::save(model_, "white-balance", { lastRedGain_, lastBlueGain_ });
+ 		LOG(IPU3Awb, Debug) << "Gain found for red: " << asyncResults_.redGain
+ 				    << " and for blue: " << asyncResults_.blueGain;
+ 	}
+diff --git a/src/ipa/ipu3/algorithms/awb.h b/src/ipa/ipu3/algorithms/awb.h
+index 0756f23..afb07e4 100644
+--- a/src/ipa/ipu3/algorithms/awb.h
++++ b/src/ipa/ipu3/algorithms/awb.h
+@@ -91,6 +91,7 @@ private:
+ 	double lastRedGain_ = 1.0;
+ 	double lastBlueGain_ = 1.0;
+ 	uint32_t estimates_ = 0;
++	std::string model_;
+ 
+ 	uint32_t stride_;
+ 	uint32_t cellsPerZoneX_;

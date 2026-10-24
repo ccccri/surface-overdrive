@@ -50,16 +50,15 @@ jobs:
         id: detect
         run: |
           eval "$(ci/detect.sh '${{ matrix.release }}')"
-          digest=$(skopeo inspect --override-os linux "docker://$BASE" | python3 -c 'import json,sys; print(json.load(sys.stdin)["Digest"])')
           echo "BASE=$BASE" >> "$GITHUB_OUTPUT"
           echo "KVER=$KVER" >> "$GITHUB_OUTPUT"
-          echo "digest=$digest" >> "$GITHUB_OUTPUT"
-          echo "Base $BASE ($digest), kernel $KVER"
+          echo "digest=$DIGEST" >> "$GITHUB_OUTPUT"
+          echo "Base $BASE ($DIGEST), kernel $KVER"
 
       - name: Is there anything new to build?
         id: changed
         run: |
-          current=$(skopeo inspect --override-os linux "docker://$IMAGE:${{ matrix.release }}" 2>/dev/null \
+          current=$(skopeo inspect --no-tags --retry-times 3 --override-os linux "docker://$IMAGE:${{ matrix.release }}" 2>/dev/null \
             | python3 -c 'import json,sys; l=json.load(sys.stdin)["Labels"]; print(l.get("org.surfaceoverdrive.base-digest",""), l.get("org.surfaceoverdrive.source-sha",""))' || true)
           wanted="${{ steps.detect.outputs.digest }} ${{ github.sha }}"
           if [ "$current" = "$wanted" ] && [ "${{ inputs.force }}" != "true" ]; then
