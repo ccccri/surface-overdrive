@@ -4,6 +4,15 @@ What was added, what broke, and what fixed it. Newest first. "Verified" means tr
 
 ## 2026-10-25
 
+**Verified**
+- Rear camera stress test (`tools/dev/rear_stress.sh`, every frame checked for black, flat or frozen): 40 start/stop at every
+  size, 15 size changes through the camera service, two applications at once, rear and front in turn, 10 minutes at
+  30.0 fps with steady PipeWire memory, no crash and no kernel error. Suspend and resume with the camera streaming (in
+  Kamoso and in the Cameras page): the stream goes on after the resume and the cameras open again. Both cameras at once is
+  not possible (libcamera's IPU3 pipeline: the second gets no frames, the first goes on). `gst-launch pipewiresrc` run
+  from ssh sometimes did not find the camera ("target not found"): without a media type the stream was not matched with
+  video nodes; the test script states it.
+
 **Fixed**
 - Changing a camera's picture size in the Cameras page no longer takes the sound away (Plasma showed "Built-in Audio
   Analog Stereo") nor leaves the preview glitching: the cameras have a WirePlumber instance of their own

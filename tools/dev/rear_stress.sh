@@ -17,7 +17,7 @@ log() { echo "$(date +%T) $*" | tee -a "$out/log"; }
 # <node> <WxH> <frames> <file>: frames scaled to 160x120 grey, one after the other in <file>; 0 when gst ended well
 grab() {
     local w=${2%x*} h=${2#*x}
-    timeout $(( 60 + $3 / 5 )) gst-launch-1.0 -q pipewiresrc target-object="$1" num-buffers="$3" ! "video/x-raw,width=$w,height=$h" \
+    timeout $(( 60 + $3 / 5 )) gst-launch-1.0 -q pipewiresrc target-object="$1" stream-properties="props,media.type=Video,media.category=Capture,media.role=Camera" num-buffers="$3" ! "video/x-raw,width=$w,height=$h" \
         ! videoconvert ! videoscale ! "video/x-raw,format=GRAY8,width=160,height=120" ! filesink location="$4" >/dev/null 2>&1
 }
 # <file> <frames wanted>: "ok" or what is wrong (count, black, flat, frozen)
