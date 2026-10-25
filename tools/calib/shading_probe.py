@@ -58,7 +58,7 @@ def main():
                 print("%dx%d optical %2d target %-4s: centre %3.0f  colour %4.1f%% brightness %4.1f%%   %s" % (
                     size + (optical, target if target is not None else "-", img[h // 2 - 50:h // 2 + 50, w // 2 - 50:w // 2 + 50, 1].mean(),
                             100 * colour, 100 * bright, detail)), file=sys.stderr)
-    sh(a.host, "systemctl --user start wireplumber")
+    sh(a.host, "systemctl --user start wireplumber wireplumber@video-capture")
 
 
 if __name__ == "__main__":

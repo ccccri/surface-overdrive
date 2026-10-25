@@ -16,11 +16,11 @@ algorithms:
 YAML
     export LIBCAMERA_IPU3_TUNING_FILE=$out/tuning.yaml
 fi
-systemctl --user stop wireplumber 2>/dev/null || true
+systemctl --user stop wireplumber@video-capture wireplumber 2>/dev/null || true
 rm -f $out/tmp-*
 timeout 60 cam -c "$cam_index" -s role=viewfinder -s role=raw -C40 --file="$out/tmp-#.bin" >/dev/null 2>&1
 mv "$(ls $out/tmp-*stream1-* | tail -1)" "$out/$name.raw"
 mv "$(ls $out/tmp-*stream0-* | sort | tail -1)" "$out/$name.nv12"
 rm -f $out/tmp-* $out/tuning.yaml
-systemctl --user start wireplumber 2>/dev/null || true
+systemctl --user start wireplumber wireplumber@video-capture 2>/dev/null || true
 ls -la "$out/$name".*

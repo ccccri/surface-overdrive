@@ -39,7 +39,8 @@ RUN --mount=type=secret,id=modkey --mount=type=secret,id=modcert \
 # The version installed in the base image decides which SRPM is rebuilt (same version = same ABI as the PipeWire plugin).
 FROM ${BASE} AS probe
 RUN rpm -q --qf '%{VERSION}-%{RELEASE}' libcamera > /libcamera-nvr && rpm -qa --qf '%{NAME}\n' | grep '^libcamera' | sort > /libcamera-packages \
-    && rpm -q --qf '%{VERSION}-%{RELEASE}' plasma-login-manager > /login-nvr
+    && rpm -q --qf '%{VERSION}-%{RELEASE}' plasma-login-manager > /login-nvr \
+    && rpm -q --qf '%{VERSION}-%{RELEASE}' pipewire > /pipewire-nvr
 
 FROM registry.fedoraproject.org/fedora:${FEDORA} AS libcamera
 COPY --from=probe /libcamera-nvr /libcamera-packages /
@@ -47,6 +48,15 @@ RUN dnf -y install --setopt=install_weak_deps=False rpm-build dnf-plugins-core p
 COPY ci/build_libcamera.sh /src/ci/build_libcamera.sh
 COPY patches/libcamera /src/patches/libcamera
 RUN /src/ci/build_libcamera.sh "$(cat /libcamera-nvr)" /src/patches/libcamera /out/rpms
+
+# ---- PipeWire's libcamera plugin rebuilt against our libcamera with our patches (ci/build_spa_libcamera.sh): it now offers a frame
+# rate, without which GStreamer applications recorded a frame every 2^31 seconds
+FROM registry.fedoraproject.org/fedora:${FEDORA} AS spalibcamera
+COPY --from=probe /pipewire-nvr /
+COPY --from=libcamera /out/rpms /rpms
+COPY ci/build_spa_libcamera.sh /src/ci/build_spa_libcamera.sh
+COPY patches/pipewire /src/patches/pipewire
+RUN /src/ci/build_spa_libcamera.sh "$(cat /pipewire-nvr)" /src/patches/pipewire /rpms /out
 
 # ---- The login screen rebuilt with the PIN and pattern pad (ci/build_login.sh); nothing comes out when the patch does not fit
 FROM registry.fedoraproject.org/fedora:${FEDORA} AS login
@@ -128,6 +138,7 @@ RUN set -eux; \
     dnf5 -y install --allowerasing $files; \
     rpm -q libcamera libcamera-ipa | grep -q overdrive; \
     rm -rf /tmp/libcamera-rpms /tmp/libcamera-packages; dnf5 clean all
+COPY --from=spalibcamera /out/usr/lib64/spa-0.2/libcamera/libspa-libcamera.so /usr/lib64/spa-0.2/libcamera/libspa-libcamera.so
 COPY ci/patch_acp_mic.py /tmp/patch_acp_mic.py
 RUN python3 /tmp/patch_acp_mic.py && rm /tmp/patch_acp_mic.py
 # The login screen with the PIN and pattern pad, when ci/build_login.sh could make it

@@ -4,6 +4,17 @@ What was added, what broke, and what fixed it. Newest first. "Verified" means tr
 
 ## 2026-10-25
 
+**Fixed**
+- Changing a camera's picture size in the Cameras page no longer takes the sound away (Plasma showed "Built-in Audio
+  Analog Stereo") nor leaves the preview glitching: the cameras have a WirePlumber instance of their own
+  (`wireplumber@video-capture`, the main one runs with `hardware.video-capture` disabled), the page restarts only that
+  one and waits until the cameras are back (1.5 s) before starting the preview again. Verified on the tablet with a
+  virtual touchscreen: ten size changes in a row on both cameras, every one clean, the sound nodes untouched.
+- Videos recorded with Kamoso: 6 frames in 18 seconds, with a frame every 2^31 seconds. PipeWire's libcamera plugin
+  offered no frame rate at all, and GStreamer then fixed the smallest one it could. The plugin is now rebuilt with a
+  frame rate range up to the camera's (patch `patches/pipewire/0001`, built by `ci/build_spa_libcamera.sh`). Recording
+  stays slow on this processor (Theora in software: about 10 frames a second at 1152x864, 2-3 at 2048x1536).
+
 **Changed**
 - Both cameras retuned for their look, against phone pictures of the same room, in every stream size (verified by the
   owner in Kamoso: "the colours are exactly as I wanted"). The colour matrices measured on a laptop screen are gone: they

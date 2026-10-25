@@ -65,7 +65,7 @@ def with_lsc(tuning, block):
 def processed(host, camera, text, size=PREVIEW):
     """Last viewfinder frame of a short run with the given tuning and stream size, as float RGB."""
     subprocess.run(["ssh", host, "cat > %s/try.yaml" % REMOTE], input=text.encode(), check=True)
-    sh(host, "cd %s && systemctl --user stop wireplumber; rm -f pv-*; LIBCAMERA_IPU3_TUNING_FILE=%s/try.yaml timeout 60 "
+    sh(host, "cd %s && systemctl --user stop wireplumber@video-capture wireplumber; rm -f pv-*; LIBCAMERA_IPU3_TUNING_FILE=%s/try.yaml timeout 60 "
              "cam -c %s -s role=viewfinder,width=%d,height=%d -C30 --file=pv-#.nv12 >/dev/null 2>&1; "
              "mv $(ls pv-* | tail -1) pv.nv12; rm -f pv-0*" % (REMOTE, REMOTE, camera, size[0], size[1]))
     nv12 = subprocess.run(["ssh", host, "cat %s/pv.nv12" % REMOTE], check=True, capture_output=True).stdout
@@ -153,7 +153,7 @@ def main():
         gains[b_plane] *= bg ** -COLOUR_EXP
         low = min(g.min() for g in gains)                 # keep every gain at 1.0 or above, the block cannot attenuate
         gains = [np.clip(g / low, 1.0, MAX_GAIN) for g in gains]
-    sh(a.host, "systemctl --user start wireplumber")
+    sh(a.host, "systemctl --user start wireplumber wireplumber@video-capture")
     (out / "tuning.yaml").write_text(best[2])
     print("written %s (round %d)" % (out / "tuning.yaml", best[1]), file=sys.stderr)
 

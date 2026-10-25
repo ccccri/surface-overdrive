@@ -9,6 +9,7 @@ import json
 import os
 import re
 import subprocess
+import time
 
 from . import userconfig
 
@@ -181,8 +182,36 @@ def settings(cam):
     return out
 
 
-def restart_camera_service():
-    subprocess.run(["systemctl", "--user", "restart", "wireplumber"], timeout=30, check=False)
+# The WirePlumber instance that makes the camera nodes (the image runs a separate one for the cameras, see
+# /usr/share/wireplumber/wireplumber.conf.d/90-surface-overdrive-cameras.conf), or the main one where there is no such split.
+CAMERA_SERVICE = "wireplumber@video-capture.service"
+
+
+def camera_service():
+    run = subprocess.run(["systemctl", "--user", "is-enabled", CAMERA_SERVICE], capture_output=True, text=True, timeout=10, check=False)
+    return CAMERA_SERVICE if run.stdout.strip() in ("enabled", "static", "linked", "alias", "indirect", "generated") else "wireplumber.service"
+
+
+def camera_nodes():
+    """Names of the camera nodes PipeWire has now."""
+    try:
+        out = subprocess.run(["pw-dump"], capture_output=True, text=True, timeout=10, check=False).stdout
+        return {o["info"]["props"].get("node.name", "") for o in json.loads(out or "[]")
+                if o.get("type", "").endswith("Node") and "libcamera" in str(o.get("info", {}).get("props", {}).get("node.name", ""))}
+    except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError):
+        return set()
+
+
+def restart_camera_service(wait=6.0):
+    """Restart what makes the camera nodes (the picture sizes are read then) and wait until the cameras are back, so that a
+    preview started right after finds them."""
+    before = camera_nodes()
+    subprocess.run(["systemctl", "--user", "restart", camera_service()], timeout=30, check=False)
+    end = time.time() + wait
+    while time.time() < end:
+        time.sleep(0.2)
+        if before and before <= camera_nodes():
+            break
 
 
 def set_setting(cam, key, value):

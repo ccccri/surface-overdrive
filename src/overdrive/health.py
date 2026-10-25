@@ -77,9 +77,9 @@ INFO = {
         "A stock libcamera means the patch series did not apply to the version in this image and CI shipped the stock one: the cameras work, without the fixes."),
     "cameras": (
         "The rear and front cameras show up as PipeWire sources, which is how applications get them.",
-        "WirePlumber runs libcamera and publishes one node per camera (LNK0 is the rear one, LNK1 the front one). Camera access exists only for "
+        "A WirePlumber instance of its own (wireplumber@video-capture) runs libcamera and publishes one node per camera (LNK0 is the rear one, LNK1 the front one). Camera access exists only for "
         "the user with an active desktop session.",
-        "Log in on the desktop first. If a camera is still missing, restart the camera service: systemctl --user restart wireplumber."),
+        "Log in on the desktop first. If a camera is still missing, restart the camera service: systemctl --user restart wireplumber@video-capture."),
     "tuning": (
         "Exposure and black-level tuning of both sensors.",
         "/usr/share/libcamera/ipa/ipu3/<sensor>.yaml, found by libcamera before its generic file.",

@@ -74,7 +74,7 @@ Kirigami.Page {
     // ---- preview ----
     function startPreview() { if (d.node) preview.start(d.node) }
     Timer { id: autoStart; interval: 500; onTriggered: root.startPreview() }
-    Timer { id: restartPreview; interval: 2500; onTriggered: root.startPreview() }   // the camera service needs a moment to come back
+    Timer { id: restartPreview; interval: 300; onTriggered: root.startPreview() }   // overdrivectl returns once the cameras are back
     onCamChanged: { preview.stop(); peak = 1; load(); autoStart.restart() }
     Component.onCompleted: { load(); autoStart.start(); if (kcm.startTab === "bottom") toBottom.start() }
     Timer { id: toBottom; interval: 3000; onTriggered: scroll.contentItem.contentY = Math.max(0, scroll.contentItem.contentHeight - scroll.height) }   // "--args bottom": to check the end of the list from a script

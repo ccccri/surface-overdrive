@@ -42,5 +42,5 @@ scp -q "${opts[@]}" tools/dev/uinput_type.py "$host:/tmp/"
 remote "printf '%s\n%s\n' '$SURFACE_PW' '$SURFACE_PW' | sudo -S -p '' python3 /tmp/uinput_type.py --enter --delay 2"
 sleep 25
 remote 'loginctl list-sessions --no-legend | grep seat0'
-remote 'export XDG_RUNTIME_DIR=/run/user/$(id -u); systemctl --user restart wireplumber'
+remote 'export XDG_RUNTIME_DIR=/run/user/$(id -u); systemctl --user restart wireplumber wireplumber@video-capture'
 echo "== done"

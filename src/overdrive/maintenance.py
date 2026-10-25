@@ -193,7 +193,7 @@ def undo_import():
 # the service a check depends on. A fix that needs more than that keeps its explanation only.
 REPAIRS = {
     "audio": ("restarts the service that loads the boost and equalizer", ["systemctl", "--user", "restart", "overdrive-audio-route.service"], False),
-    "cameras": ("restarts the camera service of the desktop", ["systemctl", "--user", "restart", "wireplumber.service"], False),
+    "cameras": ("restarts the camera service of the desktop", ["systemctl", "--user", "restart", "wireplumber@video-capture.service"], False),
     "nfc": ("restarts the NFC reader service", ["systemctl", "restart", "overdrive-nfcd.service"], True),
 }
 
@@ -331,7 +331,7 @@ def report_text():
         ("Log of our user services, this start", ["journalctl", "--user", "-b", "--no-pager", "-o", "short", "-n", "150", "-u", "overdrive-audio-route",
                                                   "-u", "overdrive-nfc-notify", "-u", "overdrive-osk-guard", "-u", "overdrive-health-watch"]),
         ("Sound and camera services, warnings of this start", ["journalctl", "--user", "-b", "--no-pager", "-o", "short", "-p", "warning", "-n", "120",
-                                                              "-u", "pipewire", "-u", "wireplumber"]),
+                                                              "-u", "pipewire", "-u", "wireplumber", "-u", "wireplumber@video-capture"]),
         ("System Settings and the desktop, errors of this start", ["journalctl", "--user", "-b", "--no-pager", "-o", "short", "-p", "err", "-n", "80"]),
         ("Kernel messages of our modules", ["sh", "-c", "journalctl -k -b --no-pager -o short 2>/dev/null | grep -i -E 'ov8865|ov5693|nxp|nci|intel_hid|intel-hid|ipu3|dw9719|module verification' | tail -80"]),
         ("Crashes of the last week", ["coredumpctl", "list", "--no-pager", "--since", "-7days"]),
