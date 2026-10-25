@@ -14,6 +14,10 @@ What was added, what broke, and what fixed it. Newest first. "Verified" means tr
   are: CHNR (wider filters wash out pale colours), the Bayer denoiser (does not act at daylight gains, breaks the picture
   pushed further), a stronger software temporal filter (-10-25% luma grain at full resolution but smears motion). The
   luma grain left is the sensor's.
+- Front camera: stronger temporal denoise by default (24/18 instead of 48/12, patch `0027`; the rear camera keeps
+  48/12). Tried in Kamoso from the tablet with a virtual touchscreen, late afternoon light (20-30 ms, gain 1.1-1.3): the
+  grain of flat areas in the preview drops by about a third, pictures show 5-10% less grain with the same detail. The
+  "Grain removal" control of the Cameras page shows each camera's own default.
 
 **Fixed**
 - Kamoso listed every camera twice when the cameras' WirePlumber instance ran without the configuration that takes the

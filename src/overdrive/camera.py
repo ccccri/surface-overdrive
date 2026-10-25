@@ -29,9 +29,11 @@ SIZES = {
              (3200, "3200x2400", "7.7 MP, 11 fps, maximum")],
 }
 # Temporal denoise levels: (minimum weight in 1/256, threshold). Lower weight = stronger. Level 0 is off.
-TNR_LEVELS = [(0, 0), (160, 12), (96, 12), (48, 12), (24, 14), (12, 16)]
+TNR_LEVELS = [(0, 0), (160, 12), (96, 12), (48, 12), (24, 18), (12, 20)]
 TNR_NAMES = ["off", "low", "medium", "high", "stronger", "maximum"]
-TNR_DEFAULT = 3
+# The level libcamera uses when the profile has no "tnr" (patch 0027): the front sensor is noisier and gets "stronger".
+TNR_DEFAULTS = {"rear": 3, "front": 4}
+TNR_DEFAULT = TNR_DEFAULTS["rear"]
 SIMPLE_KEYS = ("exposure", "gamma", "contrast", "shadows", "highlights", "saturation", "temperature", "tint", "hue", "hue_spin",
                "sharpness")
 MAX_FOCUS = 1023
@@ -92,9 +94,9 @@ def tuning_black(cam):
     return [64, 64, 64, 64]
 
 
-def tnr_level(tnr):
+def tnr_level(tnr, cam="rear"):
     if len(tnr) != 2:
-        return TNR_DEFAULT
+        return TNR_DEFAULTS.get(cam, TNR_DEFAULT)
     return min(range(len(TNR_LEVELS)), key=lambda i: abs(TNR_LEVELS[i][0] - tnr[0]) + abs(TNR_LEVELS[i][1] - tnr[1]))
 
 
@@ -131,7 +133,7 @@ def controls(cam):
         {"group": "Detail", "items": [
             {"key": "sharpness", "label": "Sharpness", "min": 0, "max": 3, "step": 0.1, "default": 0, "unit": "",
              "desc": "Makes edges crisper. Small differences are ignored so the noise is not sharpened. Uses some CPU at large sizes."},
-            {"key": "temporal", "label": "Grain removal", "min": 0, "max": 5, "step": 1, "default": TNR_DEFAULT,
+            {"key": "temporal", "label": "Grain removal", "min": 0, "max": 5, "step": 1, "default": TNR_DEFAULTS.get(cam, TNR_DEFAULT),
              "unit": "level", "names": TNR_NAMES,
              "desc": "Averages with the previous frame: removes the crawling grain on flat areas. Strong levels leave faint trails behind fast movement."},
         ]},
@@ -172,7 +174,7 @@ def settings(cam):
     if len(p.get("black", [])) == 4:
         out["blackShift"] = round(p["black"][0] - tuning_black(cam)[0])
     if "tnr" in p:
-        out["temporal"] = tnr_level(p["tnr"])
+        out["temporal"] = tnr_level(p["tnr"], cam)
     out["minWidth"] = int(p.get("min_width", [0])[0])
     out["mirror"] = bool(p.get("mirror", [0])[0])
     out["flip"] = bool(p.get("flip", [0])[0])
@@ -230,7 +232,7 @@ def set_setting(cam, key, value):
         else:
             p["black"] = [max(0, b + int(value)) for b in base]
     elif key == "temporal":
-        if int(value) == TNR_DEFAULT:
+        if int(value) == TNR_DEFAULTS.get(cam, TNR_DEFAULT):
             p.pop("tnr", None)
         else:
             p["tnr"] = list(TNR_LEVELS[max(0, min(len(TNR_LEVELS) - 1, int(value)))])

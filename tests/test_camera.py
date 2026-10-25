@@ -32,6 +32,12 @@ class CameraTest(unittest.TestCase):
         self.assertEqual(camera.read_profile("rear")["black"], [4, 8, 4, 4])
         self.assertEqual(camera.settings("rear")["blackShift"], 3)
 
+    def test_temporal_default_is_per_camera(self):
+        self.assertEqual(camera.settings("front")["temporal"], camera.TNR_DEFAULTS["front"])
+        self.assertEqual(camera.settings("rear")["temporal"], camera.TNR_DEFAULTS["rear"])
+        camera.set_setting("front", "temporal", camera.TNR_DEFAULTS["front"])
+        self.assertNotIn("tnr", camera.read_profile("front"))
+
     def test_temporal_levels_round_trip(self):
         for level in range(6):
             camera.set_setting("rear", "temporal", level)
