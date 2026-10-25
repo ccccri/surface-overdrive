@@ -34,3 +34,4 @@ What the previous project (`surface-go-kinoite`) did, and where each piece stand
 | 28 | Opinionated KDE settings of the owner, shipped as defaults of the image | not yet (list to come) |
 | 29 | Front camera colours and noise | **colours done** (2026-10-25); the noise in dark areas is still high |
 | 30 | Touch in the GRUB menu (the firmware passes touch to boot programs: rEFInd could use it; the volume keys do not reach GRUB) | idea for later: a GRUB build signed with our key, risky for little use |
+| 31 | Video recording with the GPU's encoder (VA-API H.264 on the HD 615): Kamoso encodes Theora in software, about 10 fps at 1152x864 and 2-3 at 2048x1536 on this processor; an app (or a Kamoso setting) that records through VA-API would be smooth | idea for later |

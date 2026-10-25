@@ -12,7 +12,7 @@ What was added, what broke, and what fixed it. Newest first. "Verified" means tr
   virtual touchscreen: ten size changes in a row on both cameras, every one clean, the sound nodes untouched.
 - Videos recorded with Kamoso: 6 frames in 18 seconds, with a frame every 2^31 seconds. PipeWire's libcamera plugin
   offered no frame rate at all, and GStreamer then fixed the smallest one it could. The plugin is now rebuilt with a
-  frame rate range up to the camera's (patch `patches/pipewire/0001`, built by `ci/build_spa_libcamera.sh`). Recording
+  frame rate (patch `patches/pipewire/0001`; a fixed rate, since GStreamer left a range unfixed at 3200x2400 and the stream failed, built by `ci/build_spa_libcamera.sh`). Recording
   stays slow on this processor (Theora in software: about 10 frames a second at 1152x864, 2-3 at 2048x1536).
 
 **Changed**
