@@ -1,20 +1,221 @@
 diff --git a/src/libcamera/pipeline/ipu3/ipu3.cpp b/src/libcamera/pipeline/ipu3/ipu3.cpp
-index fc7db9b..4a70084 100644
+index fc7db9b..de5e6cb 100644
 --- a/src/libcamera/pipeline/ipu3/ipu3.cpp
 +++ b/src/libcamera/pipeline/ipu3/ipu3.cpp
-@@ -95,6 +95,10 @@ public:
+@@ -6,6 +6,9 @@
+  */
+ 
+ #include <algorithm>
++#if defined(__x86_64__) || defined(__i386__)
++#include <immintrin.h>
++#endif
+ #include <chrono>
+ #include <cmath>
+ #include <array>
+@@ -95,6 +98,12 @@ public:
  
  	/* Previous filtered frame of each output stream, for the software temporal denoiser. */
  	std::map<const Stream *, std::vector<uint8_t>> tnrPrev_;
-+	/* The frame as it came out of the ImgU, read by the spatial filter of moving areas. */
-+	std::map<const Stream *, std::vector<uint8_t>> tnrOrig_;
-+	/* Mean difference of every 4x4 block with the previous output (scratch of the temporal denoiser). */
++	/* Scratch of the temporal denoiser: block sums and weights, block rows with motion, original rows at band edges. */
 +	std::map<const Stream *, std::vector<int>> tnrBlocks_;
++	std::map<const Stream *, std::vector<int>> tnrWeights_;
++	std::map<const Stream *, std::vector<int>> tnrSorted_;
++	std::map<const Stream *, std::vector<uint8_t>> tnrOrig_;
++	std::map<const Stream *, std::vector<uint8_t>> tnrWork_;
  
  	/* Raw frames still to drop after the stream started: see cio2BufferReady(). */
  	unsigned int startupFramesToDrop_ = 0;
-@@ -1413,11 +1417,13 @@ void IPU3CameraData::metadataReady(unsigned int id, const ControlList &metadata)
+@@ -1411,13 +1420,202 @@ void IPU3CameraData::metadataReady(unsigned int id, const ControlList &metadata)
+  *
+  * Buffers completed from the ImgU output are directed to the application.
   */
++namespace {
++
++/*
++ * Kernels of the temporal denoiser, 16 pixels at a time with SSSE3 (every Surface Go has it), plain loops otherwise.
++ * Weights are in 1/128: 0 is still, 128 is moving. Every kernel writes both the output row and the previous-output row.
++ *
++ *   still  = |cur - prev| >= pass ? cur : prev + minWeight * (cur - prev)	(the temporal average)
++ *   moving = cur + clamp(mean of the 3x3 neighbourhood - cur, -k, k)		(the grain goes, edges stay)
++ *   out    = still + w * (moving - still)
++ */
++
++#if defined(__x86_64__) || defined(__i386__)
++#define TNR_SSSE3 1
++#define TNR_TARGET __attribute__((target("ssse3")))
++
++TNR_TARGET inline __m128i tnrScale(__m128i a, __m128i w)
++{
++	/* w is a weight in 1/128 shifted left by 8 (32767 standing for 128): round(a * weight / 128) */
++	return _mm_mulhrs_epi16(a, w);
++}
++
++TNR_TARGET inline __m128i tnrWeight8(__m128i w)
++{
++	/* w << 8, with 128 (which does not fit) as 32767 */
++	return _mm_sub_epi16(_mm_slli_epi16(w, 8), _mm_srli_epi16(w, 7));
++}
++
++TNR_TARGET inline __m128i tnrStill(__m128i c, __m128i p, __m128i minWeight8, __m128i passMinus1)
++{
++	const __m128i d = _mm_sub_epi16(c, p);
++	const __m128i average = _mm_add_epi16(p, tnrScale(d, minWeight8));
++	const __m128i large = _mm_cmpgt_epi16(_mm_abs_epi16(d), passMinus1);
++	return _mm_or_si128(_mm_and_si128(large, c), _mm_andnot_si128(large, average));
++}
++
++/* Luma row (sums: the horizontal 3-sums of the rows above, here and below) or, without sums, chroma row. */
++TNR_TARGET void tnrRowSsse3(uint8_t *out, uint8_t *prev, const int16_t *up, const int16_t *mid, const int16_t *down,
++			    const int16_t *w, unsigned int n, int minWeight, int pass, int k)
++{
++	const __m128i zero = _mm_setzero_si128();
++	const __m128i minWeight8 = tnrWeight8(_mm_set1_epi16(static_cast<int16_t>(minWeight)));
++	const __m128i passMinus1 = _mm_set1_epi16(static_cast<int16_t>(pass - 1));
++	const __m128i hi = _mm_set1_epi16(static_cast<int16_t>(k)), lo = _mm_set1_epi16(static_cast<int16_t>(-k));
++	const __m128i ninth = _mm_set1_epi16(3641);	/* round(32768 / 9) */
++	unsigned int x = 0;
++	for (; x + 16 <= n; x += 16) {
++		const __m128i c8 = _mm_loadu_si128(reinterpret_cast<const __m128i *>(out + x));
++		const __m128i p8 = _mm_loadu_si128(reinterpret_cast<const __m128i *>(prev + x));
++		__m128i result[2];
++		for (int half = 0; half < 2; half++) {
++			const unsigned int i = x + 8 * half;
++			const __m128i c = half ? _mm_unpackhi_epi8(c8, zero) : _mm_unpacklo_epi8(c8, zero);
++			const __m128i p = half ? _mm_unpackhi_epi8(p8, zero) : _mm_unpacklo_epi8(p8, zero);
++			const __m128i still = tnrStill(c, p, minWeight8, passMinus1);
++			__m128i moving = c;
++			if (up) {
++				const __m128i sum = _mm_add_epi16(_mm_add_epi16(
++					_mm_loadu_si128(reinterpret_cast<const __m128i *>(up + i)),
++					_mm_loadu_si128(reinterpret_cast<const __m128i *>(mid + i))),
++					_mm_loadu_si128(reinterpret_cast<const __m128i *>(down + i)));
++				const __m128i mean = _mm_mulhrs_epi16(sum, ninth);
++				moving = _mm_add_epi16(c, _mm_min_epi16(_mm_max_epi16(_mm_sub_epi16(mean, c), lo), hi));
++			}
++			const __m128i weight8 = tnrWeight8(_mm_loadu_si128(reinterpret_cast<const __m128i *>(w + i)));
++			result[half] = _mm_add_epi16(still, tnrScale(_mm_sub_epi16(moving, still), weight8));
++		}
++		const __m128i r = _mm_packus_epi16(result[0], result[1]);
++		_mm_storeu_si128(reinterpret_cast<__m128i *>(out + x), r);
++		_mm_storeu_si128(reinterpret_cast<__m128i *>(prev + x), r);
++	}
++	for (; x < n; x++) {
++		const int c = out[x], p = prev[x], d = c - p;
++		const int still = (d >= pass || d <= -pass) ? c : p + ((d * minWeight * 256 + 16384) >> 15);
++		int moving = c;
++		if (up) {
++			const int mean = ((up[x] + mid[x] + down[x]) * 3641 + 16384) >> 15;
++			moving = c + std::clamp(mean - c, -k, k);
++		}
++		out[x] = prev[x] = static_cast<uint8_t>(std::clamp(still + (((moving - still) * w[x] + 64) >> 7), 0, 255));
++	}
++}
++
++/* Rows with no motion: the temporal average only. */
++TNR_TARGET void tnrStillSsse3(uint8_t *out, uint8_t *prev, unsigned int n, int minWeight, int pass)
++{
++	const __m128i zero = _mm_setzero_si128();
++	const __m128i minWeight8 = tnrWeight8(_mm_set1_epi16(static_cast<int16_t>(minWeight)));
++	const __m128i passMinus1 = _mm_set1_epi16(static_cast<int16_t>(pass - 1));
++	unsigned int x = 0;
++	for (; x + 16 <= n; x += 16) {
++		const __m128i c8 = _mm_loadu_si128(reinterpret_cast<const __m128i *>(out + x));
++		const __m128i p8 = _mm_loadu_si128(reinterpret_cast<const __m128i *>(prev + x));
++		const __m128i r = _mm_packus_epi16(
++			tnrStill(_mm_unpacklo_epi8(c8, zero), _mm_unpacklo_epi8(p8, zero), minWeight8, passMinus1),
++			tnrStill(_mm_unpackhi_epi8(c8, zero), _mm_unpackhi_epi8(p8, zero), minWeight8, passMinus1));
++		_mm_storeu_si128(reinterpret_cast<__m128i *>(out + x), r);
++		_mm_storeu_si128(reinterpret_cast<__m128i *>(prev + x), r);
++	}
++	for (; x < n; x++) {
++		const int c = out[x], p = prev[x], d = c - p;
++		out[x] = prev[x] = static_cast<uint8_t>((d >= pass || d <= -pass) ? c : p + ((d * minWeight * 256 + 16384) >> 15));
++	}
++}
++
++/* Pixel weights of a row: f / 256 of the way from the expanded block row a to b. */
++TNR_TARGET void tnrWeightsSsse3(const int16_t *a, const int16_t *b, int16_t *w, unsigned int n, int f)
++{
++	const __m128i fa = _mm_set1_epi16(static_cast<int16_t>(std::min((256 - f) << 7, 32767)));
++	const __m128i fb = _mm_set1_epi16(static_cast<int16_t>(std::min(f << 7, 32767)));
++	unsigned int x = 0;
++	for (; x + 8 <= n; x += 8) {
++		const __m128i va = _mm_loadu_si128(reinterpret_cast<const __m128i *>(a + x));
++		const __m128i vb = _mm_loadu_si128(reinterpret_cast<const __m128i *>(b + x));
++		_mm_storeu_si128(reinterpret_cast<__m128i *>(w + x),
++				 _mm_add_epi16(_mm_mulhrs_epi16(va, fa), _mm_mulhrs_epi16(vb, fb)));
++	}
++	for (; x < n; x++)
++		w[x] = static_cast<int16_t>((a[x] * (256 - f) + b[x] * f + 128) >> 8);
++}
++#endif
++
++void tnrRowPlain(uint8_t *out, uint8_t *prev, const int16_t *up, const int16_t *mid, const int16_t *down,
++		 const int16_t *w, unsigned int n, int minWeight, int pass, int k)
++{
++	for (unsigned int x = 0; x < n; x++) {
++		const int c = out[x], p = prev[x], d = c - p;
++		const int still = (d >= pass || d <= -pass) ? c : p + ((d * minWeight * 256 + 16384) >> 15);
++		int moving = c;
++		if (up) {
++			const int mean = ((up[x] + mid[x] + down[x]) * 3641 + 16384) >> 15;
++			moving = c + std::clamp(mean - c, -k, k);
++		}
++		out[x] = prev[x] = static_cast<uint8_t>(std::clamp(still + (((moving - still) * w[x] + 64) >> 7), 0, 255));
++	}
++}
++
++void tnrStillPlain(uint8_t *out, uint8_t *prev, unsigned int n, int minWeight, int pass)
++{
++	for (unsigned int x = 0; x < n; x++) {
++		const int c = out[x], p = prev[x], d = c - p;
++		out[x] = prev[x] = static_cast<uint8_t>((d >= pass || d <= -pass) ? c : p + ((d * minWeight * 256 + 16384) >> 15));
++	}
++}
++
++void tnrWeightsPlain(const int16_t *a, const int16_t *b, int16_t *w, unsigned int n, int f)
++{
++	for (unsigned int x = 0; x < n; x++)
++		w[x] = static_cast<int16_t>((a[x] * (256 - f) + b[x] * f + 128) >> 8);
++}
++
++/* Adds |cur - prev| of every group of 4 pixels of a row to sums[]. */
++__attribute__((optimize("O3"))) void tnrRowSad(const uint8_t *__restrict cur, const uint8_t *__restrict prev,
++						 unsigned int width, int *__restrict sums, uint8_t *__restrict absd)
++{
++	for (unsigned int x = 0; x < width; x++) {
++		const int d = static_cast<int>(cur[x]) - static_cast<int>(prev[x]);
++		absd[x] = static_cast<uint8_t>(d < 0 ? -d : d);
++	}
++	for (unsigned int b = 0; b < width / 4; b++)
++		sums[b] += absd[4 * b] + absd[4 * b + 1] + absd[4 * b + 2] + absd[4 * b + 3];
++}
++
++/* Sum of each pixel of a row with its left and right neighbours (edges counted twice). */
++__attribute__((optimize("O3"))) void tnrRowH(const uint8_t *__restrict src, int16_t *__restrict dst, unsigned int width)
++{
++	for (unsigned int x = 1; x + 1 < width; x++)
++		dst[x] = static_cast<int16_t>(src[x - 1] + src[x] + src[x + 1]);
++	dst[0] = static_cast<int16_t>(src[0] * 2 + src[1]);
++	dst[width - 1] = static_cast<int16_t>(src[width - 2] + src[width - 1] * 2);
++}
++
++/* Block weights (0..256) of a block row to pixel weights (0..128), linear between block centres (4b + 1.5). */
++void tnrExpand(const int *weights, unsigned int blocks, int16_t *w, unsigned int width)
++{
++	for (unsigned int b = 0; b < blocks; b++) {
++		const int l = weights[b ? b - 1 : b], m = weights[b], r = weights[b + 1 < blocks ? b + 1 : b];
++		w[4 * b + 0] = static_cast<int16_t>((l * 3 + m * 5 + 8) >> 4);
++		w[4 * b + 1] = static_cast<int16_t>((l + m * 7 + 8) >> 4);
++		w[4 * b + 2] = static_cast<int16_t>((r + m * 7 + 8) >> 4);
++		w[4 * b + 3] = static_cast<int16_t>((r * 3 + m * 5 + 8) >> 4);
++	}
++	for (unsigned int x = 4 * blocks; x < width; x++)
++		w[x] = w[4 * blocks - 1];
++}
++
++} /* namespace */
++
  /*
   * Temporal noise reduction of the NV12 output, in software. The ImgU of the Surface Go has no usable temporal denoiser
 - * and the sensors are noisy in dim rooms: a still frame looks clean but the picture "crawls" in a live view (about
@@ -23,16 +224,16 @@ index fc7db9b..4a70084 100644
 - * ghosting): out = prev + k(|d|) * d, k going from kTnrMinWeight at d = 0 to 1 at |d| >= kTnrThreshold.
 - * LIBCAMERA_IPU3_TNR="<min weight in 1/256> <threshold in levels>" overrides the values, "0 0" disables the filter.
 + * and the sensors are noisy in dim rooms: a still frame looks clean but the picture "crawls" in a live view. Still
-+ * areas are averaged with the previous output, moving ones go through a spatial filter instead (see below), so that
-+ * nothing trails behind a movement and the grain does not come back where things move.
++ * areas are averaged with the previous output, moving ones are smoothed in space instead (see below), so that nothing
++ * trails behind a movement and the grain does not come back where things move.
 + * Parameters "<min weight in 1/256> <threshold in levels>": the weight of a new frame in still areas, and the mean
-+ * difference of a 4x4 block from which it counts as moving (from half of it on, partly), both raised with the noise
-+ * of the frame.
-+ * LIBCAMERA_IPU3_TNR or the "tnr" key of the live profile override them, "0 0" disables the filter.
++ * difference per pixel of a 4x4 block from which it counts as moving (from half of it on, partly), both thresholds
++ * raised with the noise of the frame. LIBCAMERA_IPU3_TNR or the "tnr" key of the live profile override them, "0 0"
++ * disables the filter.
   */
  void IPU3CameraData::temporalDenoise(const Stream *stream, FrameBuffer *buffer)
  {
-@@ -1435,11 +1441,8 @@ void IPU3CameraData::temporalDenoise(const Stream *stream, FrameBuffer *buffer)
+@@ -1435,11 +1633,8 @@ void IPU3CameraData::temporalDenoise(const Stream *stream, FrameBuffer *buffer)
  	}();
  	params = envParams;
  	if (params.minWeight < 0) {
@@ -46,22 +247,22 @@ index fc7db9b..4a70084 100644
  	}
  
  	/* The live profile ("tnr <min weight> <threshold>") wins over the environment. */
-@@ -1483,48 +1486,160 @@ void IPU3CameraData::temporalDenoise(const Stream *stream, FrameBuffer *buffer)
+@@ -1483,48 +1678,227 @@ void IPU3CameraData::temporalDenoise(const Stream *stream, FrameBuffer *buffer)
  	}
  
  	/*
 -	 * What to add to the previous pixel for every possible difference: one table look-up per pixel, with no multiply
 -	 * or divide in the loop.
-+	 * Motion is judged per 4x4 block of luma (2x2 of chroma), from the mean absolute difference with the previous output:
-+	 * noise mostly cancels out in a block, while a moving edge, even a soft one (a hand over a light wall), moves the
-+	 * whole block. Judging every pixel on its own left soft edges blended with the previous frame (a trail behind a
-+	 * moving hand) and let the grain back through wherever the change was large.
-+	 *
-+	 *  - still block (mean difference up to threshold / 2): out = prev + minWeight / 256 * (cur - prev), the temporal
-+	 *    average;
-+	 *  - moving block (from threshold on): the current pixel through a 3x3 sigma filter (the mean of the neighbours that
-+	 *    differ from it by at most kSigma levels), which smooths the grain and keeps the edges, and nothing of the past;
-+	 *  - in between, a mix of the two.
++	 * Motion is judged per 4x4 block of luma from the absolute difference with the previous output (on every second
++	 * row, which is enough): noise mostly cancels out in a block, while a moving edge, even a soft one (a hand over a
++	 * light wall), moves the whole block. Judging every pixel on its own (the first version) left soft edges blended
++	 * with the previous frame, a trail behind a moving hand, and let the grain back wherever the change was large. The
++	 * thresholds follow the noise of the frame (the median block, most of a picture being still); the block map is
++	 * widened by one block, so that the borders of a moving thing count as moving, and interpolated between block
++	 * centres, so that there is no step between still and moving areas; moving pixels are smoothed in space instead.
++	 * Measured offline on the same 100 raw frames of a person moving (1152x864): trail 0.74 against 1.94 for the
++	 * per-pixel filter, grain 0.49 against 0.79 on moving areas and 0.32 against 0.35 on still ones; 3.8 ms a frame on
++	 * one core of the Surface Go against 3.2.
  	 */
 -	std::array<int16_t, 511> step;
 -	for (int d = -255; d <= 255; d++) {
@@ -81,114 +282,62 @@ index fc7db9b..4a70084 100644
 -				/* a large change is motion: the new pixel as it is */
 -				const int v = (d >= passThrough || d <= -passThrough) ? c[x] : o[x] + step[d + 255];
 -				c[x] = o[x] = static_cast<uint8_t>(v);
-+	constexpr int kSigma = 8;
+-			}
+-		}
+-	};
+-
 +	constexpr unsigned int kBlock = 4;
-+	const unsigned int blockCols = (width + kBlock - 1) / kBlock;
-+	const unsigned int blockRows = (height + kBlock - 1) / kBlock;
-+	std::vector<int> &blockMean = tnrBlocks_[stream];
-+	/* Motion thresholds in 1/16 levels, set below from the noise of the frame. */
-+	int t1 = 0, t2 = 1;
-+
-+	/* The current frame as it came, for the sigma filter (the planes are filtered in place). */
-+	std::vector<uint8_t> &orig = tnrOrig_[stream];
-+	orig.resize(ySize + uvSize);
-+	std::copy(y, y + ySize, orig.begin());
-+	std::copy(uv, uv + uvSize, orig.begin() + ySize);
-+	const uint8_t *oy = orig.data();
-+	const uint8_t *ouv = orig.data() + ySize;
-+	uint8_t *py = prev.data();
-+	uint8_t *puv = prev.data() + ySize;
-+
-+	static const std::array<int, 10> recip = [] {
-+		std::array<int, 10> r{};
-+		for (int n = 1; n < 10; n++)
-+			r[n] = (65536 + n / 2) / n;
-+		return r;
-+	}();
-+
-+	/* Sigma filter of one sample: 'step' is the distance between neighbours in a row (1 for luma, 2 for chroma). */
-+	auto sigma = [&](const uint8_t *plane, unsigned int r, unsigned int x, unsigned int rows, unsigned int cols,
-+			 unsigned int step) {
-+		const int v = plane[static_cast<size_t>(r) * stride + x];
-+		int sum = v, n = 1;
-+		for (int dr = -1; dr <= 1; dr++) {
-+			const int rr = static_cast<int>(r) + dr;
-+			if (rr < 0 || rr >= static_cast<int>(rows))
-+				continue;
-+			const uint8_t *row = plane + static_cast<size_t>(rr) * stride;
-+			for (int dc = -1; dc <= 1; dc++) {
-+				if (!dr && !dc)
-+					continue;
-+				const int xx = static_cast<int>(x) + dc * static_cast<int>(step);
-+				if (xx < 0 || xx >= static_cast<int>(cols))
-+					continue;
-+				const int u = row[xx];
-+				if (u - v <= kSigma && v - u <= kSigma) {
-+					sum += u;
-+					n++;
-+				}
-+			}
-+		}
-+		return (sum * recip[n] + 32768) >> 16;
-+	};
-+
-+	auto blend = [&](int o, int c, int s, int motion) {
-+		/* motion 0 (still) .. 256 (moving) */
-+		const int still = o + (((c - o) * params.minWeight + (c >= o ? 128 : -128)) / 256);
-+		return (still * (256 - motion) + s * motion + 128) >> 8;
-+	};
-+
-+	auto filterBand = [&](unsigned int firstBlockRow, unsigned int lastBlockRow) {
-+		for (unsigned int br = firstBlockRow; br < lastBlockRow; br++) {
-+			const unsigned int r0 = br * kBlock;
-+			const unsigned int r1 = std::min(r0 + kBlock, height);
-+			for (unsigned int bx = 0; bx < width; bx += kBlock) {
-+				const unsigned int x1 = std::min(bx + kBlock, width);
-+				const int mean16 = blockMean[static_cast<size_t>(br) * blockCols + bx / kBlock];
-+				const int motion = mean16 <= t1 ? 0 : mean16 >= t2 ? 256 : (mean16 - t1) * 256 / (t2 - t1);
-+
-+				for (unsigned int r = r0; r < r1; r++) {
-+					uint8_t *out = y + static_cast<size_t>(r) * stride;
-+					uint8_t *o = py + static_cast<size_t>(r) * stride;
-+					const uint8_t *c = oy + static_cast<size_t>(r) * stride;
-+					for (unsigned int x = bx; x < x1; x++) {
-+						const int sv = motion ? sigma(oy, r, x, height, width, 1) : c[x];
-+						const int v = std::clamp(blend(o[x], c[x], sv, motion), 0, 255);
-+						out[x] = o[x] = static_cast<uint8_t>(v);
-+					}
-+				}
-+
-+				/* the chroma samples of the block: rows r0/2 .. r1/2, bytes bx .. x1 (U and V interleaved) */
-+				for (unsigned int r = r0 / 2; r < (r1 + 1) / 2 && r < height / 2; r++) {
-+					uint8_t *out = uv + static_cast<size_t>(r) * stride;
-+					uint8_t *o = puv + static_cast<size_t>(r) * stride;
-+					const uint8_t *c = ouv + static_cast<size_t>(r) * stride;
-+					for (unsigned int x = bx; x < x1; x++) {
-+						const int sv = motion ? sigma(ouv, r, x, height / 2, width, 2) : c[x];
-+						const int v = std::clamp(blend(o[x], c[x], sv, motion), 0, 255);
-+						out[x] = o[x] = static_cast<uint8_t>(v);
-+					}
-+				}
- 			}
- 		}
- 	};
- 
++	constexpr int kSpatial = 3;
  	/*
 -	 * The rows do not depend on each other: the frame is cut into bands, one per processor, so that the largest
-+	 * The block rows do not depend on each other: the frame is cut into bands, one per processor, so that the largest
- 	 * picture sizes are filtered within a frame time (a 7.7 megapixel frame on one core of the Surface Go took longer
- 	 * than the sensor's frame period and cost a quarter of the frame rate).
+-	 * picture sizes are filtered within a frame time (a 7.7 megapixel frame on one core of the Surface Go took longer
+-	 * than the sensor's frame period and cost a quarter of the frame rate).
++	 * Above about 2.5 megapixels (pictures more than video) the spatial smoothing of moving areas is left out: it would
++	 * cost frames on the Surface Go, and the grain of so many pixels is hardly seen on a screen.
  	 */
++	const bool spatial = static_cast<size_t>(width) * height <= 2600000;
++	const unsigned int blockCols = width / kBlock;
++	const unsigned int blockRows = height / kBlock;
++	if (blockCols < 2 || blockRows < 2)
++		return;
++#ifdef TNR_SSSE3
++	static const bool ssse3 = __builtin_cpu_supports("ssse3");
++#else
++	constexpr bool ssse3 = false;
++#endif
++	auto row = [&](uint8_t *out, uint8_t *old, const int16_t *up, const int16_t *mid, const int16_t *down,
++		       const int16_t *w, int minWeight, int pass, int k) {
++#ifdef TNR_SSSE3
++		if (ssse3)
++			return tnrRowSsse3(out, old, up, mid, down, w, width, minWeight, pass, k);
++#endif
++		tnrRowPlain(out, old, up, mid, down, w, width, minWeight, pass, k);
++	};
++	auto stillRow = [&](uint8_t *out, uint8_t *old, int minWeight, int pass) {
++#ifdef TNR_SSSE3
++		if (ssse3)
++			return tnrStillSsse3(out, old, width, minWeight, pass);
++#endif
++		tnrStillPlain(out, old, width, minWeight, pass);
++	};
++	auto weightsRow = [&](const int16_t *a, const int16_t *b, int16_t *w, int f) {
++#ifdef TNR_SSSE3
++		if (ssse3)
++			return tnrWeightsSsse3(a, b, w, width, f);
++#endif
++		tnrWeightsPlain(a, b, w, width, f);
++	};
++
  	const unsigned int bands = std::clamp(std::thread::hardware_concurrency(), 1U, 4U);
 -	auto run = [&](unsigned int band) {
 -		filter(y, prev.data(), height * band / bands, height * (band + 1) / bands);
 -		filter(uv, prev.data() + ySize, (height / 2) * band / bands, (height / 2) * (band + 1) / bands);
-+	auto parallel = [&](auto &&work) {
++	auto parallel = [&](unsigned int items, auto &&job) {
 +		std::vector<std::thread> workers;
 +		workers.reserve(bands - 1);
 +		for (unsigned int band = 1; band < bands; band++)
-+			workers.emplace_back(work, blockRows * band / bands, blockRows * (band + 1) / bands);
-+		work(0, blockRows / bands);
++			workers.emplace_back(job, items * band / bands, items * (band + 1) / bands);
++		job(0, items / bands);
 +		for (std::thread &worker : workers)
 +			worker.join();
  	};
@@ -199,42 +348,167 @@ index fc7db9b..4a70084 100644
 -	run(0);
 -	for (std::thread &worker : workers)
 -		worker.join();
++	uint8_t *py = prev.data();
++	uint8_t *puv = prev.data() + ySize;
 +
-+	/* First pass: the mean difference of every block, in 1/16 levels. */
-+	blockMean.resize(static_cast<size_t>(blockRows) * blockCols);
-+	parallel([&](unsigned int firstBlockRow, unsigned int lastBlockRow) {
-+		for (unsigned int br = firstBlockRow; br < lastBlockRow; br++) {
-+			const unsigned int r0 = br * kBlock;
-+			const unsigned int r1 = std::min(r0 + kBlock, height);
-+			for (unsigned int bx = 0; bx < width; bx += kBlock) {
-+				const unsigned int x1 = std::min(bx + kBlock, width);
-+				int sad = 0, count = 0;
-+				for (unsigned int r = r0; r < r1; r++) {
-+					const uint8_t *c = oy + static_cast<size_t>(r) * stride;
-+					const uint8_t *o = py + static_cast<size_t>(r) * stride;
-+					for (unsigned int x = bx; x < x1; x++) {
-+						const int d = c[x] - o[x];
-+						sad += d < 0 ? -d : d;
-+						count++;
-+					}
-+				}
-+				blockMean[static_cast<size_t>(br) * blockCols + bx / kBlock] = sad * 16 / std::max(count, 1);
-+			}
++	/* Block sums of |cur - prev| on rows 0 and 2 of every block (8 pixels each), and their histogram. */
++	std::vector<int> &sums = tnrBlocks_[stream];
++	sums.assign(static_cast<size_t>(blockCols) * blockRows, 0);
++	std::vector<std::array<int, 8 * 255 + 1>> bandHist(bands);
++	for (auto &bandH : bandHist)
++		bandH.fill(0);
++	parallel(blockRows, [&](unsigned int first, unsigned int last) {
++		std::vector<uint8_t> absd(width);
++		unsigned int band = 0;
++		for (unsigned int b = 1; b < bands; b++)
++			if (blockRows * b / bands == first)
++				band = b;
++		std::array<int, 8 * 255 + 1> &hist = bandHist[band];
++		hist.fill(0);
++		for (unsigned int br = first; br < last; br++) {
++			int *rowSums = sums.data() + static_cast<size_t>(br) * blockCols;
++			for (unsigned int r = br * kBlock; r < br * kBlock + kBlock; r += 2)
++				tnrRowSad(y + static_cast<size_t>(r) * stride, py + static_cast<size_t>(r) * stride, width,
++					  rowSums, absd.data());
++			for (unsigned int bc = 0; bc < blockCols; bc++)
++				hist[rowSums[bc]]++;
 +		}
 +	});
 +
-+	/*
-+	 * Thresholds: half the parameter and the parameter, raised with the noise of this frame. The median block is still
-+	 * in most pictures, so its difference is the noise: in a dim room a fixed threshold took the noise itself for
-+	 * motion and the grain came back on still areas.
-+	 */
-+	std::vector<int> sorted(blockMean);
-+	std::nth_element(sorted.begin(), sorted.begin() + sorted.size() / 2, sorted.end());
-+	const int noise16 = sorted[sorted.size() / 2];
-+	t2 = std::max(std::max(params.threshold, 2) * 16, 2 * noise16);
-+	t1 = std::min(std::max(std::max(params.threshold, 2) * 8, noise16), t2 - 1);
++	/* Thresholds on the sums (8 pixels): from half the parameter to the parameter, raised with the median block. */
++	std::array<int, 8 * 255 + 1> hist{};
++	for (const auto &bandH : bandHist)
++		for (size_t i = 0; i < hist.size(); i++)
++			hist[i] += bandH[i];
++	int noise = 0;
++	for (size_t acc = 0; noise < static_cast<int>(hist.size()) - 1; noise++) {
++		acc += hist[noise];
++		if (acc > sums.size() / 2)
++			break;
++	}
++	const int base = std::max(params.threshold, 2) * 8;
++	const int t2 = std::max(base, 2 * noise);
++	const int t1 = std::min(std::max(base / 2, noise), t2 - 1);
++	/* A difference far above the noise is never averaged (a change of exposure, a small fast thing in a still block). */
++	const int pass = std::max(3 * std::max(params.threshold, 2), 3 * noise / 8 + 6);
++	const int minWeight = std::clamp(params.minWeight / 2, 0, 128);
 +
-+	parallel(filterBand);
++	/* Block weights 0 (still) .. 256 (moving), then widened by one block (the largest of the 3x3 neighbourhood). */
++	std::array<int, 8 * 255 + 1> lut;
++	for (int m = 0; m < static_cast<int>(lut.size()); m++)
++		lut[m] = m <= t1 ? 0 : m >= t2 ? 256 : (m - t1) * 256 / (t2 - t1);
++	std::vector<int> &weights = tnrWeights_[stream];
++	std::vector<int> &wide = tnrSorted_[stream];
++	weights.resize(sums.size());
++	wide.resize(sums.size());
++	parallel(blockRows, [&](unsigned int first, unsigned int last) {
++		for (unsigned int br = first; br < last; br++) {
++			const int *src = sums.data() + static_cast<size_t>(br) * blockCols;
++			int *dst = wide.data() + static_cast<size_t>(br) * blockCols;
++			int left = lut[src[0]], here = left;
++			for (unsigned int bc = 0; bc < blockCols; bc++) {
++				const int right = bc + 1 < blockCols ? lut[src[bc + 1]] : here;
++				dst[bc] = std::max(std::max(left, here), right);
++				left = here;
++				here = right;
++			}
++		}
++	});
++	std::vector<uint8_t> &moving = tnrOrig_[stream];
++	moving.assign(blockRows, 0);
++	parallel(blockRows, [&](unsigned int first, unsigned int last) {
++		for (unsigned int br = first; br < last; br++) {
++			const int *up = wide.data() + static_cast<size_t>(br ? br - 1 : br) * blockCols;
++			const int *mid = wide.data() + static_cast<size_t>(br) * blockCols;
++			const int *down = wide.data() + static_cast<size_t>(br + 1 < blockRows ? br + 1 : br) * blockCols;
++			int *dst = weights.data() + static_cast<size_t>(br) * blockCols;
++			int any = 0;
++			for (unsigned int bc = 0; bc < blockCols; bc++) {
++				dst[bc] = std::max(std::max(up[bc], mid[bc]), down[bc]);
++				any |= dst[bc];
++			}
++			moving[br] = any != 0;
++		}
++	});
++
++	/* The original row just above each band: the band before writes it before the next band reads it. */
++	std::vector<uint8_t> &edges = tnrWork_[stream];
++	edges.resize(static_cast<size_t>(bands) * width);
++	for (unsigned int band = 1; band < bands; band++) {
++		const unsigned int first = blockRows * band / bands * kBlock;
++		std::copy(y + static_cast<size_t>(first - 1) * stride, y + static_cast<size_t>(first - 1) * stride + width,
++			  edges.begin() + static_cast<size_t>(band) * width);
++	}
++
++	parallel(blockRows, [&](unsigned int firstBlock, unsigned int lastBlock) {
++		const unsigned int first = firstBlock * kBlock;
++		const unsigned int last = lastBlock == blockRows ? height : lastBlock * kBlock;
++		std::vector<int16_t> h[3] = { std::vector<int16_t>(width), std::vector<int16_t>(width), std::vector<int16_t>(width) };
++		std::vector<int16_t> w(width), cw(width), expanded[2] = { std::vector<int16_t>(width), std::vector<int16_t>(width) };
++		unsigned int expandedRow[2] = { ~0U, ~0U };
++		auto expandedOf = [&](unsigned int br) -> const int16_t * {
++			for (int i = 0; i < 2; i++)
++				if (expandedRow[i] == br)
++					return expanded[i].data();
++			/* replace the one that is not the other block row in use */
++			const int i = expandedRow[0] == ~0U ? 0 : expandedRow[1] == ~0U ? 1 : expandedRow[0] < expandedRow[1] ? 0 : 1;
++			tnrExpand(weights.data() + static_cast<size_t>(br) * blockCols, blockCols, expanded[i].data(), width);
++			expandedRow[i] = br;
++			return expanded[i].data();
++		};
++
++		/* horizontal sums of the original rows first - 1 (or first) and first */
++		unsigned int band = 0;
++		for (unsigned int b = 1; b < bands; b++)
++			if (blockRows * b / bands == firstBlock)
++				band = b;
++		const uint8_t *above = !first ? y
++				       : band ? edges.data() + static_cast<size_t>(band) * width
++				       : y + static_cast<size_t>(first - 1) * stride;
++		if (spatial) {
++			tnrRowH(above, h[(first + 2) % 3].data(), width);
++			tnrRowH(y + static_cast<size_t>(first) * stride, h[first % 3].data(), width);
++		}
++
++		for (unsigned int r = first; r < last; r++) {
++			const unsigned int next = r + 1 < height ? r + 1 : r;
++			if (next != r && spatial)
++				tnrRowH(y + static_cast<size_t>(next) * stride, h[next % 3].data(), width);	/* still original */
++
++			/* between the centres (4b + 1.5) of the block rows b0 and b0 + 1 */
++			const int pos = static_cast<int>(r) * 2 - 3;
++			const unsigned int b0 = std::min<unsigned int>(pos < 0 ? 0 : pos / 8, blockRows - 1);
++			const unsigned int b1 = std::min(b0 + 1, blockRows - 1);
++			const int fy = pos < 0 ? 0 : (pos % 8) * 32;
++			const bool any = moving[b0] || moving[b1];
++
++			uint8_t *out = y + static_cast<size_t>(r) * stride;
++			uint8_t *old = py + static_cast<size_t>(r) * stride;
++			if (any) {
++				weightsRow(expandedOf(b0), expandedOf(b1), w.data(), fy);
++				if (spatial)
++					row(out, old, h[(r + 2) % 3].data(), h[r % 3].data(), h[next % 3].data(), w.data(), minWeight,
++					    pass, kSpatial);
++				else
++					row(out, old, nullptr, nullptr, nullptr, w.data(), minWeight, pass, 0);
++			} else {
++				stillRow(out, old, minWeight, pass);
++			}
++
++			/* the chroma row of every even luma row, with its weights; the ImgU's XNR3 denoises the chroma itself */
++			if (r & 1)
++				continue;
++			uint8_t *cout = uv + static_cast<size_t>(r / 2) * stride;
++			uint8_t *cold = puv + static_cast<size_t>(r / 2) * stride;
++			if (any) {
++				for (unsigned int x = 0; x + 1 < width; x += 2)
++					cw[x] = cw[x + 1] = w[x];
++				row(cout, cold, nullptr, nullptr, nullptr, cw.data(), minWeight, pass, 0);
++			} else {
++				stillRow(cout, cold, minWeight, pass);
++			}
++		}
++	});
  }
  
  /*

@@ -15,12 +15,18 @@ What was added, what broke, and what fixed it. Newest first. "Verified" means tr
   pushed further), a stronger software temporal filter (-10-25% luma grain at full resolution but smears motion). The
   luma grain left is the sensor's.
 - Temporal denoise rewritten (patch `0028`), after the owner saw a trail behind a moving hand and the grain coming
-  back while moving: motion is now judged per 4x4 block (noise cancels out in a block, a soft moving edge does not),
-  moving blocks go through a 3x3 sigma filter instead of passing raw, and the thresholds rise with the noise of each
-  frame (the median block). Checked by running the old and new filters on the same 100 raw frames with movement: the
-  trail is about 4 times smaller than with 48/12 (0.50 against 2.13) with the same still-area grain, and with noise
-  added to stand for a dim room the still areas stay cleaner than with 48/12. Same frame rate as without the filter.
-  Defaults 40/5 for the front camera, 64/5 for the rear one.
+  back while moving: motion is judged per 4x4 block (noise cancels out in a block, a soft moving edge does not), the
+  block map is widened by one block and interpolated between block centres (no steps), the thresholds follow the noise
+  of each frame, and moving areas are smoothed in space (a 3x3 mean, by at most 3 levels) instead of passing raw.
+  Measured offline on the same 100 raw frames of a person moving: trail 0.74 against 1.94 for the per-pixel filter,
+  grain on moving areas 0.49 against 0.79, on still ones 0.32 against 0.35.
+  A first version of it cost up to six times the CPU of the old filter (the owner saw the frame rate collapse and
+  glitches): the kernels are now SSSE3 (16 pixels at a time, plain loops as a fallback), the motion is measured on
+  every second row, histogram and block map are built in parallel, and the spatial part is left out above 2.6
+  megapixels. Measured on the tablet (frames per second, filter on): front 28.6 / 28.6 / 26.6 / 22.3 at 1152, 1536,
+  2048 and 2560 wide (the old filter: 28.6 and 19.6 at 1152 and 2560), rear 30.1 at 1536 and 13.8 of 15 at 3200, with
+  less CPU than the old filter at every size. 150-frame runs at every size: no broken frame, no step at block edges.
+  With Kamoso showing the front camera the system is 69% idle.
 - Front camera: stronger temporal denoise by default (24/18 instead of 48/12, patch `0027`; superseded by `0028`). Tried in Kamoso from the tablet with a virtual touchscreen, late afternoon light (20-30 ms, gain 1.1-1.3): the
   grain of flat areas in the preview drops by about a third, pictures show 5-10% less grain with the same detail. The
   "Grain removal" control of the Cameras page shows each camera's own default.
