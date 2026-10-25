@@ -108,8 +108,16 @@ jobs:
           echo "${{ secrets.GITHUB_TOKEN }}" | podman login ghcr.io -u "${{ github.actor }}" --password-stdin
           stamp=$(date -u +%Y%m%d)
           podman tag "$IMAGE:${{ matrix.release }}" "$IMAGE:${{ matrix.release }}-$stamp"
-          podman push "$IMAGE:${{ matrix.release }}"
-          podman push "$IMAGE:${{ matrix.release }}-$stamp"
+          # the registry now and then refuses a layer upload (HTTP 400 after minutes): try again before giving up
+          push() {
+            for attempt in 1 2 3 4; do
+              podman push --retry 3 "$1" && return 0
+              echo "push of $1 failed (attempt $attempt), again in $((attempt * 60)) s"; sleep $((attempt * 60))
+            done
+            return 1
+          }
+          push "$IMAGE:${{ matrix.release }}"
+          push "$IMAGE:${{ matrix.release }}-$stamp"
 
       - name: Open or update an Issue when the build failed
         if: failure()
