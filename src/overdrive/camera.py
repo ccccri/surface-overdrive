@@ -29,9 +29,9 @@ SIZES = {
              (3200, "3200x2400", "7.7 MP, 11 fps, maximum")],
 }
 # Temporal denoise levels: (minimum weight in 1/256, threshold). Lower weight = stronger. Level 0 is off.
-TNR_LEVELS = [(0, 0), (160, 12), (96, 12), (48, 12), (24, 18), (12, 20)]
+TNR_LEVELS = [(0, 0), (128, 5), (96, 5), (64, 5), (40, 5), (24, 6)]
 TNR_NAMES = ["off", "low", "medium", "high", "stronger", "maximum"]
-# The level libcamera uses when the profile has no "tnr" (patch 0027): the front sensor is noisier and gets "stronger".
+# The level libcamera uses when the profile has no "tnr" (patch 0028): the front sensor is noisier and gets "stronger".
 TNR_DEFAULTS = {"rear": 3, "front": 4}
 TNR_DEFAULT = TNR_DEFAULTS["rear"]
 SIMPLE_KEYS = ("exposure", "gamma", "contrast", "shadows", "highlights", "saturation", "temperature", "tint", "hue", "hue_spin",

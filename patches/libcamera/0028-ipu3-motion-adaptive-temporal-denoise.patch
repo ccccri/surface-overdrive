@@ -1,0 +1,240 @@
+diff --git a/src/libcamera/pipeline/ipu3/ipu3.cpp b/src/libcamera/pipeline/ipu3/ipu3.cpp
+index fc7db9b..4a70084 100644
+--- a/src/libcamera/pipeline/ipu3/ipu3.cpp
++++ b/src/libcamera/pipeline/ipu3/ipu3.cpp
+@@ -95,6 +95,10 @@ public:
+ 
+ 	/* Previous filtered frame of each output stream, for the software temporal denoiser. */
+ 	std::map<const Stream *, std::vector<uint8_t>> tnrPrev_;
++	/* The frame as it came out of the ImgU, read by the spatial filter of moving areas. */
++	std::map<const Stream *, std::vector<uint8_t>> tnrOrig_;
++	/* Mean difference of every 4x4 block with the previous output (scratch of the temporal denoiser). */
++	std::map<const Stream *, std::vector<int>> tnrBlocks_;
+ 
+ 	/* Raw frames still to drop after the stream started: see cio2BufferReady(). */
+ 	unsigned int startupFramesToDrop_ = 0;
+@@ -1413,11 +1417,13 @@ void IPU3CameraData::metadataReady(unsigned int id, const ControlList &metadata)
+  */
+ /*
+  * Temporal noise reduction of the NV12 output, in software. The ImgU of the Surface Go has no usable temporal denoiser
+- * and the sensors are noisy in dim rooms: a still frame looks clean but the picture "crawls" in a live view (about
+- * +-1 level of noise per pixel, enough to be seen on a flat wall). Each pixel is blended with the filtered pixel of
+- * the previous frame, strongly when the change is small (noise) and not at all when it is large (motion, so no
+- * ghosting): out = prev + k(|d|) * d, k going from kTnrMinWeight at d = 0 to 1 at |d| >= kTnrThreshold.
+- * LIBCAMERA_IPU3_TNR="<min weight in 1/256> <threshold in levels>" overrides the values, "0 0" disables the filter.
++ * and the sensors are noisy in dim rooms: a still frame looks clean but the picture "crawls" in a live view. Still
++ * areas are averaged with the previous output, moving ones go through a spatial filter instead (see below), so that
++ * nothing trails behind a movement and the grain does not come back where things move.
++ * Parameters "<min weight in 1/256> <threshold in levels>": the weight of a new frame in still areas, and the mean
++ * difference of a 4x4 block from which it counts as moving (from half of it on, partly), both raised with the noise
++ * of the frame.
++ * LIBCAMERA_IPU3_TNR or the "tnr" key of the live profile override them, "0 0" disables the filter.
+  */
+ void IPU3CameraData::temporalDenoise(const Stream *stream, FrameBuffer *buffer)
+ {
+@@ -1435,11 +1441,8 @@ void IPU3CameraData::temporalDenoise(const Stream *stream, FrameBuffer *buffer)
+ 	}();
+ 	params = envParams;
+ 	if (params.minWeight < 0) {
+-		/*
+-		 * The front sensor (OV5693) is noisier: in an afternoon room (20 ms, gain 1.3) the grain of flat areas drops by
+-		 * about a third from 48/12 to 24/18, with hair and features as sharp as before.
+-		 */
+-		params = cio2_.sensor()->model() == "ov5693" ? Params{ 24, 18 } : Params{ 48, 12 };
++		/* The front sensor (OV5693) is the noisier one: a stronger average of still areas. */
++		params = cio2_.sensor()->model() == "ov5693" ? Params{ 40, 5 } : Params{ 64, 5 };
+ 	}
+ 
+ 	/* The live profile ("tnr <min weight> <threshold>") wins over the environment. */
+@@ -1483,48 +1486,160 @@ void IPU3CameraData::temporalDenoise(const Stream *stream, FrameBuffer *buffer)
+ 	}
+ 
+ 	/*
+-	 * What to add to the previous pixel for every possible difference: one table look-up per pixel, with no multiply
+-	 * or divide in the loop.
++	 * Motion is judged per 4x4 block of luma (2x2 of chroma), from the mean absolute difference with the previous output:
++	 * noise mostly cancels out in a block, while a moving edge, even a soft one (a hand over a light wall), moves the
++	 * whole block. Judging every pixel on its own left soft edges blended with the previous frame (a trail behind a
++	 * moving hand) and let the grain back through wherever the change was large.
++	 *
++	 *  - still block (mean difference up to threshold / 2): out = prev + minWeight / 256 * (cur - prev), the temporal
++	 *    average;
++	 *  - moving block (from threshold on): the current pixel through a 3x3 sigma filter (the mean of the neighbours that
++	 *    differ from it by at most kSigma levels), which smooths the grain and keeps the edges, and nothing of the past;
++	 *  - in between, a mix of the two.
+ 	 */
+-	std::array<int16_t, 511> step;
+-	for (int d = -255; d <= 255; d++) {
+-		const int ad = d < 0 ? -d : d;
+-		const int w = ad >= params.threshold ? 256
+-			      : params.minWeight + (256 - params.minWeight) * ad * ad / (params.threshold * params.threshold);
+-		step[d + 255] = static_cast<int16_t>((d * w + (d < 0 ? -128 : 128)) / 256);
+-	}
+-	const int passThrough = std::max(params.threshold, 1);
+-
+-	auto filter = [&](uint8_t *cur, uint8_t *old, unsigned int firstRow, unsigned int lastRow) {
+-		for (unsigned int r = firstRow; r < lastRow; r++) {
+-			uint8_t *c = cur + static_cast<size_t>(r) * stride;
+-			uint8_t *o = old + static_cast<size_t>(r) * stride;
+-			for (unsigned int x = 0; x < width; x++) {
+-				const int d = c[x] - o[x];
+-				/* a large change is motion: the new pixel as it is */
+-				const int v = (d >= passThrough || d <= -passThrough) ? c[x] : o[x] + step[d + 255];
+-				c[x] = o[x] = static_cast<uint8_t>(v);
++	constexpr int kSigma = 8;
++	constexpr unsigned int kBlock = 4;
++	const unsigned int blockCols = (width + kBlock - 1) / kBlock;
++	const unsigned int blockRows = (height + kBlock - 1) / kBlock;
++	std::vector<int> &blockMean = tnrBlocks_[stream];
++	/* Motion thresholds in 1/16 levels, set below from the noise of the frame. */
++	int t1 = 0, t2 = 1;
++
++	/* The current frame as it came, for the sigma filter (the planes are filtered in place). */
++	std::vector<uint8_t> &orig = tnrOrig_[stream];
++	orig.resize(ySize + uvSize);
++	std::copy(y, y + ySize, orig.begin());
++	std::copy(uv, uv + uvSize, orig.begin() + ySize);
++	const uint8_t *oy = orig.data();
++	const uint8_t *ouv = orig.data() + ySize;
++	uint8_t *py = prev.data();
++	uint8_t *puv = prev.data() + ySize;
++
++	static const std::array<int, 10> recip = [] {
++		std::array<int, 10> r{};
++		for (int n = 1; n < 10; n++)
++			r[n] = (65536 + n / 2) / n;
++		return r;
++	}();
++
++	/* Sigma filter of one sample: 'step' is the distance between neighbours in a row (1 for luma, 2 for chroma). */
++	auto sigma = [&](const uint8_t *plane, unsigned int r, unsigned int x, unsigned int rows, unsigned int cols,
++			 unsigned int step) {
++		const int v = plane[static_cast<size_t>(r) * stride + x];
++		int sum = v, n = 1;
++		for (int dr = -1; dr <= 1; dr++) {
++			const int rr = static_cast<int>(r) + dr;
++			if (rr < 0 || rr >= static_cast<int>(rows))
++				continue;
++			const uint8_t *row = plane + static_cast<size_t>(rr) * stride;
++			for (int dc = -1; dc <= 1; dc++) {
++				if (!dr && !dc)
++					continue;
++				const int xx = static_cast<int>(x) + dc * static_cast<int>(step);
++				if (xx < 0 || xx >= static_cast<int>(cols))
++					continue;
++				const int u = row[xx];
++				if (u - v <= kSigma && v - u <= kSigma) {
++					sum += u;
++					n++;
++				}
++			}
++		}
++		return (sum * recip[n] + 32768) >> 16;
++	};
++
++	auto blend = [&](int o, int c, int s, int motion) {
++		/* motion 0 (still) .. 256 (moving) */
++		const int still = o + (((c - o) * params.minWeight + (c >= o ? 128 : -128)) / 256);
++		return (still * (256 - motion) + s * motion + 128) >> 8;
++	};
++
++	auto filterBand = [&](unsigned int firstBlockRow, unsigned int lastBlockRow) {
++		for (unsigned int br = firstBlockRow; br < lastBlockRow; br++) {
++			const unsigned int r0 = br * kBlock;
++			const unsigned int r1 = std::min(r0 + kBlock, height);
++			for (unsigned int bx = 0; bx < width; bx += kBlock) {
++				const unsigned int x1 = std::min(bx + kBlock, width);
++				const int mean16 = blockMean[static_cast<size_t>(br) * blockCols + bx / kBlock];
++				const int motion = mean16 <= t1 ? 0 : mean16 >= t2 ? 256 : (mean16 - t1) * 256 / (t2 - t1);
++
++				for (unsigned int r = r0; r < r1; r++) {
++					uint8_t *out = y + static_cast<size_t>(r) * stride;
++					uint8_t *o = py + static_cast<size_t>(r) * stride;
++					const uint8_t *c = oy + static_cast<size_t>(r) * stride;
++					for (unsigned int x = bx; x < x1; x++) {
++						const int sv = motion ? sigma(oy, r, x, height, width, 1) : c[x];
++						const int v = std::clamp(blend(o[x], c[x], sv, motion), 0, 255);
++						out[x] = o[x] = static_cast<uint8_t>(v);
++					}
++				}
++
++				/* the chroma samples of the block: rows r0/2 .. r1/2, bytes bx .. x1 (U and V interleaved) */
++				for (unsigned int r = r0 / 2; r < (r1 + 1) / 2 && r < height / 2; r++) {
++					uint8_t *out = uv + static_cast<size_t>(r) * stride;
++					uint8_t *o = puv + static_cast<size_t>(r) * stride;
++					const uint8_t *c = ouv + static_cast<size_t>(r) * stride;
++					for (unsigned int x = bx; x < x1; x++) {
++						const int sv = motion ? sigma(ouv, r, x, height / 2, width, 2) : c[x];
++						const int v = std::clamp(blend(o[x], c[x], sv, motion), 0, 255);
++						out[x] = o[x] = static_cast<uint8_t>(v);
++					}
++				}
+ 			}
+ 		}
+ 	};
+ 
+ 	/*
+-	 * The rows do not depend on each other: the frame is cut into bands, one per processor, so that the largest
++	 * The block rows do not depend on each other: the frame is cut into bands, one per processor, so that the largest
+ 	 * picture sizes are filtered within a frame time (a 7.7 megapixel frame on one core of the Surface Go took longer
+ 	 * than the sensor's frame period and cost a quarter of the frame rate).
+ 	 */
+ 	const unsigned int bands = std::clamp(std::thread::hardware_concurrency(), 1U, 4U);
+-	auto run = [&](unsigned int band) {
+-		filter(y, prev.data(), height * band / bands, height * (band + 1) / bands);
+-		filter(uv, prev.data() + ySize, (height / 2) * band / bands, (height / 2) * (band + 1) / bands);
++	auto parallel = [&](auto &&work) {
++		std::vector<std::thread> workers;
++		workers.reserve(bands - 1);
++		for (unsigned int band = 1; band < bands; band++)
++			workers.emplace_back(work, blockRows * band / bands, blockRows * (band + 1) / bands);
++		work(0, blockRows / bands);
++		for (std::thread &worker : workers)
++			worker.join();
+ 	};
+-	std::vector<std::thread> workers;
+-	workers.reserve(bands - 1);
+-	for (unsigned int band = 1; band < bands; band++)
+-		workers.emplace_back(run, band);
+-	run(0);
+-	for (std::thread &worker : workers)
+-		worker.join();
++
++	/* First pass: the mean difference of every block, in 1/16 levels. */
++	blockMean.resize(static_cast<size_t>(blockRows) * blockCols);
++	parallel([&](unsigned int firstBlockRow, unsigned int lastBlockRow) {
++		for (unsigned int br = firstBlockRow; br < lastBlockRow; br++) {
++			const unsigned int r0 = br * kBlock;
++			const unsigned int r1 = std::min(r0 + kBlock, height);
++			for (unsigned int bx = 0; bx < width; bx += kBlock) {
++				const unsigned int x1 = std::min(bx + kBlock, width);
++				int sad = 0, count = 0;
++				for (unsigned int r = r0; r < r1; r++) {
++					const uint8_t *c = oy + static_cast<size_t>(r) * stride;
++					const uint8_t *o = py + static_cast<size_t>(r) * stride;
++					for (unsigned int x = bx; x < x1; x++) {
++						const int d = c[x] - o[x];
++						sad += d < 0 ? -d : d;
++						count++;
++					}
++				}
++				blockMean[static_cast<size_t>(br) * blockCols + bx / kBlock] = sad * 16 / std::max(count, 1);
++			}
++		}
++	});
++
++	/*
++	 * Thresholds: half the parameter and the parameter, raised with the noise of this frame. The median block is still
++	 * in most pictures, so its difference is the noise: in a dim room a fixed threshold took the noise itself for
++	 * motion and the grain came back on still areas.
++	 */
++	std::vector<int> sorted(blockMean);
++	std::nth_element(sorted.begin(), sorted.begin() + sorted.size() / 2, sorted.end());
++	const int noise16 = sorted[sorted.size() / 2];
++	t2 = std::max(std::max(params.threshold, 2) * 16, 2 * noise16);
++	t1 = std::min(std::max(std::max(params.threshold, 2) * 8, noise16), t2 - 1);
++
++	parallel(filterBand);
+ }
+ 
+ /*

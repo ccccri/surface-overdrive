@@ -14,8 +14,14 @@ What was added, what broke, and what fixed it. Newest first. "Verified" means tr
   are: CHNR (wider filters wash out pale colours), the Bayer denoiser (does not act at daylight gains, breaks the picture
   pushed further), a stronger software temporal filter (-10-25% luma grain at full resolution but smears motion). The
   luma grain left is the sensor's.
-- Front camera: stronger temporal denoise by default (24/18 instead of 48/12, patch `0027`; the rear camera keeps
-  48/12). Tried in Kamoso from the tablet with a virtual touchscreen, late afternoon light (20-30 ms, gain 1.1-1.3): the
+- Temporal denoise rewritten (patch `0028`), after the owner saw a trail behind a moving hand and the grain coming
+  back while moving: motion is now judged per 4x4 block (noise cancels out in a block, a soft moving edge does not),
+  moving blocks go through a 3x3 sigma filter instead of passing raw, and the thresholds rise with the noise of each
+  frame (the median block). Checked by running the old and new filters on the same 100 raw frames with movement: the
+  trail is about 4 times smaller than with 48/12 (0.50 against 2.13) with the same still-area grain, and with noise
+  added to stand for a dim room the still areas stay cleaner than with 48/12. Same frame rate as without the filter.
+  Defaults 40/5 for the front camera, 64/5 for the rear one.
+- Front camera: stronger temporal denoise by default (24/18 instead of 48/12, patch `0027`; superseded by `0028`). Tried in Kamoso from the tablet with a virtual touchscreen, late afternoon light (20-30 ms, gain 1.1-1.3): the
   grain of flat areas in the preview drops by about a third, pictures show 5-10% less grain with the same detail. The
   "Grain removal" control of the Cameras page shows each camera's own default.
 
