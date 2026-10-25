@@ -32,5 +32,5 @@ What the previous project (`surface-go-kinoite`) did, and where each piece stand
 | 26 | Pictures in Kamoso: every shot restarts the camera at the picture size, so exposure and focus start over and some pictures come out blurred or dark (and focus feels worse than in our Cameras page) | not yet |
 | 27 | One wallpaper for desktop, lock screen and login screen (the desktop's, copied on every change; the login copy through a polkit helper that gets only pixels) | **done** (`overdrive-wallpaper` user service + `login-wallpaper`) |
 | 28 | Opinionated KDE settings of the owner, shipped as defaults of the image | not yet (list to come) |
-| 29 | Front camera colours and noise | tuning on the tablet only (`/etc/libcamera/ipa/ipu3/ov5693.yaml`), not good enough yet |
+| 29 | Front camera colours and noise | **colours done** (2026-10-25); the noise in dark areas is still high |
 | 30 | Touch in the GRUB menu (the firmware passes touch to boot programs: rEFInd could use it; the volume keys do not reach GRUB) | idea for later: a GRUB build signed with our key, risky for little use |

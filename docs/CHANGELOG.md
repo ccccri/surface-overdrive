@@ -2,6 +2,18 @@
 
 What was added, what broke, and what fixed it. Newest first. "Verified" means tried on the Surface Go itself.
 
+## 2026-10-25
+
+**Changed**
+- Both cameras retuned for their look, against phone pictures of the same room, in every stream size (verified by the
+  owner in Kamoso: "the colours are exactly as I wanted"). The colour matrices measured on a laptop screen are gone: they
+  made real things far too saturated (a light blue wall turquoise, skin red or pink, hair purple) and raised the colour
+  noise by a quarter. A small hand-made matrix turns reds a little towards yellow instead (skin hue 10-14 -> 17-22
+  degrees, the phone's 21). Black level per channel and per sensor mode (dark cloth was magenta on the front camera,
+  blue-cyan on the rear one), gamma 1.5 with an S curve (contrast 0.45), mean target 0.20. No data from Windows: the
+  front camera's lens shading is our own table, which on the same scene did as well as the Windows one of the
+  previous project.
+
 ## 2026-10-24
 
 **Added**
