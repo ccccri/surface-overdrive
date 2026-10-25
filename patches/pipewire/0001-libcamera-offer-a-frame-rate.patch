@@ -1,5 +1,5 @@
 diff --git a/spa/plugins/libcamera/libcamera-source.cpp b/spa/plugins/libcamera/libcamera-source.cpp
-index a9095d4..a63dbd0 100644
+index a9095d4..b986b46 100644
 --- a/spa/plugins/libcamera/libcamera-source.cpp
 +++ b/spa/plugins/libcamera/libcamera-source.cpp
 @@ -4,6 +4,7 @@
@@ -10,15 +10,17 @@ index a9095d4..a63dbd0 100644
  #include <array>
  #include <cstddef>
  #include <limits>
-@@ -524,6 +525,29 @@ color_space_to_colorimetry(const libcamera::ColorSpace& colorspace)
+@@ -524,6 +525,31 @@ color_space_to_colorimetry(const libcamera::ColorSpace& colorspace)
  	return res;
  }
  
 +/*
-+ * The highest frame rate of the camera, from the shortest frame duration it reports (in microseconds), or 30 when it
-+ * reports none. Every format is offered at that frame rate: without one, GStreamer applications fix the frame rate of
-+ * the stream to the smallest fraction they can, and an encoder then writes a frame every 2^31 seconds (Kamoso recorded 6
-+ * frames in 18 seconds). A fixed rate and not a range: GStreamer left a range unfixed at 3200x2400 and the stream failed.
++ * The frame rate offered with every format: the camera's highest one, from the shortest frame duration it reports (in
++ * microseconds), at most 30 fps, and 30 when it reports none. Without a frame rate, GStreamer applications fix the frame
++ * rate of the stream to the smallest fraction they can, and an encoder then writes a frame every 2^31 seconds (Kamoso
++ * recorded 6 frames in 18 seconds). A fixed rate and not a range: GStreamer left a range unfixed at 3200x2400 and the
++ * stream failed. At most 30: the front camera of the Surface Go reports 60 at 1152x864 but delivers about 29 (its
++ * exposure takes the frame time), and a rate the camera does not keep misleads the applications that trust it.
 + */
 +static uint32_t camera_max_fps(struct impl *impl)
 +{
@@ -30,7 +32,7 @@ index a9095d4..a63dbd0 100644
 +	if (shortest <= 0)
 +		return 30;
 +	/* The usual rate at or just below it: a sensor capped at 30 fps reports 31.9 (a 31.35 ms frame). */
-+	const double fps = 1000000.0 / shortest;
++	const double fps = std::min(1000000.0 / shortest, 30.0);
 +	for (uint32_t usual : { 240u, 120u, 60u, 50u, 30u, 25u, 24u, 20u, 15u, 10u, 5u })
 +		if (fps >= usual - 0.5)
 +			return usual;
@@ -40,7 +42,7 @@ index a9095d4..a63dbd0 100644
  int
  spa_libcamera_enum_format(struct impl *impl, struct port *port, int seq,
  		     uint32_t start, uint32_t num, const struct spa_pod *filter)
-@@ -634,6 +658,12 @@ next_fmt:
+@@ -634,6 +660,12 @@ next_fmt:
  		spa_pod_builder_rectangle(&b, frameSize.width, frameSize.height);
  	}
  
@@ -53,7 +55,7 @@ index a9095d4..a63dbd0 100644
  	if (streamConfig.colorSpace) {
  		auto colorimetry = color_space_to_colorimetry(*streamConfig.colorSpace);
  
-@@ -1421,6 +1451,10 @@ int port_get_format(struct impl *impl, struct port *port,
+@@ -1421,6 +1453,10 @@ int port_get_format(struct impl *impl, struct port *port,
  			SPA_FORMAT_VIDEO_format,    SPA_POD_Id(port->current_format->info.raw.format),
  			SPA_FORMAT_VIDEO_size,      SPA_POD_Rectangle(&port->current_format->info.raw.size),
  			0);

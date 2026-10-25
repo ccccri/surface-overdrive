@@ -1,18 +1,19 @@
 diff --git a/src/libcamera/pipeline/ipu3/ipu3.cpp b/src/libcamera/pipeline/ipu3/ipu3.cpp
-index fc7db9b..de5e6cb 100644
+index fc7db9b..1c78385 100644
 --- a/src/libcamera/pipeline/ipu3/ipu3.cpp
 +++ b/src/libcamera/pipeline/ipu3/ipu3.cpp
-@@ -6,6 +6,9 @@
+@@ -6,6 +6,10 @@
   */
  
  #include <algorithm>
++#include <cstring>
 +#if defined(__x86_64__) || defined(__i386__)
 +#include <immintrin.h>
 +#endif
  #include <chrono>
  #include <cmath>
  #include <array>
-@@ -95,6 +98,12 @@ public:
+@@ -95,6 +99,12 @@ public:
  
  	/* Previous filtered frame of each output stream, for the software temporal denoiser. */
  	std::map<const Stream *, std::vector<uint8_t>> tnrPrev_;
@@ -25,7 +26,7 @@ index fc7db9b..de5e6cb 100644
  
  	/* Raw frames still to drop after the stream started: see cio2BufferReady(). */
  	unsigned int startupFramesToDrop_ = 0;
-@@ -1411,13 +1420,202 @@ void IPU3CameraData::metadataReady(unsigned int id, const ControlList &metadata)
+@@ -1411,13 +1421,202 @@ void IPU3CameraData::metadataReady(unsigned int id, const ControlList &metadata)
   *
   * Buffers completed from the ImgU output are directed to the application.
   */
@@ -233,7 +234,7 @@ index fc7db9b..de5e6cb 100644
   */
  void IPU3CameraData::temporalDenoise(const Stream *stream, FrameBuffer *buffer)
  {
-@@ -1435,11 +1633,8 @@ void IPU3CameraData::temporalDenoise(const Stream *stream, FrameBuffer *buffer)
+@@ -1435,11 +1634,8 @@ void IPU3CameraData::temporalDenoise(const Stream *stream, FrameBuffer *buffer)
  	}();
  	params = envParams;
  	if (params.minWeight < 0) {
@@ -247,7 +248,7 @@ index fc7db9b..de5e6cb 100644
  	}
  
  	/* The live profile ("tnr <min weight> <threshold>") wins over the environment. */
-@@ -1483,48 +1678,227 @@ void IPU3CameraData::temporalDenoise(const Stream *stream, FrameBuffer *buffer)
+@@ -1483,48 +1679,258 @@ void IPU3CameraData::temporalDenoise(const Stream *stream, FrameBuffer *buffer)
  	}
  
  	/*
@@ -284,17 +285,12 @@ index fc7db9b..de5e6cb 100644
 -				c[x] = o[x] = static_cast<uint8_t>(v);
 -			}
 -		}
--	};
--
 +	constexpr unsigned int kBlock = 4;
 +	constexpr int kSpatial = 3;
- 	/*
--	 * The rows do not depend on each other: the frame is cut into bands, one per processor, so that the largest
--	 * picture sizes are filtered within a frame time (a 7.7 megapixel frame on one core of the Surface Go took longer
--	 * than the sensor's frame period and cost a quarter of the frame rate).
++	/*
 +	 * Above about 2.5 megapixels (pictures more than video) the spatial smoothing of moving areas is left out: it would
 +	 * cost frames on the Surface Go, and the grain of so many pixels is hardly seen on a screen.
- 	 */
++	 */
 +	const bool spatial = static_cast<size_t>(width) * height <= 2600000;
 +	const unsigned int blockCols = width / kBlock;
 +	const unsigned int blockRows = height / kBlock;
@@ -326,12 +322,27 @@ index fc7db9b..de5e6cb 100644
 +			return tnrWeightsSsse3(a, b, w, width, f);
 +#endif
 +		tnrWeightsPlain(a, b, w, width, f);
-+	};
-+
- 	const unsigned int bands = std::clamp(std::thread::hardware_concurrency(), 1U, 4U);
+ 	};
+ 
+ 	/*
+-	 * The rows do not depend on each other: the frame is cut into bands, one per processor, so that the largest
+-	 * picture sizes are filtered within a frame time (a 7.7 megapixel frame on one core of the Surface Go took longer
+-	 * than the sensor's frame period and cost a quarter of the frame rate).
++	 * One thread by default. Measured on the Surface Go (two cores, four threads), splitting the frame into bands made
++	 * everything worse: 1152x864 took 76% of a core with four bands and 43% with one, and at 2592x1944 two bands
++	 * dropped the stream from 26 to 13 fps. The filter is limited by memory, not by arithmetic, and the extra threads
++	 * only add their start-up cost and compete with the encoder for the same two cores.
++	 * LIBCAMERA_IPU3_TNR_THREADS=n (up to 4) brings the bands back for measuring.
+ 	 */
+-	const unsigned int bands = std::clamp(std::thread::hardware_concurrency(), 1U, 4U);
 -	auto run = [&](unsigned int band) {
 -		filter(y, prev.data(), height * band / bands, height * (band + 1) / bands);
 -		filter(uv, prev.data() + ySize, (height / 2) * band / bands, (height / 2) * (band + 1) / bands);
++	static const unsigned int threads = [] {
++		const char *env = getenv("LIBCAMERA_IPU3_TNR_THREADS");
++		return env ? static_cast<unsigned int>(atoi(env)) : 1U;
++	}();
++	const unsigned int bands = std::clamp(threads, 1U, 4U);
 +	auto parallel = [&](unsigned int items, auto &&job) {
 +		std::vector<std::thread> workers;
 +		workers.reserve(bands - 1);
@@ -340,6 +351,22 @@ index fc7db9b..de5e6cb 100644
 +		job(0, items / bands);
 +		for (std::thread &worker : workers)
 +			worker.join();
++	};
++	uint8_t *py = prev.data();
++	uint8_t *puv = prev.data() + ySize;
++
++	/* LIBCAMERA_IPU3_TNR_TIMING=1: the time of every phase, averaged, on stderr every 60 frames. */
++	using Clock = std::chrono::steady_clock;
++	static const bool timing = getenv("LIBCAMERA_IPU3_TNR_TIMING");
++	static double phase[4];
++	static unsigned int timedFrames;
++	auto t0 = Clock::now();
++	auto lap = [&](int i) {
++		if (!timing)
++			return;
++		const auto t = Clock::now();
++		phase[i] += std::chrono::duration<double, std::milli>(t - t0).count();
++		t0 = t;
  	};
 -	std::vector<std::thread> workers;
 -	workers.reserve(bands - 1);
@@ -348,8 +375,6 @@ index fc7db9b..de5e6cb 100644
 -	run(0);
 -	for (std::thread &worker : workers)
 -		worker.join();
-+	uint8_t *py = prev.data();
-+	uint8_t *puv = prev.data() + ySize;
 +
 +	/* Block sums of |cur - prev| on rows 0 and 2 of every block (8 pixels each), and their histogram. */
 +	std::vector<int> &sums = tnrBlocks_[stream];
@@ -375,6 +400,7 @@ index fc7db9b..de5e6cb 100644
 +		}
 +	});
 +
++	lap(0);
 +	/* Thresholds on the sums (8 pixels): from half the parameter to the parameter, raised with the median block. */
 +	std::array<int, 8 * 255 + 1> hist{};
 +	for (const auto &bandH : bandHist)
@@ -431,6 +457,7 @@ index fc7db9b..de5e6cb 100644
 +		}
 +	});
 +
++	lap(1);
 +	/* The original row just above each band: the band before writes it before the next band reads it. */
 +	std::vector<uint8_t> &edges = tnrWork_[stream];
 +	edges.resize(static_cast<size_t>(bands) * width);
@@ -509,6 +536,10 @@ index fc7db9b..de5e6cb 100644
 +			}
 +		}
 +	});
++	lap(2);
++	if (timing && ++timedFrames % 60 == 0)
++		fprintf(stderr, "tnr %ux%u ssse3 %d: sums %.2f map %.2f filter %.2f ms\n", width, height, ssse3 ? 1 : 0,
++			phase[0] / timedFrames, phase[1] / timedFrames, phase[2] / timedFrames);
  }
  
  /*

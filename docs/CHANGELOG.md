@@ -4,6 +4,24 @@ What was added, what broke, and what fixed it. Newest first. "Verified" means tr
 
 ## 2026-10-25
 
+**Fixed (evening)**
+- Temporal denoise on one thread (patch `0028`). The frame was cut into up to four bands filtered in parallel; on the
+  Surface Go (two cores, four threads) that only added CPU. Measured with `cam`, steady state, per stream: front
+  1152x864 76% of a core with four bands, 43% with one (the filter itself 8.5 ms a frame, the camera without it 13%);
+  2592x1944 26 fps with one band, 13 with two; rear 3264x2448 15 fps with one, 9 with two. In Kamoso the camera service
+  went from about 1.6 cores to 35% of one (preview, front, evening light). `LIBCAMERA_IPU3_TNR_THREADS` brings the bands
+  back for measuring. Tried and dropped: filtering a copy of the frame in ordinary memory (no faster).
+- The PipeWire camera plugin offers at most 30 fps. The front camera reported 60 at 1152x864 but delivers about 29.
+- Health check: a missing camera now comes with its cause when the IPA refused the tuning file (the algorithm it did not
+  know, and the command that sets the file aside).
+- CI: the image push retry used `podman push --retry`, which the runner's podman does not know, so every push failed.
+
+**Known limits (evening)**
+- Kamoso videos at 1152x864 and above play too fast. Kamoso records Theora in software through `camerabin`, which
+  numbers the frames instead of keeping their times when the encoder falls behind. Reproduced on the tablet with a test
+  pattern and no camera at all: 10 s became 10 s at 640x480 and 4.3 s at 1152x864 (Theora manages about 13 fps there).
+  The camera's own timestamps are right (checked with `pipewiresrc`). Kamoso itself uses one full core while recording.
+
 **Added**
 - Front camera: XNR3 of the ImgU turned on for chroma (new IPA algorithm `NoiseReduction`, patch `0026`; key `xnr3` in
   the tuning file and the live profile). The kernel leaves XNR3 at alpha 2047 and strength 0, which does nothing; earlier
