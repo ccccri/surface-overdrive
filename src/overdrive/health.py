@@ -7,6 +7,7 @@ what the fix does, how it works, and what to do when it is not green. The checks
 import glob
 import json
 import os
+import re
 import subprocess
 from dataclasses import asdict, dataclass
 
@@ -171,7 +172,39 @@ def check_cameras(system):
     missing = [label for lnk, label in (("LNK0", "rear"), ("LNK1", "front")) if "libcamera_input.__SB_.PCI0." + lnk not in out]
     if not missing:
         return _check("cameras", "Cameras", "Cameras visible to applications", OK, "rear and front")
-    return _check("cameras", "Cameras", "Cameras visible to applications", FAIL, "missing: " + ", ".join(missing))
+    detail = "missing: " + ", ".join(missing)
+    cause = camera_failure_cause(system)
+    if cause:
+        detail += " - " + cause
+    return _check("cameras", "Cameras", "Cameras visible to applications", FAIL, detail)
+
+
+def camera_failure_cause(system):
+    """Why libcamera left a camera out, from the log of the camera service: restarting the service does not help when
+    the tuning file is refused (a copy in /etc made for another libcamera, an algorithm this libcamera does not know)."""
+    rc, out = system.run(["journalctl", "--user", "-b", "--no-pager", "-o", "cat", "-n", "600",
+                          "-u", "wireplumber", "-u", "wireplumber@video-capture"])
+    if rc != 0 or "Failed to initialise the IPU3 IPA" not in out:
+        return ""
+    lines = out.splitlines()
+    for i, line in enumerate(lines):
+        if "Failed to initialise the IPU3 IPA" not in line:
+            continue
+        tuning = algorithm = ""
+        for before in reversed(lines[max(0, i - 8):i]):
+            m = re.search(r"Algorithm '([^']+)' not found", before)
+            if m and not algorithm:
+                algorithm = m.group(1)
+            m = re.search(r"Using tuning file (\S+)", before)
+            if m and not tuning:
+                tuning = m.group(1)
+        why = "libcamera refused the tuning file %s" % (tuning or "of the camera")
+        if algorithm:
+            why += " (it does not know the algorithm '%s')" % algorithm
+        if tuning.startswith("/etc/"):
+            why += "; it is a local copy that overrides the image's: move it away (sudo mv %s %s.off), then repair" % (tuning, tuning)
+        return why
+    return ""
 
 
 def check_tuning(system):

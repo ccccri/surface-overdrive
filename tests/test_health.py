@@ -145,3 +145,21 @@ class SummaryTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class CameraCause(unittest.TestCase):
+    LOG = ("INFO IPAProxy ipa_proxy.cpp:184 Using tuning file /etc/libcamera/ipa/ipu3/ov5693.yaml\n"
+           "ERROR IPAModuleAlgo module.h:91 ipu3: Algorithm 'NoiseReduction' not found\n"
+           "ERROR IPU3 ipu3.cpp:1342 Failed to initialise the IPU3 IPA\n")
+    JOURNAL = ("journalctl", "--user", "-b", "--no-pager", "-o", "cat", "-n", "600", "-u", "wireplumber", "-u", "wireplumber@video-capture")
+
+    def test_refused_tuning_file_is_explained(self):
+        nodes = "node.name = \"libcamera_input.__SB_.PCI0.LNK0\""
+        c = health.check_cameras(FakeSystem(commands={("pw-cli", "ls", "Node"): (0, nodes), self.JOURNAL: (0, self.LOG)}))
+        self.assertEqual(c.status, health.FAIL)
+        self.assertIn("missing: front", c.detail)
+        self.assertIn("NoiseReduction", c.detail)
+        self.assertIn("sudo mv /etc/libcamera/ipa/ipu3/ov5693.yaml", c.detail)
+
+    def test_no_cause_without_the_error(self):
+        self.assertEqual(health.camera_failure_cause(FakeSystem(commands={self.JOURNAL: (0, "all fine")})), "")
