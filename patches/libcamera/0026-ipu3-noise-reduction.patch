@@ -1,0 +1,240 @@
+diff --git a/src/ipa/ipu3/algorithms/meson.build b/src/ipa/ipu3/algorithms/meson.build
+index 58123da..712817c 100644
+--- a/src/ipa/ipu3/algorithms/meson.build
++++ b/src/ipa/ipu3/algorithms/meson.build
+@@ -6,5 +6,6 @@ ipu3_ipa_algorithms = files([
+     'awb.cpp',
+     'blc.cpp',
+     'lsc.cpp',
++    'noise_reduction.cpp',
+     'tone_mapping.cpp',
+ ])
+diff --git a/src/ipa/ipu3/algorithms/noise_reduction.cpp b/src/ipa/ipu3/algorithms/noise_reduction.cpp
+new file mode 100644
+index 0000000..e6fa8e0
+--- /dev/null
++++ b/src/ipa/ipu3/algorithms/noise_reduction.cpp
+@@ -0,0 +1,168 @@
++/* SPDX-License-Identifier: LGPL-2.1-or-later */
++/*
++ * IPU3 spatial noise reduction: XNR3 and the chroma noise reduction (CHNR) of the ImgU
++ */
++
++#include "noise_reduction.h"
++
++#include <algorithm>
++#include <vector>
++
++#include <libcamera/base/log.h>
++
++#include "libcamera/internal/value_node.h"
++
++/**
++ * \file noise_reduction.h
++ * \brief IPU3 spatial noise reduction
++ */
++
++namespace libcamera {
++
++namespace ipa::ipu3::algorithms {
++
++LOG_DEFINE_CATEGORY(IPU3NoiseReduction)
++
++/**
++ * \class NoiseReduction
++ * \brief The XNR3 and CHNR blocks of the ImgU, which the kernel otherwise leaves at their defaults
++ *
++ * XNR3 is the strongest chroma denoiser of the ImgU. The kernel sets its three alpha values to 2047 and its blending
++ * strength to 0, so it does nothing. Measured on a Surface Go (OV5693, static scene): with alpha 32 and strength 2048 the
++ * chroma blotches of the full resolution mode drop by a quarter in the shadows and by almost half in the midtones, with
++ * the colour of real objects and the detail unchanged. The parameters, as found by measuring:
++ *  - alpha is the inverse of the filter's sigma (Intel's CSS computes it as 1024 * 32 / sigma): small values filter
++ *    hard, large ones (the kernel's 2047) not at all;
++ *  - the blending strength is fully on at 2048; other values (1024, 1536, 4095) made the noise worse;
++ *  - on the firmware's video binaries XNR3 acts on chroma only: the Y alpha changes nothing.
++ *
++ * CHNR runs with the kernel's defaults; wider filters remove more chroma noise but also wash out pale colours.
++ *
++ * Tuning data (all optional):
++ *   xnr3: [ alpha y0, u0, v0, ydiff, udiff, vdiff, coring u0, v0, udiff, vdiff, blending strength ]
++ *   xnr3Binned: the same for the 2x2 binned sensor modes
++ *   chnr: [ coring u, v, sense gain vy, vu, vv, hy, hu, hv, FIR tap 0, 1, 2, IIR weight ]
++ * The "xnr3" and "chnr" keys of the camera's live profile win over the tuning data (to tune on a running camera).
++ */
++
++namespace {
++
++template<std::size_t N>
++bool readList(const ValueNode &tuningData, const char *key, std::array<double, N> &out)
++{
++	if (!tuningData.contains(key))
++		return false;
++	const auto v = tuningData[key].get<std::vector<double>>();
++	if (!v || v->size() != N) {
++		LOG(IPU3NoiseReduction, Error) << "'" << key << "' needs " << N << " values";
++		return false;
++	}
++	std::copy(v->begin(), v->end(), out.begin());
++	return true;
++}
++
++template<std::size_t N>
++bool profileList(LiveProfile *profile, const char *key, std::array<double, N> &out)
++{
++	if (!profile)
++		return false;
++	const auto v = profile->list(key);
++	if (v.size() != N)
++		return false;
++	std::copy(v.begin(), v.end(), out.begin());
++	return true;
++}
++
++uint32_t clampU(double v, uint32_t max)
++{
++	return static_cast<uint32_t>(std::clamp(v, 0.0, static_cast<double>(max)));
++}
++
++/* What the kernel sets when it computes the parameters itself (drivers/staging/media/ipu3). */
++constexpr std::array<double, 11> kXnr3Off = { 2047, 2047, 2047, 0, 0, 0, 0, 0, 0, 0, 0 };
++constexpr std::array<double, 12> kChnrDefault = { 0, 0, 6, 6, 6, 4, 4, 4, 8, 12, 0, 129 };
++
++} /* namespace */
++
++int NoiseReduction::init([[maybe_unused]] IPAContext &context, const ValueNode &tuningData)
++{
++	hasXnr3_ = readList(tuningData, "xnr3", xnr3_);
++	hasXnr3Binned_ = readList(tuningData, "xnr3Binned", xnr3Binned_);
++	hasChnr_ = readList(tuningData, "chnr", chnr_);
++	return 0;
++}
++
++int NoiseReduction::configure([[maybe_unused]] IPAContext &context, const IPAConfigInfo &configInfo)
++{
++	profile_ = std::make_unique<LiveProfile>(configInfo.sensorInfo.model);
++	const Size &active = configInfo.sensorInfo.activeAreaSize;
++	const Size &output = configInfo.sensorInfo.outputSize;
++	binned_ = output.width && static_cast<double>(active.width) / output.width >= 1.5;
++	/* A new streaming session: the kernel starts from its own values again. */
++	xnr3Set_ = false;
++	chnrSet_ = false;
++	return 0;
++}
++
++void NoiseReduction::prepare([[maybe_unused]] IPAContext &context, [[maybe_unused]] const uint32_t frame,
++			     [[maybe_unused]] IPAFrameContext &frameContext, ipu3_uapi_params *params)
++{
++	if (profile_)
++		profile_->poll();
++
++	std::array<double, kXnr3Size> x = binned_ && hasXnr3Binned_ ? xnr3Binned_ : xnr3_;
++	bool hasX = hasXnr3_ || (binned_ && hasXnr3Binned_);
++	if (profileList(profile_.get(), "xnr3", x))
++		hasX = true;
++	if (!hasX && xnr3Set_)
++		x = kXnr3Off;
++	if (hasX || xnr3Set_) {
++		ipu3_uapi_isp_xnr3_params &p = params->xnr3_dmem_params;
++		p.alpha.y0 = clampU(x[0], 0xffff);
++		p.alpha.u0 = clampU(x[1], 0xffff);
++		p.alpha.v0 = clampU(x[2], 0xffff);
++		p.alpha.ydiff = clampU(x[3], 0xffff);
++		p.alpha.udiff = clampU(x[4], 0xffff);
++		p.alpha.vdiff = clampU(x[5], 0xffff);
++		p.coring.u0 = clampU(x[6], 0xffff);
++		p.coring.v0 = clampU(x[7], 0xffff);
++		p.coring.udiff = clampU(x[8], 0xffff);
++		p.coring.vdiff = clampU(x[9], 0xffff);
++		p.blending.strength = clampU(x[10], 0xffff);
++		params->use.xnr3_dmem_params = 1;
++		xnr3Set_ = hasX;
++	}
++
++	std::array<double, kChnrSize> c = chnr_;
++	bool hasC = hasChnr_;
++	if (profileList(profile_.get(), "chnr", c))
++		hasC = true;
++	if (!hasC && chnrSet_)
++		c = kChnrDefault;
++	if (hasC || chnrSet_) {
++		ipu3_uapi_yuvp1_chnr_config chnr{};
++		chnr.coring.u = clampU(c[0], 8191);
++		chnr.coring.v = clampU(c[1], 8191);
++		chnr.sense_gain.vy = clampU(c[2], 255);
++		chnr.sense_gain.vu = clampU(c[3], 255);
++		chnr.sense_gain.vv = clampU(c[4], 255);
++		chnr.sense_gain.hy = clampU(c[5], 255);
++		chnr.sense_gain.hu = clampU(c[6], 255);
++		chnr.sense_gain.hv = clampU(c[7], 255);
++		chnr.iir_fir.fir_0h = clampU(c[8], 32);
++		chnr.iir_fir.fir_1h = clampU(c[9], 32);
++		chnr.iir_fir.fir_2h = clampU(c[10], 32);
++		chnr.iir_fir.dalpha_clip_val = std::max<uint32_t>(clampU(c[11], 256), 1);
++		params->acc_param.chnr = chnr;
++		params->acc_param.chnr_c0 = chnr;
++		params->use.acc_chnr = 1;
++		params->use.acc_chnr_c0 = 1;
++		chnrSet_ = hasC;
++	}
++}
++
++REGISTER_IPA_ALGORITHM(NoiseReduction, "NoiseReduction")
++
++} /* namespace ipa::ipu3::algorithms */
++
++} /* namespace libcamera */
+diff --git a/src/ipa/ipu3/algorithms/noise_reduction.h b/src/ipa/ipu3/algorithms/noise_reduction.h
+new file mode 100644
+index 0000000..3db987d
+--- /dev/null
++++ b/src/ipa/ipu3/algorithms/noise_reduction.h
+@@ -0,0 +1,49 @@
++/* SPDX-License-Identifier: LGPL-2.1-or-later */
++/*
++ * IPU3 spatial noise reduction: XNR3 and the chroma noise reduction (CHNR) of the ImgU
++ */
++
++#pragma once
++
++#include <array>
++#include <memory>
++
++#include "libcamera/internal/live_profile.h"
++
++#include "algorithm.h"
++
++namespace libcamera {
++
++namespace ipa::ipu3::algorithms {
++
++class NoiseReduction : public Algorithm
++{
++public:
++	int init(IPAContext &context, const ValueNode &tuningData) override;
++	int configure(IPAContext &context, const IPAConfigInfo &configInfo) override;
++	void prepare(IPAContext &context, const uint32_t frame,
++		     IPAFrameContext &frameContext,
++		     ipu3_uapi_params *params) override;
++
++private:
++	static constexpr unsigned int kXnr3Size = 11;
++	static constexpr unsigned int kChnrSize = 12;
++
++	/* XNR3: alpha y0 u0 v0 ydiff udiff vdiff, coring u0 v0 udiff vdiff, blending strength. */
++	std::array<double, kXnr3Size> xnr3_{};
++	std::array<double, kXnr3Size> xnr3Binned_{};
++	bool hasXnr3_ = false;
++	bool hasXnr3Binned_ = false;
++	/* CHNR: coring u v, sense gains vy vu vv hy hu hv, FIR taps 0 1 2, IIR weight. */
++	std::array<double, kChnrSize> chnr_{};
++	bool hasChnr_ = false;
++	/* Whether the last frame set XNR3 or CHNR: the kernel keeps the last values it got until it is told otherwise. */
++	bool xnr3Set_ = false;
++	bool chnrSet_ = false;
++	bool binned_ = false;
++	std::unique_ptr<LiveProfile> profile_;
++};
++
++} /* namespace ipa::ipu3::algorithms */
++
++} /* namespace libcamera */

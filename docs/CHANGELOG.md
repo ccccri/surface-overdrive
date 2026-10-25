@@ -4,6 +4,22 @@ What was added, what broke, and what fixed it. Newest first. "Verified" means tr
 
 ## 2026-10-25
 
+**Added**
+- Front camera: XNR3 of the ImgU turned on for chroma (new IPA algorithm `NoiseReduction`, patch `0026`; key `xnr3` in
+  the tuning file and the live profile). The kernel leaves XNR3 at alpha 2047 and strength 0, which does nothing; earlier
+  tries with "strong" values did nothing either, because alpha is the inverse of the filter's sigma (Intel's CSS:
+  1024 * 32 / sigma). Measured by switching it on in the middle of one stream on a static scene: chroma blotches -25% in
+  the shadows and -45% in the midtones at full resolution, -10-15% binned, colours and detail unchanged; the red and green
+  dots in dark areas are gone. XNR3 acts on chroma only on the firmware's video binaries. Also measured and left as they
+  are: CHNR (wider filters wash out pale colours), the Bayer denoiser (does not act at daylight gains, breaks the picture
+  pushed further), a stronger software temporal filter (-10-25% luma grain at full resolution but smears motion). The
+  luma grain left is the sensor's.
+
+**Fixed**
+- Kamoso listed every camera twice when the cameras' WirePlumber instance ran without the configuration that takes the
+  cameras away from the main one (on a system where only part of the change was in place): the instance now starts only
+  when that file is there.
+
 **Verified**
 - Rear camera stress test (`tools/dev/rear_stress.sh`, every frame checked for black, flat or frozen): 40 start/stop at every
   size, 15 size changes through the camera service, two applications at once, rear and front in turn, 10 minutes at
