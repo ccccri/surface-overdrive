@@ -4,6 +4,9 @@
 # Tuned on 2026-10-25 against a phone picture of the same room (skin, a light blue wall, a white ceiling, black cloth),
 # trying several variants on the same scene in both sensor modes (2x2 binned for the 1152x864 preview, full resolution
 # for 2560x1920 pictures):
+#  - 2026-10-26: judged again with the colours read right (patch 0029: limited-range BT.709 out of the ImgU, the colour
+#    space applications assume). Skin hue 25 degrees, saturation 0.35 (a colour chart's light skin: 19, 0.33); the
+#    light blue wall as saturated as on the phone. Contrast 0.45 -> 0.7 for blacks that read as black.
 #  - Lens shading: our table from a box brightness and a front-lit sheet colour (2026-10-19).
 #  - Black level per channel and per mode: the red and blue channels need a few codes more than green, or dark things
 #    (black cloth, hair) turn magenta once the white balance gains multiply what is left of the pedestal.
@@ -55,7 +58,7 @@ algorithms:
       bnr: [ 1700, 24, 4, 8, 8, 10 ]
   - ToneMapping:
       gamma: 1.5
-      contrast: 0.45
+      contrast: 0.7
   - Lsc:
       cell: 64
       grid: [ 41, 31 ]

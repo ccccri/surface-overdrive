@@ -1,0 +1,91 @@
+diff --git a/src/ipa/ipu3/ipu3.cpp b/src/ipa/ipu3/ipu3.cpp
+index 4bdc4b7..24b5dc1 100644
+--- a/src/ipa/ipu3/ipu3.cpp
++++ b/src/ipa/ipu3/ipu3.cpp
+@@ -8,9 +8,11 @@
+ #include <algorithm>
+ #include <array>
+ #include <cmath>
++#include <cstring>
+ #include <limits>
+ #include <map>
+ #include <memory>
++#include <optional>
+ #include <stdint.h>
+ #include <utility>
+ #include <vector>
+@@ -530,6 +532,9 @@ void IPAIPU3::unmapBuffers(const std::vector<unsigned int> &ids)
+ 	}
+ }
+ 
++/* The luma offset of limited range, 16 of 255: the bias is in 1/32 of an 8-bit level (measured: 512 adds 16). */
++static constexpr __s16 kCscLumaBias = 512;
++
+ /**
+  * \brief Fill and return a buffer with ISP processing parameters for a frame
+  * \param[in] frame The frame number
+@@ -566,6 +571,37 @@ void IPAIPU3::computeParams(const uint32_t frame, const uint32_t bufferId)
+ 	for (const auto &algo : algorithms())
+ 		algo->prepare(context_, frame, frameContext, params);
+ 
++	/*
++	 * The ImgU's RGB to YUV matrix. The kernel's default one gives full-range analogue YUV (U = 0.492 (B - Y),
++	 * V = 0.877 (R - Y)), which no application expects. Applications that do not read the colour space (Kamoso among
++	 * them) take anything taller than 576 lines for limited-range BT.709, the GStreamer default: blacks were crushed,
++	 * whites clipped and red came out 57% too strong. This is limited-range BT.709, which the pipeline handler also
++	 * reports, so it reads right either way. LIBCAMERA_IPU3_CSC: "kernel" keeps the kernel's matrix, twelve numbers
++	 * set one (rows of c1 c2 c3 bias, s0.14 and s13.0), for measuring.
++	 */
++	static const std::optional<ipu3_uapi_csc_mat_config> csc = []() -> std::optional<ipu3_uapi_csc_mat_config> {
++		ipu3_uapi_csc_mat_config m = {
++			2991, 10064, 1016, kCscLumaBias,
++			-1649, -5547, 7196, 0,
++			7196, -6537, -659, 0,
++		};
++		const char *env = getenv("LIBCAMERA_IPU3_CSC");
++		if (env && !strcmp(env, "kernel"))
++			return std::nullopt;
++		int v[12];
++		if (env && sscanf(env, "%d %d %d %d %d %d %d %d %d %d %d %d", &v[0], &v[1], &v[2], &v[3], &v[4], &v[5],
++				  &v[6], &v[7], &v[8], &v[9], &v[10], &v[11]) == 12)
++			m = { static_cast<__s16>(v[0]), static_cast<__s16>(v[1]), static_cast<__s16>(v[2]),
++			      static_cast<__s16>(v[3]), static_cast<__s16>(v[4]), static_cast<__s16>(v[5]),
++			      static_cast<__s16>(v[6]), static_cast<__s16>(v[7]), static_cast<__s16>(v[8]),
++			      static_cast<__s16>(v[9]), static_cast<__s16>(v[10]), static_cast<__s16>(v[11]) };
++		return m;
++	}();
++	if (csc) {
++		params->use.acc_csc = 1;
++		params->acc_param.csc = *csc;
++	}
++
+ 	paramsComputed.emit(frame);
+ }
+ 
+diff --git a/src/libcamera/pipeline/ipu3/ipu3.cpp b/src/libcamera/pipeline/ipu3/ipu3.cpp
+index 1c78385..4792452 100644
+--- a/src/libcamera/pipeline/ipu3/ipu3.cpp
++++ b/src/libcamera/pipeline/ipu3/ipu3.cpp
+@@ -28,6 +28,7 @@
+ #include <libcamera/base/utils.h>
+ 
+ #include <libcamera/camera.h>
++#include <libcamera/color_space.h>
+ #include <libcamera/control_ids.h>
+ #include <libcamera/formats.h>
+ #include <libcamera/property_ids.h>
+@@ -409,6 +410,14 @@ CameraConfiguration::Status IPU3CameraConfiguration::validate()
+ 			cfg->stride = info.stride(cfg->size.width, 0, 1);
+ 			cfg->frameSize = info.frameSize(cfg->size, 1);
+ 
++			/*
++			 * The IPA sets the ImgU's colour conversion to limited-range BT.709, the colour space GStreamer
++			 * assumes for these sizes when none is given; saying so helps the applications that do read it.
++			 */
++			if (cfg->colorSpace && *cfg->colorSpace != ColorSpace::Rec709)
++				status = Adjusted;
++			cfg->colorSpace = ColorSpace::Rec709;
++
+ 			/*
+ 			 * Use the main output stream in case only one stream is
+ 			 * requested or if the current configuration is the one

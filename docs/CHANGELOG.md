@@ -2,6 +2,20 @@
 
 What was added, what broke, and what fixed it. Newest first. "Verified" means tried on the Surface Go itself.
 
+## 2026-10-26
+
+**Fixed**
+- Camera colours read wrong in every application (patch `0029`). The ImgU used the kernel's default colour conversion,
+  which gives full-range analogue YUV (V = 0.877 (R - Y)), and the pipeline declared no colour space, so GStreamer (and
+  Kamoso, which ignores a declared one anyway) read it as limited-range BT.709: blacks crushed, whites clipped, red 57%
+  too strong. The owner saw pink skin and red grain on the front camera at 4.9 MP. The IPA now programs limited-range
+  BT.709 and the pipeline declares it. The bias of the conversion is in 1/32 of an 8-bit level (measured: 512 adds
+  exactly 16). In Kamoso, same scene: wall saturation 0.157 -> 0.120 (the phone: 0.097), black cloth 29 -> 35, colour
+  noise on a white ceiling -12%. Both cameras; the rear's black lamp base lost its red cast.
+- Front camera tone curve: contrast 0.45 -> 0.7 (blacks lifted once they were no longer crushed by the wrong decoding).
+  The owner's profile had gamma 1.55, contrast 0.65 and shadows 0.35, set to make up for the crushed blacks; they were
+  taken out on the tablet (copy in /var/tmp/art/ov5693.profile.before-csc).
+
 ## 2026-10-25
 
 **Fixed (evening)**
