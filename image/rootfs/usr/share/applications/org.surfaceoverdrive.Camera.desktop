@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Camera
+GenericName=Photos and videos
+Comment=Photos and videos from the built-in cameras, recorded on the GPU
+Exec=overdrive-camera
+Icon=camera-photo
+Categories=AudioVideo;Video;Recorder;Qt;
+Keywords=camera;webcam;photo;video;record;selfie;
+StartupNotify=true
+StartupWMClass=org.surfaceoverdrive.Camera

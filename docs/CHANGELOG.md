@@ -4,6 +4,15 @@ What was added, what broke, and what fixed it. Newest first. "Verified" means tr
 
 ## 2026-10-26
 
+**Added (evening)**
+- Camera app (`overdrive-camera`, "Camera" in the menu; `src/overdrive/cameraapp.py` + `.qml`, PySide6 and GStreamer):
+  preview scaled on the GPU (`vapostproc`) and shown by Qt, mirrored for the front camera; photos from the full-size
+  frame (JPEG, ~/Pictures/Camera); videos on a second stream of the same camera, H.264 on the GPU (`vah264enc`) with
+  AAC sound in MP4 (~/Videos). The size is the one the Cameras page chooses. Verified on the tablet, front at 2560x1920
+  in the evening: 23.9 s recorded in 23.9 s (579 frames, 24.3 fps, AAC 48 kHz stereo), the whole system at 117% of
+  400% while recording (Kamoso's software Theora alone took over 100% and its videos played too fast); switching to the
+  rear (3200x2400) works.
+
 **Added (afternoon)**
 - RPM Fusion's `intel-media-driver` replaces Fedora's `libva-intel-media-driver` in the image, for H.264 and HEVC
   encoding on the GPU (Fedora's build has neither; on the tablet only VA-API JPEG worked, and the HD 615 has no VP8/VP9
@@ -26,8 +35,10 @@ What was added, what broke, and what fixed it. Newest first. "Verified" means tr
   `native_sclk_mhz`, 144 by default). At 3264x2448 the rear camera gives 15 fps because the driver clocks the sensor
   array at 144 MHz in the full resolution modes (3888 x 2470 per frame); the four MIPI lanes at 720 Mbps carry 8 MP at
   30 fps (2.88 Gbit/s against 2.4), so 288 MHz (PLL2's VCO at 720 MHz divided by 2.5, as the binned modes run it) should
-  give 30. Off until tried on the tablet: `echo 288 | sudo tee /sys/module/ov8865/parameters/native_sclk_mhz`, then
-  restart the camera.
+  give 30. Tried on the tablet: 29.9 fps, but the pictures came out broken (stripes, lines cut short); the sensor
+  reads lines faster than its MIPI pixel clock (90 MHz) sends them. Second try in the same patch: `native_mipi_div`
+  sets that divider in the fast mode (to be tried on the tablet), and the pixel rate is now recomputed on every format
+  set while stopped (it was only on a new mode, so libcamera kept the old frame times). Off by default.
 
 **Fixed**
 - Camera colours read wrong in every application (patch `0029`). The ImgU used the kernel's default colour conversion,
