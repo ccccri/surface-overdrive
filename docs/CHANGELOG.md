@@ -5,6 +5,9 @@ What was added, what broke, and what fixed it. Newest first. "Verified" means tr
 ## 2026-10-26
 
 **Fixed (night, found by stressing the camera app on the tablet)**
+- The wallpaper service asked `kscreen-doctor` for the screen size at every check; it crashed once at the start of a
+  session (a crash report in the journal). The size now comes from the kernel: the native mode of the connected eDP
+  panel in /sys/class/drm (orientation does not matter there: long and short side).
 - Boot: the initramfs we regenerate (for Plymouth) was 240 MB, 150 of them firmware of NVIDIA and AMD graphics cards
   the Surface Go does not have; the firmware read it for about 12 s at every boot (systemd-analyze: loader 15 s of a
   50 s boot). dracut now leaves out nouveau, amdgpu and radeon.

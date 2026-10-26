@@ -110,3 +110,25 @@ class PlasmaTheme(unittest.TestCase):
             with open(os.path.join(tmp, "plasmarc"), "w") as f:
                 f.write("[Other]\nname=x\n\n[Theme]\nname=breeze-light\n")
             self.assertFalse(wallpaper.plasma_theme_is_dark())
+
+
+class ScreenSize(unittest.TestCase):
+    def make(self, root, name, status, modes):
+        d = os.path.join(root, name)
+        os.makedirs(d)
+        with open(os.path.join(d, "status"), "w") as f:
+            f.write(status + "\n")
+        with open(os.path.join(d, "modes"), "w") as f:
+            f.write(modes)
+
+    def test_native_mode_of_the_connected_panel(self):
+        with tempfile.TemporaryDirectory() as root:
+            self.make(root, "card1-DP-1", "disconnected", "")
+            self.make(root, "card1-eDP-1", "connected", "1800x1200\n1800x1200\n1280x720\n")
+            self.assertEqual(wallpaper.screen_size(root), (1800, 1200))
+
+    def test_default_without_a_panel(self):
+        with tempfile.TemporaryDirectory() as root:
+            self.make(root, "card1-HDMI-A-1", "connected", "1920x1080\n")
+            self.assertEqual(wallpaper.screen_size(root), wallpaper.DEFAULT_SCREEN)
+            self.assertEqual(wallpaper.screen_size(os.path.join(root, "missing")), wallpaper.DEFAULT_SCREEN)

@@ -162,17 +162,27 @@ def make_package(location, screen):
     return pkg
 
 
-def screen_size():
-    """(width, height) of the built-in screen in pixels, as it stands now."""
+def screen_size(drm="/sys/class/drm"):
+    """(width, height) of the built-in screen in pixels: the native mode of the connected panel (eDP, the first of its modes),
+    read from the kernel. Which way round does not matter here (the long and short sides are what count). This used to ask
+    kscreen-doctor, which crashed once at the start of a session (2026-10-26) and costs a process at every check."""
     try:
-        # without the offscreen platform of this service: kscreen-doctor needs the real one (it hangs otherwise)
-        env = {k: v for k, v in os.environ.items() if k != "QT_QPA_PLATFORM"}
-        out = subprocess.run(["kscreen-doctor", "-j"], capture_output=True, text=True, timeout=10, env=env).stdout
-        for o in json.loads(out)["outputs"]:
-            if o.get("enabled", True):
-                mode = next(m for m in o["modes"] if m["id"] == o["currentModeId"])
-                return mode["size"]["width"], mode["size"]["height"]
-    except (OSError, ValueError, KeyError, StopIteration, subprocess.SubprocessError):
+        for name in sorted(os.listdir(drm)):
+            if "-eDP-" not in name:
+                continue
+            path = os.path.join(drm, name)
+            try:
+                with open(os.path.join(path, "status")) as f:
+                    if f.read().strip() != "connected":
+                        continue
+                with open(os.path.join(path, "modes")) as f:
+                    first = f.readline().strip()
+            except OSError:
+                continue
+            m = re.fullmatch(r"(\d+)x(\d+)\S*", first)
+            if m:
+                return int(m.group(1)), int(m.group(2))
+    except OSError:
         pass
     return DEFAULT_SCREEN
 
