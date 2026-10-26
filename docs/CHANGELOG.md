@@ -4,6 +4,12 @@ What was added, what broke, and what fixed it. Newest first. "Verified" means tr
 
 ## 2026-10-26
 
+**Added (afternoon)**
+- RPM Fusion's `intel-media-driver` replaces Fedora's `libva-intel-media-driver` in the image, for H.264 and HEVC
+  encoding on the GPU (Fedora's build has neither; on the tablet only VA-API JPEG worked, and the HD 615 has no VP8/VP9
+  encoder). It installs in `/usr/lib64/dri-nonfree`, which Fedora's libva searches first. The RPM Fusion repositories
+  are used during the build only. Tried in a Fedora 44 container: signed package, key from the release package.
+
 **Fixed (afternoon)**
 - Front camera grain at 4.9 MP (patch `0030`). The motion detector of the temporal filter used the median block
   difference as its first threshold, so half of a still picture counted as a little moving and, widened by one block,

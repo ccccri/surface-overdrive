@@ -139,6 +139,19 @@ RUN set -eux; \
     rpm -q libcamera libcamera-ipa | grep -q overdrive; \
     rm -rf /tmp/libcamera-rpms /tmp/libcamera-packages; dnf5 clean all
 COPY --from=spalibcamera /out/usr/lib64/spa-0.2/libcamera/libspa-libcamera.so /usr/lib64/spa-0.2/libcamera/libspa-libcamera.so
+# Hardware video encoding. The HD 615 encodes H.264 and HEVC, but Fedora's libva-intel-media-driver is built without
+# those codecs (patents): only JPEG works. RPM Fusion's intel-media-driver is the same open source driver built whole; it
+# installs in /usr/lib64/dri-nonfree, which Fedora's libva searches first. The RPM Fusion repositories (signed packages,
+# keys from their release packages) are used for this step only and removed again: the tablet does not update from them.
+RUN set -eux; \
+    f=$(rpm -E %fedora); \
+    dnf5 -y install "https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-$f.noarch.rpm" \
+        "https://mirrors.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-$f.noarch.rpm"; \
+    if rpm -q libva-intel-media-driver; then dnf5 -y swap libva-intel-media-driver intel-media-driver; \
+    else dnf5 -y install --setopt=install_weak_deps=False intel-media-driver; fi; \
+    dnf5 -y remove rpmfusion-free-release rpmfusion-nonfree-release; \
+    test -f /usr/lib64/dri-nonfree/iHD_drv_video.so; ! ls /etc/yum.repos.d/ | grep -q rpmfusion; \
+    dnf5 clean all
 COPY ci/patch_acp_mic.py /tmp/patch_acp_mic.py
 RUN python3 /tmp/patch_acp_mic.py && rm /tmp/patch_acp_mic.py
 # The login screen with the PIN and pattern pad, when ci/build_login.sh could make it
