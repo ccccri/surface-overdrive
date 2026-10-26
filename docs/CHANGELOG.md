@@ -4,6 +4,17 @@ What was added, what broke, and what fixed it. Newest first. "Verified" means tr
 
 ## 2026-10-26
 
+**Fixed (afternoon)**
+- Front camera grain at 4.9 MP (patch `0030`). The motion detector of the temporal filter used the median block
+  difference as its first threshold, so half of a still picture counted as a little moving and, widened by one block,
+  nearly all of it: at 2592x1944 (gain 1.3) the flicker of still pixels went down by only 18%. Thresholds are now 1.5
+  and 3 times the median; moving areas are smoothed in space at every size (it was left out above 2.6 MP while the
+  filter ran in bands). Offline, 40 frames at 2592x1944: flicker 1.91 -> 1.31 (raw 2.34), grain 0.86 -> 0.56; the
+  100 frames of a person moving at 1152x864 give the same trail (0.74). On the tablet: 24.3 fps at 2560x1920 (26
+  before), 59% of a core; 1152x864 unchanged (28.9 fps, 44%). The owner had set "maximum" grain removal on the
+  23 October Cameras page (`tnr 12 16`), which with the new filter left trails and lag; back to the default.
+- The new bench `build/tnrbench/benchcur.cpp` is extracted from ipu3.cpp itself, so offline numbers are the real filter.
+
 **Added**
 - Rear camera, experimental: full resolution at 30 fps (kernel patch `ov8865/0005`, module parameter
   `native_sclk_mhz`, 144 by default). At 3264x2448 the rear camera gives 15 fps because the driver clocks the sensor
