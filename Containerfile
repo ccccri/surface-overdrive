@@ -124,9 +124,14 @@ RUN set -eux; \
         modinfo -k "$KVER" -F filename "$m" | grep -q '/updates/' || { echo "$m does not resolve to updates/"; exit 1; }; \
     done
 # Plymouth's configuration is copied into the initramfs: regenerate it so image/rootfs/etc/plymouth/plymouthd.conf takes effect.
+# Without the drivers of graphics cards the Surface Go does not have (its GPU is Intel's): with them the initramfs was 240 MB,
+# 150 of them NVIDIA and AMD firmware, and the firmware read it from the disk for about 12 s at every boot ("loader" in
+# systemd-analyze: 15 s).
 RUN set -eux; \
-    DRACUT_NO_XATTR=1 dracut --no-hostonly --kver "$KVER" --reproducible --add ostree -f "/usr/lib/modules/$KVER/initramfs.img"; \
-    chmod 0600 "/usr/lib/modules/$KVER/initramfs.img"
+    DRACUT_NO_XATTR=1 dracut --no-hostonly --kver "$KVER" --reproducible --add ostree \
+        --omit-drivers "nouveau amdgpu radeon" -f "/usr/lib/modules/$KVER/initramfs.img"; \
+    chmod 0600 "/usr/lib/modules/$KVER/initramfs.img"; \
+    echo "initramfs: $(stat -c %s "/usr/lib/modules/$KVER/initramfs.img") bytes"
 # Replace the stock libcamera packages (only the ones the base image has) with the rebuilt ones.
 COPY --from=libcamera /out/rpms /tmp/libcamera-rpms
 COPY --from=libcamera /libcamera-packages /tmp/libcamera-packages

@@ -5,6 +5,9 @@ What was added, what broke, and what fixed it. Newest first. "Verified" means tr
 ## 2026-10-26
 
 **Fixed (night, found by stressing the camera app on the tablet)**
+- Boot: the initramfs we regenerate (for Plymouth) was 240 MB, 150 of them firmware of NVIDIA and AMD graphics cards
+  the Surface Go does not have; the firmware read it for about 12 s at every boot (systemd-analyze: loader 15 s of a
+  50 s boot). dracut now leaves out nouveau, amdgpu and radeon.
 - Stopping a recording right after starting it froze the app ("Not Responding"): EOS sent to a camera source that had
   not delivered a frame yet blocks, and it was sent on the window's thread. EOS now goes out on a thread of its own, a
   recording stopped before its first frame is thrown away (it was a 0-byte file), a second tap while saving does
