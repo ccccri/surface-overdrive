@@ -16,10 +16,15 @@ import json
 import os
 import subprocess
 import sys
+import threading
+import time
 
 APP_ID = "org.surfaceoverdrive.Camera"
 CAMERAS = (("front", "Front", "libcamera_input.__SB_.PCI0.LNK1"), ("rear", "Rear", "libcamera_input.__SB_.PCI0.LNK0"))
 PREVIEW_MAX_WIDTH = 1280
+START_TRIES = 15                  # looks for the cameras every 2 s for half a minute
+STALL_SECONDS = 5                 # a preview without frames this long is started again
+SWITCH_INTERVAL = 1.0             # seconds between two camera switches
 JPEG_QUALITY = 92
 
 
@@ -68,7 +73,7 @@ def preview_description(node, width, height):
 
 def record_description(node, width, height, path, audio=True):
     video = ("pipewiresrc target-object={node} ! video/x-raw,format=NV12,width={w},height={h} ! queue max-size-buffers=8 "
-             "! vapostproc ! vah264enc bitrate={rate} ! h264parse ! queue ! mux. "
+             "! vapostproc ! vah264enc bitrate={rate} ! h264parse name=parse ! queue ! mux. "
              ).format(node=node, w=width, h=height, rate=video_bitrate(width, height))
     sound = "pulsesrc ! audioconvert ! audioresample ! audio/x-raw,rate=48000,channels=2 ! fdkaacenc ! queue ! mux. " if audio else ""
     return video + sound + "mp4mux name=mux ! filesink location=\"{}\"".format(path.replace("\"", "\\\""))
@@ -132,6 +137,12 @@ def main():
             self._recorded = ""
             self._error = ""
             self._format = None
+            self._tries = 0
+            self._stopping = False
+            self._frames = 0
+            self._last_switch = 0.0
+            self._last_frame = 0.0
+            self._stalls = 0
             self.frameReady.connect(self._show, type=2)       # queued: frames arrive on GStreamer's thread
             self._bus_timer = QTimer(self, interval=100, timeout=self._poll)
             self._bus_timer.start()
@@ -173,12 +184,32 @@ def main():
 
         @Slot()
         def start(self):
+            """Find the cameras and start the preview. When there are none yet (the camera service still starting, or
+            started before the login gave it the devices: it does not look again by itself), look again every two
+            seconds, restart the camera service once after four, and give up with a message after half a minute."""
             self._cameras = cameras_from_dump(pw_dump())
             if not self._cameras:
-                self._error = "No camera found. Is the camera service running? (Settings > Embedded Cameras)"
+                self._tries += 1
+                if self._tries == 2:
+                    from overdrive import camera as camera_settings
+                    subprocess.Popen(["systemctl", "--user", "restart", camera_settings.camera_service()],
+                                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                if self._tries <= START_TRIES:
+                    self._error = "Looking for the cameras..."
+                    QTimer.singleShot(2000, self.start)
+                else:
+                    self._error = ("No camera found. Try again from Settings > Embedded Cameras (Repair), or restart the "
+                                   "tablet.")
                 self.changed.emit()
                 return
+            self._tries = 0
             self.select(self._key if self._key in self._cameras else ("front" if "front" in self._cameras else self._get_keys()[0]))
+
+        @Slot()
+        def retry(self):
+            if self._recorder is None and self._preview is None:
+                self._tries = 0
+                self.start()
 
         @Slot(str)
         def select(self, key):
@@ -195,11 +226,18 @@ def main():
                 self.changed.emit()
                 return
             self._preview.get_by_name("preview").connect("new-sample", self._on_sample)
+            self._last_frame = time.monotonic() + 3      # the first frame takes a moment
             self._preview.set_state(Gst.State.PLAYING)
             self.changed.emit()
 
         @Slot()
         def next(self):
+            # one switch a second at most: starting and stopping a camera in a burst of taps once left it running
+            # without frames until the camera service restarted
+            now = time.monotonic()
+            if now - self._last_switch < SWITCH_INTERVAL:
+                return
+            self._last_switch = now
             keys = self._get_keys()
             if len(keys) > 1:
                 self.select(keys[(keys.index(self._key) + 1) % len(keys)] if self._key in keys else keys[0])
@@ -214,6 +252,7 @@ def main():
             sample = sink.emit("pull-sample")
             if sample is None:
                 return Gst.FlowReturn.OK
+            self._last_frame = time.monotonic()
             info = GstVideo.VideoInfo.new_from_caps(sample.get_caps())
             buf = sample.get_buffer()
             ok, mapping = buf.map(Gst.MapFlags.READ)
@@ -276,9 +315,8 @@ def main():
         def toggleRecording(self):
             if self._recorder is None:
                 self._start_recording()
-            else:
-                self._recorder.send_event(Gst.Event.new_eos())
-                self.message.emit("Saving the video...")
+            elif not self._stopping:
+                self._stop_recording()
 
         def _start_recording(self):
             cam = self._cameras.get(self._key)
@@ -291,9 +329,33 @@ def main():
                 self.message.emit("Cannot record: {}".format(exc))
                 return
             self._recorder, self._recorded = rec, path
+            self._stopping = False
+            self._frames = 0
+            # count the encoded frames (on GStreamer's thread): stopping before the first one has nothing to save
+            parse = rec.get_by_name("parse")
+            if parse is not None:
+                def counted(pad, info):
+                    self._frames += 1
+                    return Gst.PadProbeReturn.OK
+                parse.get_static_pad("src").add_probe(Gst.PadProbeType.BUFFER, counted)
             self._recording_since = datetime.datetime.now()
             rec.set_state(Gst.State.PLAYING)
             self.changed.emit()
+
+        def _stop_recording(self):
+            """End of a recording. EOS goes out on a thread of its own: sent to a camera source that has not delivered a
+            frame yet it blocks, and on the window's thread that froze the app ("Not Responding"). A recording that never
+            got a frame is thrown away, and one that does not finish within ten seconds is closed anyway."""
+            rec = self._recorder
+            self._stopping = True
+            self.changed.emit()
+            if self._frames == 0:
+                self._finish_recording("Nothing recorded yet", discard=True)
+                return
+            self.message.emit("Saving the video...")
+            threading.Thread(target=rec.send_event, args=(Gst.Event.new_eos(),), daemon=True).start()
+            QTimer.singleShot(10000, lambda: self._recorder is rec and
+                              self._finish_recording("The video took too long to save; it may be incomplete"))
 
         @Slot(result=str)
         def elapsed(self):
@@ -302,14 +364,40 @@ def main():
             s = int((datetime.datetime.now() - self._recording_since).total_seconds())
             return "{:d}:{:02d}".format(s // 60, s % 60)
 
-        def _finish_recording(self, note):
+        def _finish_recording(self, note, discard=False):
             self._recorder.set_state(Gst.State.NULL)
             self._recorder = None
             self._recording_since = None
+            self._stopping = False
+            if discard:
+                try:
+                    os.remove(self._recorded)
+                except OSError:
+                    pass
             self.message.emit(note)
             self.changed.emit()
 
+        def _watch_frames(self):
+            """A preview without frames for STALL_SECONDS: start it again; the second time in a row, restart the camera
+            service too (seen once after a burst of camera switches: the camera ran, no frame came)."""
+            now = time.monotonic()
+            if self._preview is None or now - self._last_frame < STALL_SECONDS:
+                if self._preview is not None and self._last_frame <= now:
+                    self._stalls = 0                         # frames come: a later stall starts counting again
+                return
+            self._stalls += 1
+            if self._stalls >= 2:
+                from overdrive import camera as camera_settings
+                subprocess.Popen(["systemctl", "--user", "restart", camera_settings.camera_service()],
+                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                self._stalls = 0
+            key = self._key
+            self._stop_preview()
+            self._last_frame = time.monotonic() + 4      # time for the camera to come back before judging again
+            QTimer.singleShot(1500, lambda: self._preview is None and self._recorder is None and self.select(key))
+
         def _poll(self):
+            self._watch_frames()
             for pipe, is_rec in ((self._recorder, True), (self._preview, False)):
                 if pipe is None:
                     continue
@@ -326,9 +414,11 @@ def main():
                         if is_rec:
                             self._finish_recording("Recording stopped: {}".format(err.message))
                         else:
-                            self._error = "The camera stopped: {}".format(err.message)
+                            # the camera service restarted under us (a size changed in Settings, a repair): look again
+                            self._error = "The camera stopped ({}). Starting it again...".format(err.message)
                             self._stop_preview()
                             self.changed.emit()
+                            QTimer.singleShot(2000, self.retry)
                         break
 
         @Slot()
@@ -341,17 +431,24 @@ def main():
 
         @Slot()
         def shutdown(self):
-            if self._recorder is not None:
-                self._recorder.send_event(Gst.Event.new_eos())
-                bus = self._recorder.get_bus()
-                bus.timed_pop_filtered(5 * Gst.SECOND, Gst.MessageType.EOS | Gst.MessageType.ERROR)
-                self._recorder.set_state(Gst.State.NULL)
-                self._recorder = None
+            """Closing the window while recording keeps the video: EOS (on a thread, see _stop_recording) and up to
+            five seconds for the file to be finished."""
+            rec = self._recorder
+            if rec is not None:
+                if self._frames and not self._stopping:
+                    threading.Thread(target=rec.send_event, args=(Gst.Event.new_eos(),), daemon=True).start()
+                if self._frames:
+                    rec.get_bus().timed_pop_filtered(5 * Gst.SECOND, Gst.MessageType.EOS | Gst.MessageType.ERROR)
+                    self._finish_recording("")
+                else:
+                    self._finish_recording("", discard=True)
             self._stop_preview()
 
     QGuiApplication.setDesktopFileName(APP_ID)
     app = QGuiApplication(sys.argv)
     app.setApplicationName("Camera")
+    if not QIcon.themeName() or QIcon.themeName() == "hicolor":
+        QIcon.setThemeName("breeze")      # started outside Plasma (no platform theme): the buttons would have no icons
     app.setWindowIcon(QIcon.fromTheme("camera-photo"))
     camera = Camera()
     engine = QQmlApplicationEngine()

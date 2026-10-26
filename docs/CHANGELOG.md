@@ -4,6 +4,19 @@ What was added, what broke, and what fixed it. Newest first. "Verified" means tr
 
 ## 2026-10-26
 
+**Fixed (night, found by stressing the camera app on the tablet)**
+- Stopping a recording right after starting it froze the app ("Not Responding"): EOS sent to a camera source that had
+  not delivered a frame yet blocks, and it was sent on the window's thread. EOS now goes out on a thread of its own, a
+  recording stopped before its first frame is thrown away (it was a 0-byte file), a second tap while saving does
+  nothing, and a video that does not finish within ten seconds is closed anyway. Closing the window while recording
+  keeps the video (verified: 11 s, H.264 + AAC, playable).
+- No camera in the app when the camera service had started before the login gave it the devices (it does not look
+  again by itself): the app looks again every 2 s, restarts the camera service once, and only then says so.
+- After a burst of six camera switches the front camera ran without frames until the camera service restarted.
+  Switches are now one a second at most, and a preview without frames for 5 s is started again (the second time with
+  the camera service restarted).
+- Started outside Plasma (no platform theme) the buttons had no icons: Breeze is set when no icon theme is.
+
 **Added (evening)**
 - Camera app (`overdrive-camera`, "Camera" in the menu; `src/overdrive/cameraapp.py` + `.qml`, PySide6 and GStreamer):
   preview scaled on the GPU (`vapostproc`) and shown by Qt, mirrored for the front camera; photos from the full-size
@@ -31,14 +44,11 @@ What was added, what broke, and what fixed it. Newest first. "Verified" means tr
 - The new bench `build/tnrbench/benchcur.cpp` is extracted from ipu3.cpp itself, so offline numbers are the real filter.
 
 **Added**
-- Rear camera, experimental: full resolution at 30 fps (kernel patch `ov8865/0005`, module parameter
-  `native_sclk_mhz`, 144 by default). At 3264x2448 the rear camera gives 15 fps because the driver clocks the sensor
-  array at 144 MHz in the full resolution modes (3888 x 2470 per frame); the four MIPI lanes at 720 Mbps carry 8 MP at
-  30 fps (2.88 Gbit/s against 2.4), so 288 MHz (PLL2's VCO at 720 MHz divided by 2.5, as the binned modes run it) should
-  give 30. Tried on the tablet: 29.9 fps, but the pictures came out broken (stripes, lines cut short); the sensor
-  reads lines faster than its MIPI pixel clock (90 MHz) sends them. Second try in the same patch: `native_mipi_div`
-  sets that divider in the fast mode (to be tried on the tablet), and the pixel rate is now recomputed on every format
-  set while stopped (it was only on a new mode, so libcamera kept the old frame times). Off by default.
+- Rear camera, tried and dropped: full resolution at 30 fps (kernel patch `ov8865/0005`, removed again). The full
+  resolution modes clock the sensor array at 144 MHz (15 fps); at 288 MHz the sensor did deliver 29.9 fps, but the
+  pictures came out broken (stripes, lines cut short). Raising the sensor's MIPI pixel clock as well (divider 4, 5 or
+  6 instead of 8) gave no frames at all or black ones at 25-35 fps. The rear stays at 15 fps above 1536x1152 and 30 fps
+  at 1536x1152.
 
 **Fixed**
 - Camera colours read wrong in every application (patch `0029`). The ImgU used the kernel's default colour conversion,

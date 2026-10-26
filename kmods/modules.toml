@@ -6,7 +6,7 @@
 
 [[module]]
 name = "ov8865"
-description = "Rear camera sensor: stale-mode fix, real pixel rate, fine analogue gain, no unusable 800x600 mode, optional 30 fps at full resolution"
+description = "Rear camera sensor: stale-mode fix, real pixel rate, fine analogue gain, no unusable 800x600 mode"
 sources = ["drivers/media/i2c/ov8865.c"]
 patches = "ov8865"
 build_dir = "drivers/media/i2c"
