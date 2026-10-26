@@ -22,6 +22,9 @@ What was added, what broke, and what fixed it. Newest first. "Verified" means tr
   Switches are now one a second at most, and a preview without frames for 5 s is started again (the second time with
   the camera service restarted).
 - Started outside Plasma (no platform theme) the buttons had no icons: Breeze is set when no icon theme is.
+- A stall of the preview during a recording would have stopped the preview for good (it cannot start again while a
+  recording holds the camera): the watchdog leaves the camera alone while recording, and the preview is started again
+  when a recording ends if it is not running.
 - Taking a photo encoded the full-size JPEG on the window's thread (up to a second at 7.7 MP, the window frozen):
   now on a thread of its own, the file name taken at once (a burst of four in one second: four files) and the file
   written aside and renamed, so a half-written photo never shows in the folder.

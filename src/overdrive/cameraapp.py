@@ -391,11 +391,16 @@ def main():
                     pass
             self.message.emit(note)
             self.changed.emit()
+            self._last_frame = time.monotonic() + 3      # the preview gets its time again before the watchdog judges it
+            if self._preview is None:
+                QTimer.singleShot(500, self.retry)       # it had stopped during the recording: start it again
 
         def _watch_frames(self):
             """A preview without frames for STALL_SECONDS: start it again; the second time in a row, restart the camera
             service too (seen once after a burst of camera switches: the camera ran, no frame came)."""
             now = time.monotonic()
+            if self._recorder is not None:
+                return      # a recording owns the camera now; the preview is looked after again once it ends
             if self._preview is None or now - self._last_frame < STALL_SECONDS:
                 if self._preview is not None and self._last_frame <= now:
                     self._stalls = 0                         # frames come: a later stall starts counting again
