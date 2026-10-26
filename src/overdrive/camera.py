@@ -22,11 +22,13 @@ STATE_DIR = "/dev/shm"
 SENSORS = {"front": "ov5693", "rear": "ov8865"}
 
 # Picture sizes offered to applications ("min_width": the smallest width offered, apps take the first size) and what each costs.
+# Frame rates measured on the tablet on 2026-10-26 (temporal denoise on one thread): the rear's sizes above 1536x1152 use
+# the full resolution mode of the sensor, which gives 15 frames a second.
 SIZES = {
-    "front": [(0, "1152x864", "1 MP, 28 fps"), (1536, "1536x1152", "1.8 MP, 28 fps"), (2048, "2048x1536", "3.1 MP, 23 fps"),
-              (2560, "2560x1920", "4.9 MP, 20 fps, maximum")],
-    "rear": [(0, "1536x1152", "1.8 MP, 30 fps"), (2048, "2048x1536", "3.1 MP, 15 fps"), (2560, "2560x1920", "4.9 MP, 13 fps"),
-             (3200, "3200x2400", "7.7 MP, 11 fps, maximum")],
+    "front": [(0, "1152x864", "1 MP, 28 fps"), (1536, "1536x1152", "1.8 MP, 28 fps"), (2048, "2048x1536", "3.1 MP, 28 fps"),
+              (2560, "2560x1920", "4.9 MP, 24 fps, maximum")],
+    "rear": [(0, "1536x1152", "1.8 MP, 30 fps"), (2048, "2048x1536", "3.1 MP, 15 fps"), (2560, "2560x1920", "4.9 MP, 15 fps"),
+             (3200, "3200x2400", "7.7 MP, 15 fps, maximum")],
 }
 # Temporal denoise levels: (minimum weight in 1/256, threshold). Lower weight = stronger. Level 0 is off.
 TNR_LEVELS = [(0, 0), (128, 5), (96, 5), (64, 5), (40, 5), (24, 6)]
