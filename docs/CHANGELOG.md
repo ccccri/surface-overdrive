@@ -4,6 +4,14 @@ What was added, what broke, and what fixed it. Newest first. "Verified" means tr
 
 ## 2026-10-26
 
+**Added**
+- Rear camera, experimental: full resolution at 30 fps (kernel patch `ov8865/0005`, module parameter
+  `native_sclk_mhz`, 144 by default). At 3264x2448 the rear camera gives 15 fps because the driver clocks the sensor
+  array at 144 MHz in the full resolution modes (3888 x 2470 per frame); the four MIPI lanes at 720 Mbps carry 8 MP at
+  30 fps (2.88 Gbit/s against 2.4), so 288 MHz (PLL2's VCO at 720 MHz divided by 2.5, as the binned modes run it) should
+  give 30. Off until tried on the tablet: `echo 288 | sudo tee /sys/module/ov8865/parameters/native_sclk_mhz`, then
+  restart the camera.
+
 **Fixed**
 - Camera colours read wrong in every application (patch `0029`). The ImgU used the kernel's default colour conversion,
   which gives full-range analogue YUV (V = 0.877 (R - Y)), and the pipeline declared no colour space, so GStreamer (and
