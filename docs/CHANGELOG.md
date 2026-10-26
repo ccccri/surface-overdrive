@@ -19,6 +19,9 @@ What was added, what broke, and what fixed it. Newest first. "Verified" means tr
   Switches are now one a second at most, and a preview without frames for 5 s is started again (the second time with
   the camera service restarted).
 - Started outside Plasma (no platform theme) the buttons had no icons: Breeze is set when no icon theme is.
+- Taking a photo encoded the full-size JPEG on the window's thread (up to a second at 7.7 MP, the window frozen):
+  now on a thread of its own, the file name taken at once (a burst of four in one second: four files) and the file
+  written aside and renamed, so a half-written photo never shows in the folder.
 
 **Added (evening)**
 - Camera app (`overdrive-camera`, "Camera" in the menu; `src/overdrive/cameraapp.py` + `.qml`, PySide6 and GStreamer):

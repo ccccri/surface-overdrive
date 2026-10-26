@@ -297,17 +297,32 @@ def main():
             if sample is None:
                 self.message.emit("No picture yet")
                 return
-            jpeg = GstVideo.video_convert_sample(sample, Gst.Caps.from_string("image/jpeg"), 5 * Gst.SECOND)
-            buf = jpeg.get_buffer()
-            ok, mapping = buf.map(Gst.MapFlags.READ)
-            if not ok:
-                return
             path = output_path(folder(QStandardPaths.StandardLocation.PicturesLocation, "Camera"), "photo")
+            open(path, "xb").close()     # the name is taken now: the next photo of the same second gets another one
+            # the JPEG of a full-size frame takes up to a second: on a thread of its own, so the window stays live
+            threading.Thread(target=self._save_photo, args=(sample, path), daemon=True).start()
+
+        def _save_photo(self, sample, path):
             try:
-                with open(path, "wb") as f:
-                    f.write(bytes(mapping.data))
-            finally:
-                buf.unmap(mapping)
+                jpeg = GstVideo.video_convert_sample(sample, Gst.Caps.from_string("image/jpeg"), 5 * Gst.SECOND)
+                buf = jpeg.get_buffer()
+                ok, mapping = buf.map(Gst.MapFlags.READ)
+                if not ok:
+                    raise OSError("cannot read the encoded picture")
+                try:
+                    with open(path + ".part", "wb") as f:
+                        f.write(bytes(mapping.data))
+                    os.replace(path + ".part", path)
+                finally:
+                    buf.unmap(mapping)
+            except Exception as exc:          # noqa: BLE001 - GLib and OS errors alike end in a message
+                for leftover in (path, path + ".part"):
+                    try:
+                        os.remove(leftover)
+                    except OSError:
+                        pass
+                self.message.emit("The photo could not be saved: {}".format(exc))
+                return
             self.message.emit("Photo saved: " + os.path.basename(path))
 
         # -- videos
