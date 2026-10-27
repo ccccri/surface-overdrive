@@ -94,6 +94,15 @@ jobs:
       - name: Build
         if: steps.changed.outputs.build == 'true' && steps.key.outputs.ready == 'true'
         run: |
+          # the base images first, with retries: quay.io's CDN now and then cuts a layer download ("unexpected EOF"),
+          # which failed the whole build (2026-10-26); podman build then finds them here and does not pull again
+          for ref in "${{ steps.detect.outputs.BASE }}" "registry.fedoraproject.org/fedora:${{ matrix.release }}"; do
+            for attempt in 1 2 3 4; do
+              podman pull -q "$ref" >/dev/null && break
+              [ "$attempt" = 4 ] && exit 1
+              echo "pull of $ref failed (attempt $attempt), again in $((attempt * 30)) s"; sleep $((attempt * 30))
+            done
+          done
           podman build \
             --build-arg "BASE=${{ steps.detect.outputs.BASE }}" --build-arg "FEDORA=${{ matrix.release }}" \
             --build-arg "KVER=${{ steps.detect.outputs.KVER }}" \
