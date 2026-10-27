@@ -49,9 +49,9 @@ class Pipelines(unittest.TestCase):
 
     def test_preview_has_both_sinks(self):
         d = cameraapp.preview_description("n", 2560, 1920)
-        self.assertIn("appsink name=preview", d)
-        self.assertIn("appsink name=photo", d)
-        self.assertIn("width=1280,height=960", d)
+        self.assertIn("qml6glsink name=preview", d)
+        self.assertNotIn("tee", d)
+        self.assertIn("glupload", d)
 
 
 class OutputPath(unittest.TestCase):

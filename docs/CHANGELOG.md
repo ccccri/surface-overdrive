@@ -4,6 +4,15 @@ What was added, what broke, and what fixed it. Newest first. "Verified" means tr
 
 ## 2026-10-27
 
+**Fixed (evening)**
+- Camera app rewritten around a zero-copy preview: GStreamer draws into the window with qml6glsink (the first version
+  copied every frame through Python into a QVideoFrame: 18% of a core, now 1%). The real cause of the lag: the preview
+  froze after four frames, every time, and the watchdog restarted it every 6-7 s. A tee with an appsink for photos next
+  to the video sink starved the camera of buffers. Photos are now a copy of the frame going to the preview at the tap.
+  Looks like a phone camera: preview over the whole window left of a dark bar with a round shutter, a record button
+  (red dot, red square while recording), switch camera, and the last photo or video as a thumbnail that opens it.
+  Verified on the tablet: no freeze in 25 s, photos and videos saved, thumbnails shown.
+
 **Fixed (afternoon, patches 0031/0032 and PipeWire 0002, tried on the tablet with cam only)**
 - Purple flash on a change of size: the first frame the ImgU puts out after a session at another size is magenta,
   striped garbage, and the temporal denoiser carried it into the next frames. The first frames of a session are checked

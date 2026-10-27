@@ -6,7 +6,8 @@ the video keeps the real time of every frame. Kamoso encoded Theora in software:
 1152x864 on the Surface Go, and its videos then played too fast.
 
 How the picture flows:
-  preview  pipewiresrc -> tee -> vapostproc (GPU scaling to at most 1280 wide) -> appsink -> Qt's VideoOutput
+  preview  pipewiresrc -> tee -> glupload -> qml6glsink, drawn by the GPU straight into the window (no copy through
+                                 Python: the first version copied every frame into a QVideoFrame and the preview lagged)
                               -> appsink holding the last full-size frame, for photos
   video    a second pipewiresrc on the same camera -> vapostproc -> vah264enc -> mp4mux, with the microphone
 The camera's size is the first one it offers, which the Cameras page of System Settings chooses ("min_width").
@@ -63,12 +64,11 @@ def video_bitrate(width, height):
 
 
 def preview_description(node, width, height):
-    pw, ph = preview_size(width, height)
-    return ("pipewiresrc target-object={node} ! video/x-raw,format=NV12,width={w},height={h} ! tee name=t "
-            "t. ! queue leaky=downstream max-size-buffers=2 ! vapostproc ! video/x-raw,format=NV12,width={pw},height={ph} "
-            "! appsink name=preview emit-signals=true drop=true max-buffers=1 sync=false "
-            "t. ! queue leaky=downstream max-size-buffers=1 ! appsink name=photo drop=true max-buffers=1 sync=false"
-            ).format(node=node, w=width, h=height, pw=pw, ph=ph)
+    # One branch only: with a tee and an appsink for photos next to qml6glsink, the preview froze after four frames
+    # (2026-10-27). A photo is a copy of the frame going to the preview at the time of the tap (Camera._on_frame).
+    return ("pipewiresrc target-object={node} ! video/x-raw,format=NV12,width={w},height={h} "
+            "! queue leaky=downstream max-size-buffers=1 ! glupload name=upload ! glcolorconvert "
+            "! qml6glsink name=preview sync=false").format(node=node, w=width, h=height)
 
 
 def record_description(node, width, height, path, audio=True):
@@ -108,12 +108,27 @@ def main():
     gi.require_version("GstApp", "1.0")
     gi.require_version("GstVideo", "1.0")
     from gi.repository import Gst, GstVideo
-    from PySide6.QtCore import Property, QObject, QSize, QStandardPaths, QTimer, QUrl, Signal, Slot
+    from PySide6.QtCore import Property, QObject, QStandardPaths, QTimer, QUrl, Signal, Slot
     from PySide6.QtGui import QDesktopServices, QGuiApplication, QIcon
-    from PySide6.QtMultimedia import QVideoFrame, QVideoFrameFormat
     from PySide6.QtQml import QQmlApplicationEngine
+    from PySide6.QtQuick import QQuickWindow, QSGRendererInterface
+    import ctypes
+    import shiboken6
 
     Gst.init(None)
+    # qml6glsink draws with OpenGL inside the Qt Quick scene, which has to use OpenGL too; the element must exist before the
+    # QML file that uses its item type is loaded (it registers the type)
+    QQuickWindow.setGraphicsApi(QSGRendererInterface.GraphicsApi.OpenGL)
+    Gst.ElementFactory.make("qml6glsink")
+    _gobject = ctypes.CDLL("libgobject-2.0.so.0")
+    _gobject.g_object_set.argtypes = [ctypes.c_void_p, ctypes.c_char_p, ctypes.c_void_p, ctypes.c_void_p]
+    ctypes.pythonapi.PyCapsule_GetPointer.restype = ctypes.c_void_p
+    ctypes.pythonapi.PyCapsule_GetPointer.argtypes = [ctypes.py_object, ctypes.c_char_p]
+
+    def set_widget(sink, item):
+        """sink.widget = item: PyGObject cannot pass a Qt item as the gpointer the property takes."""
+        _gobject.g_object_set(ctypes.pythonapi.PyCapsule_GetPointer(sink.__gpointer__, None), b"widget",
+                              shiboken6.getCppPointer(item)[0], None)
 
     def folder(location, sub):
         base = QStandardPaths.writableLocation(location) or os.path.expanduser("~")
@@ -122,7 +137,6 @@ def main():
         return path
 
     class Camera(QObject):
-        frameReady = Signal(QVideoFrame)
         changed = Signal()
         message = Signal(str)
 
@@ -136,14 +150,14 @@ def main():
             self._recording_since = None
             self._recorded = ""
             self._error = ""
-            self._format = None
+            self._last_capture = ""
+            self._photo_wanted = ""
             self._tries = 0
             self._stopping = False
             self._frames = 0
             self._last_switch = 0.0
             self._last_frame = 0.0
             self._stalls = 0
-            self.frameReady.connect(self._show, type=2)       # queued: frames arrive on GStreamer's thread
             self._bus_timer = QTimer(self, interval=100, timeout=self._poll)
             self._bus_timer.start()
 
@@ -170,6 +184,12 @@ def main():
         def _get_mirrored(self):
             return self._key == "front"
 
+        def _get_last(self):
+            return QUrl.fromLocalFile(self._last_capture).toString() if self._last_capture else ""
+
+        def _get_last_is_video(self):
+            return self._last_capture.endswith(".mp4")
+
         key = Property(str, _get_key, notify=changed)
         keys = Property("QVariantList", _get_keys, notify=changed)
         labels = Property("QVariantList", _get_labels, notify=changed)
@@ -177,6 +197,13 @@ def main():
         recording = Property(bool, _get_recording, notify=changed)
         error = Property(str, _get_error, notify=changed)
         mirrored = Property(bool, _get_mirrored, notify=changed)
+        lastCapture = Property(str, _get_last, notify=changed)
+        lastIsVideo = Property(bool, _get_last_is_video, notify=changed)
+
+        @Slot()
+        def openLast(self):
+            if self._last_capture:
+                QDesktopServices.openUrl(QUrl.fromLocalFile(self._last_capture))
 
         @Slot(QObject)
         def setSink(self, sink):
@@ -225,7 +252,10 @@ def main():
                 self._error = "Cannot start the camera: {}".format(exc)
                 self.changed.emit()
                 return
-            self._preview.get_by_name("preview").connect("new-sample", self._on_sample)
+            if self._sink is not None:
+                set_widget(self._preview.get_by_name("preview"), self._sink)
+            # frames counted where they enter the GPU, for the watchdog (_watch_frames)
+            self._preview.get_by_name("upload").get_static_pad("sink").add_probe(Gst.PadProbeType.BUFFER, self._on_frame)
             self._last_frame = time.monotonic() + 3      # the first frame takes a moment
             self._preview.set_state(Gst.State.PLAYING)
             self.changed.emit()
@@ -248,59 +278,24 @@ def main():
                 self._preview = None
 
         # -- preview frames, from GStreamer's streaming thread
-        def _on_sample(self, sink):
-            sample = sink.emit("pull-sample")
-            if sample is None:
-                return Gst.FlowReturn.OK
+        def _on_frame(self, pad, info):
             self._last_frame = time.monotonic()
-            info = GstVideo.VideoInfo.new_from_caps(sample.get_caps())
-            buf = sample.get_buffer()
-            ok, mapping = buf.map(Gst.MapFlags.READ)
-            if not ok:
-                return Gst.FlowReturn.OK
-            try:
-                fmt = QVideoFrameFormat(QSize(info.width, info.height), QVideoFrameFormat.PixelFormat.Format_NV12)
-                fmt.setColorSpace(QVideoFrameFormat.ColorSpace.ColorSpace_BT709)
-                fmt.setColorRange(QVideoFrameFormat.ColorRange.ColorRange_Video)
-                fmt.setColorTransfer(QVideoFrameFormat.ColorTransfer.ColorTransfer_BT709)
-                frame = QVideoFrame(fmt)
-                if frame.map(QVideoFrame.MapMode.WriteOnly):
-                    data = mapping.data
-                    for plane, rows in ((0, info.height), (1, info.height // 2)):
-                        src_stride, offset = info.stride[plane], info.offset[plane]
-                        dst_stride = frame.bytesPerLine(plane)
-                        dst = frame.bits(plane)
-                        width = min(src_stride, dst_stride, info.width)
-                        if src_stride == dst_stride:
-                            dst[:dst_stride * rows] = data[offset:offset + dst_stride * rows]
-                        else:
-                            for r in range(rows):
-                                dst[r * dst_stride:r * dst_stride + width] = data[offset + r * src_stride:offset + r * src_stride + width]
-                    frame.unmap()
-                    self.frameReady.emit(frame)
-            finally:
-                buf.unmap(mapping)
-            return Gst.FlowReturn.OK
-
-        def _show(self, frame):
-            if self._sink is not None:
-                self._sink.setVideoFrame(frame)
+            path = self._photo_wanted
+            if path:
+                self._photo_wanted = ""
+                sample = Gst.Sample.new(info.get_buffer().copy_deep(), pad.get_current_caps(), None, None)
+                threading.Thread(target=self._save_photo, args=(sample, path), daemon=True).start()
+            return Gst.PadProbeReturn.OK
 
         # -- photos
         @Slot()
         def takePhoto(self):
             if self._preview is None:
                 return
-            sample = self._preview.get_by_name("photo").emit("try-pull-sample", 0)
-            if sample is None:
-                sample = self._preview.get_by_name("photo").emit("try-pull-sample", Gst.SECOND)
-            if sample is None:
-                self.message.emit("No picture yet")
-                return
             path = output_path(folder(QStandardPaths.StandardLocation.PicturesLocation, "Camera"), "photo")
             open(path, "xb").close()     # the name is taken now: the next photo of the same second gets another one
-            # the JPEG of a full-size frame takes up to a second: on a thread of its own, so the window stays live
-            threading.Thread(target=self._save_photo, args=(sample, path), daemon=True).start()
+            # the next frame of the preview is copied and encoded (JPEG, up to a second) on a thread of its own
+            self._photo_wanted = path
 
         def _save_photo(self, sample, path):
             try:
@@ -323,7 +318,8 @@ def main():
                         pass
                 self.message.emit("The photo could not be saved: {}".format(exc))
                 return
-            self.message.emit("Photo saved: " + os.path.basename(path))
+            self._last_capture = path
+            self.changed.emit()
 
         # -- videos
         @Slot()
@@ -427,7 +423,8 @@ def main():
                     if msg is None:
                         break
                     if msg.type == Gst.MessageType.EOS and is_rec:
-                        self._finish_recording("Video saved: " + os.path.basename(self._recorded))
+                        self._last_capture = self._recorded
+                        self._finish_recording("Video saved")
                         break
                     if msg.type == Gst.MessageType.ERROR:
                         err, _ = msg.parse_error()
@@ -477,7 +474,16 @@ def main():
     if not engine.rootObjects():
         return 1
     app.aboutToQuit.connect(camera.shutdown)
-    camera.start()
+    # the camera starts once the window has drawn its first frame: qml6glsink shares the window's OpenGL context, and
+    # started before there was one it stopped after a few frames (the preview froze and the watchdog restarted it)
+    window = engine.rootObjects()[0]
+    started = []
+
+    def first_frame():
+        if not started:
+            started.append(True)
+            QTimer.singleShot(0, camera.start)
+    window.frameSwapped.connect(first_frame)
     return app.exec()
 
 
