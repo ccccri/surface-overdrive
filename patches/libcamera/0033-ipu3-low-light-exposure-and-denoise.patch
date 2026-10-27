@@ -1,0 +1,101 @@
+diff --git a/src/ipa/ipu3/algorithms/agc.cpp b/src/ipa/ipu3/algorithms/agc.cpp
+index ea2e33e..e7187f4 100644
+--- a/src/ipa/ipu3/algorithms/agc.cpp
++++ b/src/ipa/ipu3/algorithms/agc.cpp
+@@ -330,12 +330,20 @@ void Agc::process(IPAContext &context, const uint32_t frame,
+ 	 * it is at least one period long, and keep exposure * gain constant with the analogue gain.
+ 	 */
+ 	{
++		/*
++		 * To the nearest multiple, not down: rounding down turned 17 ms into 10 ms and made up for it with gain
++		 * (1.7 instead of 1.0), and the grain of a dim room is the gain (2026-10-27). Rounding up lowers the gain
++		 * instead, down to 1; what is left over is a little more light (at most a third, from 15 to 20 ms), which
++		 * the auto exposure accepts since the same request always gives the same exposure (no hunting).
++		 */
+ 		constexpr double kFlickerPeriod = 10000.0; /* us */
+ 		const double exposureUs = newExposureTime.get<std::micro>();
+-		if (exposureUs >= kFlickerPeriod) {
+-			const double quantized = std::floor(exposureUs / kFlickerPeriod) * kFlickerPeriod;
+-			aGain = std::min(aGain * exposureUs / quantized,
+-					 context.configuration.agc.maxAnalogueGain);
++		if (exposureUs >= kFlickerPeriod * 0.75) {
++			const double longest = std::floor(maxExposureTime_.get<std::micro>() / kFlickerPeriod) * kFlickerPeriod;
++			const double quantized = std::clamp(std::round(exposureUs / kFlickerPeriod) * kFlickerPeriod,
++							    kFlickerPeriod, std::max(longest, kFlickerPeriod));
++			aGain = std::clamp(aGain * exposureUs / quantized, minAnalogueGain_,
++					   context.configuration.agc.maxAnalogueGain);
+ 			newExposureTime = quantized * 1.0us;
+ 		}
+ 	}
+diff --git a/src/libcamera/pipeline/ipu3/ipu3.cpp b/src/libcamera/pipeline/ipu3/ipu3.cpp
+index ba3235b..d6bf05d 100644
+--- a/src/libcamera/pipeline/ipu3/ipu3.cpp
++++ b/src/libcamera/pipeline/ipu3/ipu3.cpp
+@@ -1728,8 +1728,14 @@ void IPU3CameraData::temporalDenoise(const Stream *stream, FrameBuffer *buffer)
+ 	const double darkness = chosen || tnrLight_ <= 0 ? 1.0 : std::clamp((tnrLight_ - 8000.0) / (40000.0 - 8000.0), 0.0, 1.0);
+ 	params.minWeight = static_cast<int>(std::lround(160 + darkness * (params.minWeight - 160)));
+ 	const int kSpatial = static_cast<int>(std::lround(3 * darkness));
+-	/* moving areas are smoothed in space, at every size, when the light is low enough for it (see darkness above) */
+-	const bool spatial = kSpatial > 0;
++	/*
++	 * Moving areas are smoothed in space when the light is low enough for it (see darkness above), up to about 2.6
++	 * megapixels. Above that it does not fit in a frame on the Surface Go in a dim room, where noise makes nearly every
++	 * block "moving": at 2560x1920 the filter took 26 ms a frame, the stream fell to 17 fps with gaps of up to 58 ms
++	 * (the lag seen in low light, 2026-10-27).
++	 */
++	const bool spatial = kSpatial > 0 && static_cast<size_t>(width) * height <= 2600000;
++	const bool filterChroma = static_cast<size_t>(width) * height <= 2600000;
+ 	const unsigned int blockCols = width / kBlock;
+ 	const unsigned int blockRows = height / kBlock;
+ 	if (blockCols < 2 || blockRows < 2)
+@@ -1845,8 +1851,15 @@ void IPU3CameraData::temporalDenoise(const Stream *stream, FrameBuffer *buffer)
+ 	 */
+ 	/* ...in a dim room. In good light the median and twice it, as before: higher thresholds there only let the
+ 	 * outlines of moving things trail (seen on the rear camera, 2026-10-27) where there is little grain to take. */
+-	const int t2 = std::max(base, static_cast<int>(noise * (2.0 + darkness)));
+-	const int t1 = std::min(std::max(base / 2, static_cast<int>(noise * (1.0 + 0.5 * darkness))), t2 - 1);
++	const int t2 = std::max(base, static_cast<int>(noise * (2.0 + 2.0 * darkness)));
++	const int t1 = std::min(std::max(base / 2, static_cast<int>(noise * (1.0 + darkness))), t2 - 1);
++	/*
++	 * In a dim room the noise alone puts many blocks a little over the first threshold, and widening every one of them
++	 * to its neighbours left nearly the whole picture "moving", without the temporal average: the grain stayed. There
++	 * only blocks that clearly move are widened. Measured offline on 40 still frames at gain 2 (2560x1920): flicker of
++	 * still pixels 1.41 -> 0.88 (raw 2.00), together with the thresholds of 2 and 4 times the median above.
++	 */
++	const int widen = darkness >= 0.5 ? 256 : 0;
+ 	/* A difference far above the noise is never averaged (a change of exposure, a small fast thing in a still block). */
+ 	const int pass = std::max(3 * std::max(params.threshold, 2), 3 * noise / 8 + 6);
+ 	const int minWeight = std::clamp(params.minWeight / 2, 0, 128);
+@@ -1866,7 +1879,7 @@ void IPU3CameraData::temporalDenoise(const Stream *stream, FrameBuffer *buffer)
+ 			int left = lut[src[0]], here = left;
+ 			for (unsigned int bc = 0; bc < blockCols; bc++) {
+ 				const int right = bc + 1 < blockCols ? lut[src[bc + 1]] : here;
+-				dst[bc] = std::max(std::max(left, here), right);
++				dst[bc] = std::max(std::max(left >= widen ? left : 0, here), right >= widen ? right : 0);
+ 				left = here;
+ 				here = right;
+ 			}
+@@ -1882,7 +1895,7 @@ void IPU3CameraData::temporalDenoise(const Stream *stream, FrameBuffer *buffer)
+ 			int *dst = weights.data() + static_cast<size_t>(br) * blockCols;
+ 			int any = 0;
+ 			for (unsigned int bc = 0; bc < blockCols; bc++) {
+-				dst[bc] = std::max(std::max(up[bc], mid[bc]), down[bc]);
++				dst[bc] = std::max(std::max(up[bc] >= widen ? up[bc] : 0, mid[bc]), down[bc] >= widen ? down[bc] : 0);
+ 				any |= dst[bc];
+ 			}
+ 			moving[br] = any != 0;
+@@ -1954,8 +1967,12 @@ void IPU3CameraData::temporalDenoise(const Stream *stream, FrameBuffer *buffer)
+ 				stillRow(out, old, minWeight, pass);
+ 			}
+ 
+-			/* the chroma row of every even luma row, with its weights; the ImgU's XNR3 denoises the chroma itself */
+-			if (r & 1)
++			/*
++			 * The chroma row of every even luma row, with its weights; the ImgU's XNR3 denoises the chroma itself.
++			 * Left to XNR3 alone above 2.6 megapixels: in a dim room the chroma pass made the filter too slow for
++			 * the frame rate there (2560x1920: 17 fps against 24 with the filter off, 2026-10-27).
++			 */
++			if ((r & 1) || !filterChroma)
+ 				continue;
+ 			uint8_t *cout = uv + static_cast<size_t>(r / 2) * stride;
+ 			uint8_t *cold = puv + static_cast<size_t>(r / 2) * stride;

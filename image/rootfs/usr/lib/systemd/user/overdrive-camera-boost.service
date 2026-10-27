@@ -1,0 +1,13 @@
+[Unit]
+Description=Surface Overdrive: the performance power profile while a built-in camera is in use
+After=pipewire.service
+PartOf=graphical-session.target
+
+[Service]
+ExecStart=/usr/libexec/overdrive/camera-boost
+Restart=always
+RestartSec=5
+Nice=5
+
+[Install]
+WantedBy=graphical-session.target

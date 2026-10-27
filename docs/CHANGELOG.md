@@ -4,6 +4,26 @@ What was added, what broke, and what fixed it. Newest first. "Verified" means tr
 
 ## 2026-10-27
 
+**Fixed (night: front camera in low light, patches 0033/0034, tried on the tablet in a dim and a dark room)**
+- Exposure: the flicker avoidance rounded the exposure time down to a multiple of 10 ms and made up for it with gain:
+  17 ms became 10 ms at gain 1.7, and the grain of a dim room is the gain. It now rounds to the nearest multiple and
+  lowers the gain instead. Dim room, same light: 40 ms at gain 1 instead of 10 ms at gain 1.7.
+- Denoise in the dark: noise put nearly every block a little over the motion threshold, and widening each to its
+  neighbours switched the temporal average off almost everywhere. In the dark (from the exposure x gain of the frame)
+  the thresholds are 2 and 4 times the median noise and only clearly moving blocks widen. Offline, 40 still frames
+  at gain 2 (2560x1920): flicker 1.41 -> 0.88 (raw 2.00); in a dark room (60 ms, gain 7.9): 2.44 raw -> 0.81.
+- Frame rate in the dark at 2560x1920: the filter took 26-32 ms a frame and the stream fell to 17 fps with gaps of up
+  to 58 ms. Above 2.6 MP the spatial smoothing and the chroma pass run only when frames are long (exposure >= 45 ms,
+  where they fit); otherwise XNR3 alone does the chroma.
+- Digital gain (0034): in a dark room the sensor was at its limits (60 ms, gain 7.9) and the picture had a mean luma of
+  36 of 255. The digital gain the auto exposure asks for is now applied with the white balance gains (at most 3x,
+  smoothed): mean luma 71. The statistics are taken before those gains, so the exposure loop is unaffected.
+- On battery the "balanced" profile kept the processor in power saving: front camera at 2560x1920 24.6 fps there,
+  28.7 with "performance". New user service overdrive-camera-boost holds the performance profile while a camera node
+  streams (power-profiles-daemon HoldProfile, tuned-ppd), event-driven (pw-dump --monitor: no polling, no CPU at
+  rest), released when the camera stops. Verified: performance while the camera app runs, balanced-battery after.
+- Tried and dropped: the ImgU's Bayer denoiser in the dark (grain 1.0 -> 2.1-2.6 with any setting).
+
 **Fixed (evening)**
 - Cameras page: after a change of size the preview could stay off ("The camera preview stopped"): it started while the
   camera service was still bringing the cameras back, found none and ended for good. It now tries again, once a

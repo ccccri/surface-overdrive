@@ -1,0 +1,108 @@
+diff --git a/src/ipa/ipu3/algorithms/agc.cpp b/src/ipa/ipu3/algorithms/agc.cpp
+index e7187f4..db2a91c 100644
+--- a/src/ipa/ipu3/algorithms/agc.cpp
++++ b/src/ipa/ipu3/algorithms/agc.cpp
+@@ -82,6 +82,14 @@ static constexpr utils::Duration kMaxExposureTime = 60ms;
+  */
+ static constexpr int32_t kExposureMargin = 8;
+ 
++/*
++ * Digital gain, the light the sensor cannot give any more (longest exposure, highest analogue gain): applied by the
++ * ImgU with the white balance gains (Awb::prepare()). Its statistics are taken before them, so the auto exposure sees
++ * the same raw picture and asks for the same gain frame after frame. At most 3: in a dark room (60 ms, gain 7.9) the
++ * picture had a mean luma of 36 of 255; more would mostly show grain.
++ */
++static constexpr double kMaxDigitalGain = 3.0;
++
+ /* Histogram constants */
+ static constexpr uint32_t knumHistogramBins = 256;
+ 
+@@ -142,6 +150,7 @@ int Agc::configure(IPAContext &context,
+ 	maxExposureTime_ = std::min(configuration.agc.maxExposureTime,
+ 				    kMaxExposureTime);
+ 	activeState.agc.vblank = 0;
++	activeState.agc.digitalGain = 1.0;
+ 	if (longestExposureTime_ > 0s) {
+ 		const auto &sensor = configuration.sensor;
+ 		const int64_t lines = static_cast<int64_t>(sensor.size.height) + sensor.maxVBlank - kExposureMargin;
+@@ -356,6 +365,9 @@ void Agc::process(IPAContext &context, const uint32_t frame,
+ 	/* Update the estimated exposure time and gain. */
+ 	activeState.agc.exposure = newExposureTime / context.configuration.sensor.lineDuration;
+ 	activeState.agc.gain = aGain;
++	/* smoothed, so that the picture does not pump when the auto exposure moves between exposure and digital gain */
++	const double wanted = std::clamp(dGain * qGain, 1.0, kMaxDigitalGain);
++	activeState.agc.digitalGain += (wanted - activeState.agc.digitalGain) * 0.25;
+ 	if (activeState.agc.vblank) {
+ 		/* the frame just long enough for the exposure, never shorter than the sensor's own */
+ 		const auto &sensor = context.configuration.sensor;
+diff --git a/src/ipa/ipu3/algorithms/awb.cpp b/src/ipa/ipu3/algorithms/awb.cpp
+index a2a4682..be8aa1a 100644
+--- a/src/ipa/ipu3/algorithms/awb.cpp
++++ b/src/ipa/ipu3/algorithms/awb.cpp
+@@ -370,10 +370,12 @@ void Awb::prepare(IPAContext &context,
+ 	params->acc_param.bnr.opt_center_sqr.y_sqr_reset = params->acc_param.bnr.opt_center.y_reset
+ 							* params->acc_param.bnr.opt_center.y_reset;
+ 
+-	params->acc_param.bnr.wb_gains.gr = gainValue(context.activeState.awb.gains.green);
+-	params->acc_param.bnr.wb_gains.r  = gainValue(context.activeState.awb.gains.red);
+-	params->acc_param.bnr.wb_gains.b  = gainValue(context.activeState.awb.gains.blue);
+-	params->acc_param.bnr.wb_gains.gb = gainValue(context.activeState.awb.gains.green);
++	/* the digital gain of the auto exposure rides on the white balance gains (see Agc, kMaxDigitalGain) */
++	const double digital = std::clamp(context.activeState.agc.digitalGain, 1.0, 4.0);
++	params->acc_param.bnr.wb_gains.gr = gainValue(context.activeState.awb.gains.green * digital);
++	params->acc_param.bnr.wb_gains.r  = gainValue(context.activeState.awb.gains.red * digital);
++	params->acc_param.bnr.wb_gains.b  = gainValue(context.activeState.awb.gains.blue * digital);
++	params->acc_param.bnr.wb_gains.gb = gainValue(context.activeState.awb.gains.green * digital);
+ 
+ 	LOG(IPU3Awb, Debug) << "Color temperature estimated: " << asyncResults_.temperatureK;
+ 
+diff --git a/src/ipa/ipu3/ipa_context.h b/src/ipa/ipu3/ipa_context.h
+index 5f108d4..c66fdc3 100644
+--- a/src/ipa/ipu3/ipa_context.h
++++ b/src/ipa/ipu3/ipa_context.h
+@@ -58,6 +58,7 @@ struct IPAActiveState {
+ 		uint32_t exposure;
+ 		double gain;
+ 		uint32_t vblank;		/* 0: the sensor's own frame length, never written */
++		double digitalGain;		/* applied with the white balance gains, see Agc */
+ 		uint32_t constraintMode;
+ 		uint32_t exposureMode;
+ 	} agc;
+diff --git a/src/libcamera/pipeline/ipu3/ipu3.cpp b/src/libcamera/pipeline/ipu3/ipu3.cpp
+index d6bf05d..d023ea2 100644
+--- a/src/libcamera/pipeline/ipu3/ipu3.cpp
++++ b/src/libcamera/pipeline/ipu3/ipu3.cpp
+@@ -105,6 +105,8 @@ public:
+ 	std::map<const Stream *, std::vector<uint8_t>> tnrPrev_;
+ 	/* exposure time (us) times analogue gain of the latest frame, from the IPA: how dark the scene is (0: not known) */
+ 	double tnrLight_ = 0;
++	/* exposure time (us) of the latest frame: a frame at least that long leaves time for the whole filter */
++	double tnrExposure_ = 0;
+ 	/* Scratch of the temporal denoiser: block sums and weights, block rows with motion, original rows at band edges. */
+ 	std::map<const Stream *, std::vector<int>> tnrBlocks_;
+ 	std::map<const Stream *, std::vector<int>> tnrWeights_;
+@@ -1427,8 +1429,10 @@ void IPU3CameraData::metadataReady(unsigned int id, const ControlList &metadata)
+ 
+ 	const auto exposure = metadata.get(controls::ExposureTime);
+ 	const auto gain = metadata.get(controls::AnalogueGain);
+-	if (exposure && gain)
++	if (exposure && gain) {
+ 		tnrLight_ = *exposure * static_cast<double>(*gain);
++		tnrExposure_ = *exposure;
++	}
+ 
+ 	info->metadataProcessed = true;
+ 	if (frameInfos_.tryComplete(info))
+@@ -1734,8 +1738,10 @@ void IPU3CameraData::temporalDenoise(const Stream *stream, FrameBuffer *buffer)
+ 	 * block "moving": at 2560x1920 the filter took 26 ms a frame, the stream fell to 17 fps with gaps of up to 58 ms
+ 	 * (the lag seen in low light, 2026-10-27).
+ 	 */
+-	const bool spatial = kSpatial > 0 && static_cast<size_t>(width) * height <= 2600000;
+-	const bool filterChroma = static_cast<size_t>(width) * height <= 2600000;
++	/* ...unless the frames are long (a dark room, 45 ms and more): then the whole filter fits (26 ms at 2560x1920) */
++	const bool fits = static_cast<size_t>(width) * height <= 2600000 || tnrExposure_ >= 45000;
++	const bool spatial = kSpatial > 0 && fits;
++	const bool filterChroma = fits;
+ 	const unsigned int blockCols = width / kBlock;
+ 	const unsigned int blockRows = height / kBlock;
+ 	if (blockCols < 2 || blockRows < 2)
