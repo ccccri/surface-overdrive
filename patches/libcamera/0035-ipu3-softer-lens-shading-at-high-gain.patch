@@ -1,0 +1,34 @@
+diff --git a/src/ipa/ipu3/algorithms/lsc.cpp b/src/ipa/ipu3/algorithms/lsc.cpp
+index be10387..8587f7a 100644
+--- a/src/ipa/ipu3/algorithms/lsc.cpp
++++ b/src/ipa/ipu3/algorithms/lsc.cpp
+@@ -309,6 +309,14 @@ void Lsc::prepare(IPAContext &context, const uint32_t frame,
+ 	shd.shd.black_level.bl_gb = 0;
+ 	shd.shd.black_level.bl_b = 0;
+ 
++	/*
++	 * In a dark room the corners, lifted by up to 2.5x to make up for the lens, showed the grain the most. From an
++	 * analogue x digital gain of 2 to one of 8 the brightness part of the correction goes down to 60% (the corners
++	 * come out a little darker, as on phones); its colour part stays, so that the corners keep their colour.
++	 */
++	const double totalGain = context.activeState.agc.gain * std::max(context.activeState.agc.digitalGain, 1.0);
++	const double strength = 1.0 - 0.4 * std::clamp((totalGain - 2.0) / 6.0, 0.0, 1.0);
++
+ 	auto code = [](double gain) {
+ 		return static_cast<uint16_t>(std::clamp<long>(std::lround((std::max(gain, 1.0) - 1.0) * kGainScale), 0, kMaxGainValue));
+ 	};
+@@ -329,6 +337,14 @@ void Lsc::prepare(IPAContext &context, const uint32_t frame,
+ 			g[1] *= eg;
+ 			g[2] *= eg;
+ 			g[3] *= extraAt(extraB_, nodeRadius_[k]) * eg;
++			if (strength < 1.0) {
++				const double mean = (g[0] + g[1] + g[2] + g[3]) / 4.0;
++				if (mean > 1.0) {
++					const double scale = (1.0 + (mean - 1.0) * strength) / mean;
++					for (unsigned int c = 0; c < kChannels; c++)
++						g[c] *= scale;
++				}
++			}
+ 			shd.shd_lut.sets[set].r_and_gr[cell].r = code(g[0]);
+ 			shd.shd_lut.sets[set].r_and_gr[cell].gr = code(g[1]);
+ 			shd.shd_lut.sets[set].gb_and_b[cell].gb = code(g[2]);

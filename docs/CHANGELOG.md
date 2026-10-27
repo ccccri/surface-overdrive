@@ -22,6 +22,9 @@ What was added, what broke, and what fixed it. Newest first. "Verified" means tr
   28.7 with "performance". New user service overdrive-camera-boost holds the performance profile while a camera node
   streams (power-profiles-daemon HoldProfile, tuned-ppd), event-driven (pw-dump --monitor: no polling, no CPU at
   rest), released when the camera stops. Verified: performance while the camera app runs, balanced-battery after.
+- Lens shading at high gain (0035): the corners, lifted up to 2.5x for the lens, showed the grain most in the dark.
+  From a total gain of 2 to 8 the brightness part of the correction goes down to 60%; its colour part stays. Checked
+  in a lit room only (no change there, as intended); not yet seen in the dark.
 - Tried and dropped: the ImgU's Bayer denoiser in the dark (grain 1.0 -> 2.1-2.6 with any setting).
 
 **Fixed (evening)**
