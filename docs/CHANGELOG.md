@@ -5,6 +5,10 @@ What was added, what broke, and what fixed it. Newest first. "Verified" means tr
 ## 2026-10-27
 
 **Fixed (evening)**
+- Cameras page: after a change of size the preview could stay off ("The camera preview stopped"): it started while the
+  camera service was still bringing the cameras back, found none and ended for good. It now tries again, once a
+  second, six times. The preview is scaled on the GPU (vapostproc) instead of in software: at 3200x2400, 74% of a core
+  before, about 15-20% now, same frame rate. Tried on the tablet: three size changes in a row, the preview back each time.
 - Camera app rewritten around a zero-copy preview: GStreamer draws into the window with qml6glsink (the first version
   copied every frame through Python into a QVideoFrame: 18% of a core, now 1%). The real cause of the lag: the preview
   froze after four frames, every time, and the watchdog restarted it every 6-7 s. A tee with an appsink for photos next

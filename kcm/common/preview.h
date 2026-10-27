@@ -38,9 +38,14 @@ Q_SIGNALS:
 private:
     void onReadyRead();
     void setError(const QString &error);
+    void launch();
+    void stopProcess();
 
     QProcess *m_process = nullptr;
     QTimer *m_watchdog = nullptr;
+    QTimer *m_retry = nullptr;
+    QString m_node;
+    int m_retries = 0;
     QByteArray m_buffer;
     QImage m_frame;
     QString m_error;
