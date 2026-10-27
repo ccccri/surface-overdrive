@@ -2,7 +2,14 @@
 
 What was added, what broke, and what fixed it. Newest first. "Verified" means tried on the Surface Go itself.
 
-## 2026-10-26
+## 2026-10-27
+
+**Fixed**
+- Wallpaper page listed some wallpapers twice ("Waterfall" twice): the screen-sized copies made by the wallpaper service
+  were packages in ~/.local/share/wallpapers, which Plasma lists. They now go to ~/.local/share/surface-overdrive/
+  wallpapers; copies in the old place are made again there when in use and removed otherwise.
+- CI: the base images are pulled with retries before the build (a cut download from quay.io's CDN failed a build).
+
 
 **Fixed (night, found by stressing the camera app on the tablet)**
 - The wallpaper service asked `kscreen-doctor` for the screen size at every check; it crashed once at the start of a

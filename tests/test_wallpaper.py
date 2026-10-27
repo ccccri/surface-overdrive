@@ -48,6 +48,21 @@ class Wallpaper(unittest.TestCase):
             self.assertNotEqual(first, wallpaper.package_for(photo))
             self.assertTrue(os.path.basename(first).startswith(wallpaper.PREFIX))
 
+    def test_copies_are_kept_out_of_plasma_s_wallpaper_list(self):
+        with mock.patch.dict(os.environ, {"XDG_DATA_HOME": self.tmp.name}):
+            photo = os.path.join(self.tmp.name, "a.jpg")
+            open(photo, "w").close()
+            pkg = wallpaper.package_for(photo)
+            self.assertNotEqual(os.path.dirname(pkg), os.path.join(self.tmp.name, "wallpapers"))
+            # a copy in the old place is made again, from its wallpaper, in the new place
+            old = os.path.join(self.tmp.name, "wallpapers", wallpaper.PREFIX + "0123abcd")
+            os.makedirs(old)
+            with open(os.path.join(old, "metadata.json"), "w") as f:
+                json.dump({"X-Surface-Overdrive-Source": photo}, f)
+            with mock.patch.object(wallpaper, "make_package", return_value=pkg) as make:
+                self.assertEqual(wallpaper.fit("file://" + old + "/", (1800, 1200)), "file://" + pkg + "/")
+            make.assert_called_once_with(photo, (1800, 1200))
+
     def test_ours_and_missing_are_left_alone(self):
         with mock.patch.object(wallpaper, "make_package") as make:
             self.assertIsNone(wallpaper.fit("file:///x/.local/share/wallpapers/surface-fit-abc/", (1800, 1200)))

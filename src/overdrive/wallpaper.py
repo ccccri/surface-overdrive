@@ -38,7 +38,23 @@ def config_dir():
 
 
 def wallpapers_dir():
+    """Where the screen-sized copies go. Not ~/.local/share/wallpapers: Plasma lists every package there, and each copy
+    showed up as a second entry with the name of its wallpaper (two "Waterfall" in the Wallpaper page, 2026-10-27)."""
+    return os.path.join(os.environ.get("XDG_DATA_HOME") or os.path.expanduser("~/.local/share"), "surface-overdrive", "wallpapers")
+
+
+def legacy_wallpapers_dir():
+    """Where the copies were made before; tidy() clears them, fit() makes new ones in wallpapers_dir()."""
     return os.path.join(os.environ.get("XDG_DATA_HOME") or os.path.expanduser("~/.local/share"), "wallpapers")
+
+
+def source_of(location):
+    """The wallpaper a copy of ours was made from (its metadata), or ""."""
+    try:
+        with open(os.path.join(location, "metadata.json")) as f:
+            return json.load(f).get("X-Surface-Overdrive-Source", "")
+    except (OSError, ValueError, AttributeError):
+        return ""
 
 
 def is_ours(location):
@@ -228,6 +244,11 @@ def set_lock_wallpaper(url):
 def fit(value, screen):
     """The setting a wallpaper should have instead of `value`, or None when it is fine as it is."""
     location = to_path(value) or default_package()
+    if is_ours(location) and os.path.dirname(location.rstrip("/")) == legacy_wallpapers_dir():
+        # a copy in the old place: made again from its wallpaper in the new place
+        location = source_of(location)
+        if not location:
+            return None
     if is_ours(location) or not os.path.exists(location):
         return None
     try:
@@ -244,9 +265,17 @@ def tidy():
     try:
         ours = [os.path.join(wallpapers_dir(), n) for n in os.listdir(wallpapers_dir()) if n.startswith(PREFIX)]
     except OSError:
-        return
+        ours = []
     ours.sort(key=os.path.getmtime, reverse=True)
     for path in ours[KEEP:]:
+        if path.rstrip("/") not in in_use:
+            shutil.rmtree(path, ignore_errors=True)
+    # copies in the old place go as soon as nothing uses them (fit() replaces the ones in use)
+    try:
+        legacy = [os.path.join(legacy_wallpapers_dir(), n) for n in os.listdir(legacy_wallpapers_dir()) if n.startswith(PREFIX)]
+    except OSError:
+        legacy = []
+    for path in legacy:
         if path.rstrip("/") not in in_use:
             shutil.rmtree(path, ignore_errors=True)
 
