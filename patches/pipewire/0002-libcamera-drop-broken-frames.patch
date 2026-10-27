@@ -1,0 +1,24 @@
+diff --git a/spa/plugins/libcamera/libcamera-source.cpp b/spa/plugins/libcamera/libcamera-source.cpp
+index b986b46..03bd676 100644
+--- a/spa/plugins/libcamera/libcamera-source.cpp
++++ b/spa/plugins/libcamera/libcamera-source.cpp
+@@ -1092,6 +1092,19 @@ void handle_completed_request(struct impl *impl, libcamera::Request *request)
+ 
+ 	const FrameMetadata &fmd = buffer->metadata();
+ 
++	/*
++	 * A frame the camera marked as broken (the IPU3 pipeline of Surface Overdrive does so with the garbage the ImgU puts
++	 * out after a change of size, seen as a purple flash): give the buffer back to the camera instead of showing it.
++	 * GStreamer and most applications ignore the "corrupted" flags below.
++	 */
++	if (fmd.status == libcamera::FrameMetadata::Status::FrameError) {
++		spa_log_debug(impl->log, "%p: request %p[%" PRIu64 "] broken frame dropped", impl, request, request_id);
++		request->reuse(libcamera::Request::ReuseFlag::ReuseBuffers);
++		SPA_FLAG_SET(b->flags, BUFFER_FLAG_OUTSTANDING);
++		spa_libcamera_buffer_recycle(impl, port, b->id);
++		return;
++	}
++
+ 	if (impl->clock) {
+ 		double target = (double)port->info.rate.num / port->info.rate.denom;
+ 		double corr;

@@ -1,0 +1,146 @@
+diff --git a/src/ipa/ipu3/algorithms/agc.cpp b/src/ipa/ipu3/algorithms/agc.cpp
+index 6cb0559..ea2e33e 100644
+--- a/src/ipa/ipu3/algorithms/agc.cpp
++++ b/src/ipa/ipu3/algorithms/agc.cpp
+@@ -76,11 +76,17 @@ static constexpr double kMinAnalogueGain = 1.0;
+ /* \todo Honour the FrameDurationLimits control instead of hardcoding a limit */
+ static constexpr utils::Duration kMaxExposureTime = 60ms;
+ 
++/*
++ * Lines the sensor needs between the end of the exposure and the end of the frame (OV5693_INTEGRATION_TIME_MARGIN; the
++ * OV8865 needs fewer).
++ */
++static constexpr int32_t kExposureMargin = 8;
++
+ /* Histogram constants */
+ static constexpr uint32_t knumHistogramBins = 256;
+ 
+ Agc::Agc()
+-	: minExposureTime_(0s), maxExposureTime_(0s)
++	: minExposureTime_(0s), maxExposureTime_(0s), longestExposureTime_(0s)
+ {
+ }
+ 
+@@ -102,6 +108,14 @@ int Agc::init(IPAContext &context, const ValueNode &tuningData)
+ 	if (ret)
+ 		return ret;
+ 
++	/*
++	 * Optional "maxExposureTime" (microseconds): let exposures run longer than a frame at the sensor's default timing,
++	 * the frame made as long as needed (fewer frames a second in the dark, as phones do). How exposure time and gain
++	 * share the work is up to the AeExposureModes of the tuning file: with stages such as 30 ms up to gain 2, then
++	 * 60 ms, the frame rate only drops where the gain would otherwise go past 2.
++	 */
++	longestExposureTime_ = std::chrono::microseconds(tuningData["maxExposureTime"].get<uint32_t>(0));
++
+ 	context.ctrlMap.merge(controls());
+ 
+ 	return 0;
+@@ -127,6 +141,14 @@ int Agc::configure(IPAContext &context,
+ 	minExposureTime_ = configuration.agc.minExposureTime;
+ 	maxExposureTime_ = std::min(configuration.agc.maxExposureTime,
+ 				    kMaxExposureTime);
++	activeState.agc.vblank = 0;
++	if (longestExposureTime_ > 0s) {
++		const auto &sensor = configuration.sensor;
++		const int64_t lines = static_cast<int64_t>(sensor.size.height) + sensor.maxVBlank - kExposureMargin;
++		const utils::Duration longest = lines * sensor.lineDuration;
++		maxExposureTime_ = std::max(maxExposureTime_, std::min(longestExposureTime_, longest));
++		activeState.agc.vblank = sensor.defVBlank;
++	}
+ 
+ 	minAnalogueGain_ = std::max(configuration.agc.minAnalogueGain, kMinAnalogueGain);
+ 	maxAnalogueGain_ = configuration.agc.maxAnalogueGain;
+@@ -326,6 +348,12 @@ void Agc::process(IPAContext &context, const uint32_t frame,
+ 	/* Update the estimated exposure time and gain. */
+ 	activeState.agc.exposure = newExposureTime / context.configuration.sensor.lineDuration;
+ 	activeState.agc.gain = aGain;
++	if (activeState.agc.vblank) {
++		/* the frame just long enough for the exposure, never shorter than the sensor's own */
++		const auto &sensor = context.configuration.sensor;
++		const int64_t needed = static_cast<int64_t>(activeState.agc.exposure) + kExposureMargin - sensor.size.height;
++		activeState.agc.vblank = std::clamp<int64_t>(needed, sensor.defVBlank, sensor.maxVBlank);
++	}
+ 
+ 	/* Remember the exposure only once it has really settled. */
+ 	const utils::Duration requestedEv = newExposureTime * aGain;
+@@ -345,9 +373,9 @@ void Agc::process(IPAContext &context, const uint32_t frame,
+ 	metadata.set(controls::AnalogueGain, frameContext.sensor.gain);
+ 	metadata.set(controls::ExposureTime, exposureTime.get<std::micro>());
+ 
+-	/* \todo Use VBlank value calculated from each frame exposure. */
+ 	uint32_t vTotal = context.configuration.sensor.size.height
+-			+ context.configuration.sensor.defVBlank;
++			+ (context.activeState.agc.vblank ? context.activeState.agc.vblank
++							  : context.configuration.sensor.defVBlank);
+ 	utils::Duration frameDuration = context.configuration.sensor.lineDuration
+ 				      * vTotal;
+ 	metadata.set(controls::FrameDuration, frameDuration.get<std::micro>());
+diff --git a/src/ipa/ipu3/algorithms/agc.h b/src/ipa/ipu3/algorithms/agc.h
+index 6438585..d98f1cd 100644
+--- a/src/ipa/ipu3/algorithms/agc.h
++++ b/src/ipa/ipu3/algorithms/agc.h
+@@ -48,6 +48,8 @@ private:
+ 
+ 	utils::Duration minExposureTime_;
+ 	utils::Duration maxExposureTime_;
++	/* "maxExposureTime" of the tuning file: exposures longer than a frame, the frame made longer (0: never) */
++	utils::Duration longestExposureTime_;
+ 
+ 	double minAnalogueGain_;
+ 	double maxAnalogueGain_;
+diff --git a/src/ipa/ipu3/ipa_context.h b/src/ipa/ipu3/ipa_context.h
+index 97fcf06..5f108d4 100644
+--- a/src/ipa/ipu3/ipa_context.h
++++ b/src/ipa/ipu3/ipa_context.h
+@@ -41,6 +41,7 @@ struct IPASessionConfiguration {
+ 
+ 	struct {
+ 		int32_t defVBlank;
++		int32_t maxVBlank;
+ 		utils::Duration lineDuration;
+ 		Size size;
+ 	} sensor;
+@@ -56,6 +57,7 @@ struct IPAActiveState {
+ 	struct {
+ 		uint32_t exposure;
+ 		double gain;
++		uint32_t vblank;		/* 0: the sensor's own frame length, never written */
+ 		uint32_t constraintMode;
+ 		uint32_t exposureMode;
+ 	} agc;
+diff --git a/src/ipa/ipu3/ipu3.cpp b/src/ipa/ipu3/ipu3.cpp
+index 24b5dc1..68e5756 100644
+--- a/src/ipa/ipu3/ipu3.cpp
++++ b/src/ipa/ipu3/ipu3.cpp
+@@ -207,6 +207,7 @@ void IPAIPU3::updateSessionConfiguration(const ControlInfoMap &sensorControls)
+ {
+ 	const ControlInfo vBlank = sensorControls.find(V4L2_CID_VBLANK)->second;
+ 	context_.configuration.sensor.defVBlank = vBlank.def().get<int32_t>();
++	context_.configuration.sensor.maxVBlank = vBlank.max().get<int32_t>();
+ 
+ 	const ControlInfo &v4l2Exposure = sensorControls.find(V4L2_CID_EXPOSURE)->second;
+ 	int32_t minExposure = v4l2Exposure.min().get<int32_t>();
+@@ -684,6 +685,9 @@ void IPAIPU3::setControls(unsigned int frame)
+ 	ControlList ctrls(sensorCtrls_);
+ 	ctrls.set(V4L2_CID_EXPOSURE, exposure);
+ 	ctrls.set(V4L2_CID_ANALOGUE_GAIN, gain);
++	/* a longer frame when the AGC wants a longer exposure than the frame holds (see Agc, "maxExposureTime") */
++	if (context_.activeState.agc.vblank)
++		ctrls.set(V4L2_CID_VBLANK, static_cast<int32_t>(context_.activeState.agc.vblank));
+ 
+ 	ControlList lensCtrls(lensCtrls_);
+ 	lensCtrls.set(V4L2_CID_FOCUS_ABSOLUTE,
+diff --git a/src/libcamera/pipeline/ipu3/ipu3.cpp b/src/libcamera/pipeline/ipu3/ipu3.cpp
+index ceddab3..353d834 100644
+--- a/src/libcamera/pipeline/ipu3/ipu3.cpp
++++ b/src/libcamera/pipeline/ipu3/ipu3.cpp
+@@ -1251,6 +1251,8 @@ int PipelineHandlerIPU3::registerCameras()
+ 		std::unordered_map<uint32_t, DelayedControls::ControlParams> params = {
+ 			{ V4L2_CID_ANALOGUE_GAIN, { delays.gainDelay, false } },
+ 			{ V4L2_CID_EXPOSURE, { delays.exposureDelay, false } },
++			/* written before the exposure in the same batch: a longer frame lets the sensor take a longer exposure */
++			{ V4L2_CID_VBLANK, { delays.vblankDelay, true } },
+ 		};
+ 
+ 		data->delayedCtrls_ =

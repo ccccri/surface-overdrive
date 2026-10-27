@@ -24,6 +24,13 @@ algorithms:
   - Af:
   - Agc:
       relativeLuminanceTarget: [ 0, 0.20 ]
+      # Low light (patch 0031): exposure up to 30 ms, then gain up to 2; only past that the frame gets longer, up to 60 ms
+      # (about 16 fps), and only then the gain goes further. The grain of a dim room comes from the gain.
+      maxExposureTime: 60000
+      AeExposureModes:
+        ExposureNormal:
+          exposureTime: [ 30000, 60000 ]
+          gain: [ 2.0, 4.0 ]
       AeConstraintMode:
         ConstraintNormal:
           lower:

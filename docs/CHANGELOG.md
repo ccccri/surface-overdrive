@@ -4,7 +4,16 @@ What was added, what broke, and what fixed it. Newest first. "Verified" means tr
 
 ## 2026-10-27
 
-**Fixed**
+**Fixed (afternoon, patches 0031/0032 and PipeWire 0002, tried on the tablet with cam only)**
+- Purple flash on a change of size: the first frame the ImgU puts out after a session at another size is magenta,
+  striped garbage, and the temporal denoiser carried it into the next frames. The first frames of a session are checked
+  and garbage or blank ones are marked as errors (no denoiser reference); the PipeWire plugin skips frames marked so.
+- Fade-in from black at every start: since 0029 black is luma 16, and the blank-frame checks still looked for 0, so the
+  denoiser was seeded with the black second frame. Blank is now luma <= 17.
+- Temporal denoise follows the light (exposure x gain): light averaging and no spatial smoothing in daylight (the
+  "filtered" look and the trails on the rear), full strength in a dim room; motion thresholds as before in good light.
+- Low light (0031, not yet tried in the dark): exposures up to 60 ms with a longer frame before more gain (front).
+
 - Wallpaper page listed some wallpapers twice ("Waterfall" twice): the screen-sized copies made by the wallpaper service
   were packages in ~/.local/share/wallpapers, which Plasma lists. They now go to ~/.local/share/surface-overdrive/
   wallpapers; copies in the old place are made again there when in use and removed otherwise.
