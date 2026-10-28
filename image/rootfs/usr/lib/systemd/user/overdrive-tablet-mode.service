@@ -1,0 +1,13 @@
+[Unit]
+Description=Surface Overdrive: a taller panel and larger title bar buttons while the tablet has no keyboard
+After=plasma-plasmashell.service
+PartOf=graphical-session.target
+
+[Service]
+ExecStart=/usr/libexec/overdrive/tablet-mode
+Restart=on-failure
+RestartSec=5
+Nice=5
+
+[Install]
+WantedBy=graphical-session.target
