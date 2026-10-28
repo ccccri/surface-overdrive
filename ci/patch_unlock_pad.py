@@ -68,9 +68,19 @@ LOADER = """    %(mark)s the keypad of a PIN or the dots of a pattern, when the 
                     overdrivePad.users.enabled = Qt.binding(() => !overdrivePad.padActive)
                     // the column of the prompts is at most ten grid units high, made for a password field: give the pad the room
                     // it needs (only taken when the screen has it; the action buttons below stay where they are)
-                    const box = overdrivePadSlot.parent.parent
+                    // The other items next to the pad (the media controls of the lock screen, a message) are counted
+                    // too: left out, they spilled over the action buttons (2026-10-28)
+                    const inner = overdrivePadSlot.parent, box = inner.parent
+                    const others = () => {
+                        let h = 0
+                        for (let i = 0; i < inner.children.length; i++) {
+                            const c = inner.children[i]
+                            if (c !== overdrivePadSlot && c.visible && c.height > 0) h += c.height + inner.spacing
+                        }
+                        return h
+                    }
                     box.Layout.maximumHeight = Qt.binding(() => Math.max(Kirigami.Units.gridUnit * 10,
-                                                                         overdrivePadSlot.Layout.preferredHeight + Kirigami.Units.largeSpacing))
+                                                                         overdrivePadSlot.Layout.preferredHeight + others() + Kirigami.Units.largeSpacing))
                     // and as wide as the pad (the column is made sixteen grid units wide at most, for a password field)
                     box.Layout.maximumWidth = Qt.binding(() => Math.max(Kirigami.Units.gridUnit * 16, overdrivePadSlot.Layout.preferredWidth))
                     const prompts = box.parent
@@ -81,7 +91,7 @@ LOADER = """    %(mark)s the keypad of a PIN or the dots of a pattern, when the 
                     const messages = prompts.children[0], actions = prompts.children[2]
                     const top = () => { let y = 0; for (let i = prompts; i; i = i.parent) y += i.y; return y }
                     item.room = Qt.binding(() => (prompts.Window.window ? prompts.Window.window.height : prompts.height) - top()
-                                                 - messages.height - actions.height - 3 * prompts.spacing - Kirigami.Units.gridUnit * 3)
+                                                 - messages.height - actions.height - others() - 3 * prompts.spacing - Kirigami.Units.gridUnit * 3)
                 } catch (e) {
                     console.warn("Surface Overdrive: could not make room for the unlock pad:", e)
                 }

@@ -169,12 +169,13 @@ RUN set -eux; \
         dnf5 -y install $files; rpm -q plasma-login-manager | grep -q overdrive; \
     else echo "warning: stock login screen (password only)"; fi; \
     rm -rf /tmp/login-rpms; dnf5 clean all
-# then the lock screen, and PAM (after the login package, which brings its own PAM file)
-COPY ci/patch_lockscreen.py ci/patch_unlock_pad.py ci/patch_pam.py ci/patch_dimscreen.py /tmp/
+# then the lock screen, and PAM (after the login package, which brings its own PAM file), the default panel and no user picture
+COPY ci/patch_lockscreen.py ci/patch_unlock_pad.py ci/patch_pam.py ci/patch_dimscreen.py ci/patch_plasma_defaults.py /tmp/
 RUN python3 /tmp/patch_lockscreen.py && python3 /tmp/patch_unlock_pad.py lockscreen \
     && python3 /tmp/patch_unlock_pad.py lockscreen-footer && python3 /tmp/patch_pam.py \
     && python3 /tmp/patch_dimscreen.py \
-    && rm /tmp/patch_lockscreen.py /tmp/patch_unlock_pad.py /tmp/patch_pam.py /tmp/patch_dimscreen.py
+    && python3 /tmp/patch_plasma_defaults.py panel && python3 /tmp/patch_plasma_defaults.py noface \
+    && rm /tmp/patch_lockscreen.py /tmp/patch_unlock_pad.py /tmp/patch_pam.py /tmp/patch_dimscreen.py /tmp/patch_plasma_defaults.py
 # What the sound filters inside the built-in devices need (src/overdrive/audio): the limiter after the speaker boost, and the
 # library and plugin of the microphone noise suppression.
 RUN dnf5 -y install --setopt=install_weak_deps=False ladspa-swh-plugins rnnoise && dnf5 clean all \

@@ -2,6 +2,20 @@
 
 What was added, what broke, and what fixed it. Newest first. "Verified" means tried on the Surface Go itself.
 
+## 2026-10-28
+
+**Fixed (verified on the tablet from a test install)**
+- Lock screen with the PIN or pattern pad: the media controls (a player, also one of a phone or PC through KDE
+  Connect) were left out of the room given to the pad and were drawn over the Sleep / Switch User / Restart buttons.
+  The pad now counts every other item next to it: the controls sit between the pad and the buttons.
+
+**Added**
+- No user picture on the lock screen, the login screen and the shutdown screen, only the name, in the same place
+  (`ci/patch_plasma_defaults.py noface`: UserDelegate.qml of org.kde.breeze.components, used by all three). The
+  picture can still be set in System Settings; the launcher (Kickoff, compiled into its plugin) still shows it.
+- Default panel of a new desktop: bottom, centred, dodge windows, translucent, floating (`patch_plasma_defaults.py
+  panel`, appended to Plasma's default panel template).
+
 ## 2026-10-27
 
 **Fixed (night: front camera in low light, patches 0033/0034, tried on the tablet in a dim and a dark room)**
