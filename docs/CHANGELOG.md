@@ -23,6 +23,11 @@ What was added, what broke, and what fixed it. Newest first. "Verified" means tr
   remembered: about 70 ms a value instead of 500, and the stored value follows the finger while it is held
   (verified: -6.5, -5.5, -4.0, -3.0, -2.0 dB while dragging). The camera page sends at once too, one value on its
   way at a time. Plasma's own volume slider was already live.
+- The equalizer measured through the air (`tools/dev/eq_measure.py`: 28 tones from 80 Hz to 14 kHz played by the speakers
+  and recorded by the tablet's microphone, reference set against a set with -9 dB at 500 Hz, +9 dB at 2 kHz, -6 dB at
+  7 kHz): from 300 Hz to 10 kHz the measured change follows the computed one within 0.3 dB on nearly every tone (two
+  runs). Below 200 Hz the speakers give almost nothing (the same set measured twice differs by up to 7 dB), at 2 kHz
+  the room and speaker have a notch, and 11-14 kHz catches distortion harmonics of the boosted tones.
 - The band type showed "Peak" for every band (band 1 is a low shelf): the list of types changes with the band and puts
   the selector back on its first entry after its index was worked out. Same for "Settings for" and the camera page's
   lists; the index is now set once the list is in.
