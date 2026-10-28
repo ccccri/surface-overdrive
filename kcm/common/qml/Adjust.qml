@@ -24,6 +24,11 @@ GridLayout {
     property string unit: ""
     property var names: null          // names of the steps instead of a number ("off", "low", ...)
     property bool showReset: true
+    // the slider moves along the logarithm of the value (frequencies: each octave takes the same room)
+    property bool logScale: false
+    function toSlider(v) { return logScale ? Math.log(Math.max(v, 1e-6)) : v }
+    function fromSlider(s) { return logScale ? Math.exp(s) : s }
+    readonly property real shownValue: fromSlider(slider.value)
     readonly property alias pressed: slider.pressed
     signal edited(real v)             // the user chose a value
     signal reset()
@@ -64,9 +69,9 @@ GridLayout {
         Layout.row: adjust.stacked ? 1 : 0; Layout.column: adjust.stacked ? 0 : 1
         Layout.columnSpan: adjust.stacked ? 2 : 1
         Layout.fillWidth: true
-        from: adjust.from; to: adjust.to
+        from: adjust.toSlider(adjust.from); to: adjust.toSlider(adjust.to)
         // no stepSize: the desktop style would draw a tick for every step. The value is rounded to the step here instead.
-        onMoved: { value = adjust.snap(value); adjust.edited(value) }
+        onMoved: { const v = adjust.snap(adjust.fromSlider(value)); value = adjust.toSlider(v); adjust.edited(v) }
         // A finger that moves a little up or down while it drags the handle must not scroll the page instead.
         property Item scroller: null
         onPressedChanged: {
@@ -75,20 +80,20 @@ GridLayout {
                 if (scroller) scroller.interactive = false
             } else if (scroller) scroller.interactive = true
         }
-        Binding { target: slider; property: "value"; value: adjust.value; when: !slider.pressed; restoreMode: Binding.RestoreNone }
+        Binding { target: slider; property: "value"; value: adjust.toSlider(adjust.value); when: !slider.pressed; restoreMode: Binding.RestoreNone }
     }
     RowLayout {
         Layout.row: 0; Layout.column: adjust.stacked ? 1 : 2
         spacing: Kirigami.Units.smallSpacing
 
         QQC2.ToolButton {
-            opacity: adjust.showReset && slider.enabled && Math.abs(slider.value - adjust.neutral) > adjust.step / 2 ? 1 : 0
+            opacity: adjust.showReset && slider.enabled && Math.abs(adjust.shownValue - adjust.neutral) > adjust.step / 2 ? 1 : 0
             enabled: opacity > 0
             icon.name: "edit-undo"
             display: QQC2.AbstractButton.IconOnly
             implicitHeight: field.implicitHeight
             implicitWidth: implicitHeight
-            onClicked: { slider.value = adjust.neutral; adjust.reset() }
+            onClicked: { slider.value = adjust.toSlider(adjust.neutral); adjust.reset() }
             QQC2.ToolTip.text: i18n("Back to the default")
             QQC2.ToolTip.visible: hovered
         }
@@ -102,7 +107,7 @@ GridLayout {
         QQC2.TextField {
             id: field
             visible: adjust.names === null
-            readonly property string full: adjust.shown(slider.value) + (adjust.unit.length > 0 ? " " + adjust.unit : "")
+            readonly property string full: adjust.shown(adjust.shownValue) + (adjust.unit.length > 0 ? " " + adjust.unit : "")
             // One line: the same width in every adjustment, so that the sliders of a group all end at the same place.
             // Stacked: just as wide as the value, so that the arrow back to the default sits right next to the number.
             Layout.preferredWidth: adjust.stacked ? Math.ceil(fit.advanceWidth) + leftPadding + rightPadding + 2 : adjust.valueWidth
@@ -121,14 +126,14 @@ GridLayout {
             }
             HoverHandler { id: fieldHover; cursorShape: Qt.IBeamCursor }
             onActiveFocusChanged: {
-                if (activeFocus) { text = adjust.shown(slider.value); selectAll() }      // the bare number while typing
+                if (activeFocus) { text = adjust.shown(adjust.shownValue); selectAll() }      // the bare number while typing
                 else text = full
             }
             onEditingFinished: {
                 const v = parseFloat(text.replace(",", "."))
                 if (!isNaN(v)) {
                     const s = adjust.snap(v)
-                    if (Math.abs(s - slider.value) > adjust.step / 4) { slider.value = s; adjust.edited(s) }
+                    if (Math.abs(s - adjust.shownValue) > adjust.step / 4) { slider.value = adjust.toSlider(s); adjust.edited(s) }
                 }
                 focus = false
             }

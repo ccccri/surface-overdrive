@@ -2,6 +2,7 @@
 import QtQuick
 import QtQuick.Controls as QQC2
 import QtQuick.Layouts
+import QtQuick.Window
 import QtQuick.Dialogs
 import org.kde.kirigami as Kirigami
 
@@ -45,7 +46,14 @@ ColumnLayout {
     function audio(tag, args) { kcm.call(tag, ["audio"].concat(args)) }
     function load() { audio("load", ["describe"]) }
     Component.onCompleted: load()
-    Timer { interval: 4000; repeat: true; running: root.visible; onTriggered: if (!sendTimer.running && !micTimer.running) root.audio("quiet", ["describe"]) }
+    // What changes by itself (the jack, the volume keys) is read again every few seconds, only while the window is in front:
+    // each look starts overdrivectl, which costs the tablet a third of a second of processor
+    readonly property bool watching: root.visible && root.Window.active
+    function refresh() { if (!sendTimer.running && !micTimer.running) root.audio("quiet", ["describe"]) }
+    Timer { interval: 4000; repeat: true; running: root.watching; onTriggered: root.refresh() }
+    onWatchingChanged: if (watching) refresh()
+    // a value that reads the same keeps the object it had: lists made from it (the profile menus) are not made again
+    function same(a, b) { return JSON.stringify(a) === JSON.stringify(b) ? a : b }
     Connections {
         target: kcm
         function onCallFinished(tag, ok, output, error) {
@@ -56,8 +64,15 @@ ColumnLayout {
             if (!r || !r.eq || !r.mic) return
             if (tag === "quiet" || tag === "set") {
                 // keep what the sliders show while the user is working: only what changes by itself is refreshed
-                root.d = Object.assign({}, root.d, { active: r.active, output: r.output, input: r.input, volume_hold: r.volume_hold, presets: r.presets,
-                                                     mic: Object.assign({}, root.d.mic, { available: r.mic.available, running: r.mic.running, presets: r.mic.presets }) })
+                const o = root.d
+                const n = { active: r.active, output: same(o.output, r.output), input: same(o.input, r.input), volume_hold: r.volume_hold,
+                            presets: same(o.presets, r.presets) }
+                const mic = { available: r.mic.available, running: r.mic.running, presets: same(o.mic.presets, r.mic.presets) }
+                if (n.active === o.active && n.output === o.output && n.input === o.input && n.volume_hold === o.volume_hold
+                    && n.presets === o.presets && mic.available === o.mic.available && mic.running === o.mic.running
+                    && mic.presets === o.mic.presets)
+                    return                                  // nothing changed: nothing is redrawn
+                root.d = Object.assign({}, o, n, { mic: Object.assign({}, o.mic, mic) })
                 return
             }
             root.d = r
@@ -164,12 +179,17 @@ ColumnLayout {
             Line {
                 Caption { text: i18n("Settings for:") }
                 QQC2.ComboBox {
+                    popup.modal: true; popup.dim: false      // a touch outside the list only closes it (see Bars.qml)
                     id: outputBox
                     width: Kirigami.Units.gridUnit * 14
                     readonly property var outputs: ["speaker", "headphones"]
                     model: [i18n("Speakers"), i18n("Headphones")].map((t, i) => t + (root.d.active === outputs[i] ? i18n(" (in use)") : ""))
                     enabled: !root.d.eq.sync
-                    currentIndex: Math.max(0, outputs.indexOf(root.editing))
+                    // set once the list is in (the list changes with the port in use, see the selector of the band type)
+                    Binding on currentIndex {
+                        value: Math.max(0, outputs.indexOf(root.editing))
+                        delayed: true; restoreMode: Binding.RestoreNone
+                    }
                     onActivated: i => root.editing = outputs[i]
                 }
                 Check {
@@ -252,10 +272,17 @@ ColumnLayout {
             Line {
                 Caption { text: i18n("Band %1:", root.sel + 1) }
                 QQC2.ComboBox {
+                    popup.modal: true; popup.dim: false      // a touch outside the list only closes it (see Bars.qml)
                     width: Kirigami.Units.gridUnit * 12
                     model: root.kindsFor(root.sel).map(k => root.kindNames[k])
                     enabled: count > 1
-                    currentIndex: Math.max(0, root.kindsFor(root.sel).indexOf(root.band.type))
+                    // the list changes with the band and a new list puts the selector back on its first entry, after a plain
+                    // binding of currentIndex was worked out: the band showed "Peak" whatever it was. Set it once the list is in.
+                    displayText: root.kindNames[root.band.type] || ""
+                    Binding on currentIndex {
+                        value: Math.max(0, root.kindsFor(root.sel).indexOf(root.band.type))
+                        delayed: true; restoreMode: Binding.RestoreNone
+                    }
                     onActivated: i => root.setBand(root.sel, "type", root.kindsFor(root.sel)[i])
                 }
                 Check {
@@ -281,7 +308,7 @@ ColumnLayout {
                 QQC2.Button { text: i18n("Export…"); icon.name: "document-export"; enabled: kcm.startTab !== "stress"; onClicked: exportDialog.open() }
             }
             Adjust {
-                label: i18n("Frequency"); help: i18n("Where the band acts: low numbers are bass, high numbers treble."); from: 20; to: 20000; step: 1; unit: "Hz"; showReset: false
+                label: i18n("Frequency"); help: i18n("Where the band acts: low numbers are bass, high numbers treble."); from: 20; to: 20000; step: 1; unit: "Hz"; showReset: false; logScale: true
                 value: root.band.freq
                 onEdited: v => root.setBand(root.sel, "freq", v)
             }
@@ -293,7 +320,8 @@ ColumnLayout {
             }
             Adjust {
                 onReset: edited(neutral)
-                label: i18n("Width (Q)"); help: i18n("How narrow the band is: a high number changes only the sound right at the frequency, a low one a wide range around it."); from: 0.2; to: 10; step: 0.1; unit: ""; neutral: 1
+                label: i18n("Width (Q)"); help: i18n("How narrow the band is: a high number changes only the sound right at the frequency, a low one a wide range around it."); from: 0.2; to: 10; step: 0.1; unit: ""
+                neutral: root.band.type === "peak" ? 1 : 0.71          // shelves and cuts start at 0.71 (Butterworth)
                 value: root.band.q
                 onEdited: v => root.setBand(root.sel, "q", v)
             }

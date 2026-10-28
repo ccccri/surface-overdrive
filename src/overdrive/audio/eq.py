@@ -31,8 +31,12 @@ def kinds(i):
     return SLOT_KINDS.get(i, ("peak",))
 
 
+# The top bands were at 8, 12 and 14 kHz: on the graph 12 and 14 kHz are so close that their handles lay on top of each other.
+OLD_TOP = {7: 8000.0, 8: 12000.0, 9: 14000.0}
+
+
 def flat_bands():
-    freqs = (60, 120, 250, 500, 1000, 2000, 4000, 8000, 12000, 14000)
+    freqs = (60, 120, 250, 500, 1000, 2000, 4000, 7000, 11000, 16000)
     types = ["lowshelf"] + ["peak"] * 8 + ["highshelf"]
     return [{"type": t, "freq": float(f), "gain": 0.0, "q": 0.71 if t != "peak" else 1.0, "on": True} for t, f in zip(types, freqs)]
 
@@ -105,9 +109,13 @@ def _normalise(s):
             out["bands"].append(dict(flat[i]))
             continue
         kind = b.get("type") if b.get("type") in kinds(i) else "peak"
-        out["bands"].append({"type": kind, "freq": store.number(b.get("freq"), flat[i]["freq"], 20, 20000),
-                             "gain": store.number(b.get("gain"), 0.0, -24, 24), "q": store.number(b.get("q"), 1.0, 0.1, 20),
-                             "on": bool(b.get("on", True))})
+        band = {"type": kind, "freq": store.number(b.get("freq"), flat[i]["freq"], 20, 20000),
+                "gain": store.number(b.get("gain"), 0.0, -24, 24), "q": store.number(b.get("q"), 1.0, 0.1, 20),
+                "on": bool(b.get("on", True))}
+        # an untouched top band where the old defaults put it moves to the new place (at 0 dB it does nothing either way)
+        if OLD_TOP.get(i) == band["freq"] and abs(band["gain"]) < 0.05 and kind == flat[i]["type"]:
+            band["freq"] = flat[i]["freq"]
+        out["bands"].append(band)
     while len(out["bands"]) < N:
         out["bands"].append(dict(flat[len(out["bands"])]))
     return out

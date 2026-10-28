@@ -110,9 +110,14 @@ Kirigami.Page {
             Section {
                 title: i18n("Resolution")
                 QQC2.ComboBox {
+                    popup.modal: true; popup.dim: false      // a touch outside the list only closes it (see Bars.qml)
                     Layout.fillWidth: true
                     model: root.d.sizes.map(x => x.text)
-                    currentIndex: { for (let i = 0; i < root.d.sizes.length; i++) if (root.d.sizes[i].minWidth === root.s.minWidth) return i; return 0 }
+                    // set once the list is in: a new list puts the selector back on its first entry after a plain binding
+                    Binding on currentIndex {
+                        value: { for (let i = 0; i < root.d.sizes.length; i++) if (root.d.sizes[i].minWidth === root.s.minWidth) return i; return 0 }
+                        delayed: true; restoreMode: Binding.RestoreNone
+                    }
                     onActivated: { preview.stop(); root.edit("minWidth", root.d.sizes[currentIndex].minWidth) }
                     QQC2.ToolTip.text: i18n("The picture size apps get from this camera. The largest sizes read the whole sensor: sharpest photos, fewer pictures per second. For video calls pick a fast one. Changing it restarts the camera service.")
                     QQC2.ToolTip.visible: hovered && !popup.visible
@@ -123,10 +128,11 @@ Kirigami.Page {
             Section {
                 title: i18n("Presets")
                 QQC2.ComboBox {
+                    popup.modal: true; popup.dim: false      // a touch outside the list only closes it (see Bars.qml)
                     Layout.fillWidth: true
                     enabled: root.d.presets.length > 0
                     model: root.d.presets.length > 0 ? root.d.presets.map(p => p.name + (p.current ? i18n("   (active)") : "")) : [i18n("No presets saved yet")]
-                    currentIndex: root.presetIndex
+                    Binding on currentIndex { value: root.presetIndex; delayed: true; restoreMode: Binding.RestoreNone }
                     onActivated: i => root.presetIndex = i
                 }
                 RowLayout {

@@ -9,6 +9,27 @@ What was added, what broke, and what fixed it. Newest first. "Verified" means tr
   Connect) were left out of the room given to the pad and were drawn over the Sleep / Switch User / Restart buttons.
   The pad now counts every other item next to it: the controls sit between the pad and the buttons.
 
+**Fixed (Sound and EQ page, with a finger; verified on the tablet from a test install)**
+- A drop-down list is not modal in Qt Quick: a touch outside it closed it *and* went on to what lay under it. A finger
+  that missed the list by a few pixels, or tapped beside it to close it, moved the slider underneath (reproduced: the
+  speakers' pre-amplifier jumped to -16.5 dB), so it took several taps to get anything done. Every drop-down list of our
+  pages, and of the Plasma pages inside them (Port of the sound devices...), is now modal without dimming: a touch
+  outside only closes it (`kcm/common/qml/Bars.qml`, which every page already uses).
+- The band type showed "Peak" for every band (band 1 is a low shelf): the list of types changes with the band and puts
+  the selector back on its first entry after its index was worked out. Same for "Settings for" and the camera page's
+  lists; the index is now set once the list is in.
+- The page read the state every 4 s even with its window in the background (overdrivectl, a third of a second of
+  processor each time) and made the lists of the profiles again each time: now only while the window is in front, and
+  nothing is redrawn when nothing changed.
+- The audio route service took ~9% of a core while something played: it reacted to every change of every program's
+  stream ("sink-input" matched "sink") and read the whole PipeWire graph twice each time. Now it ignores streams,
+  gathers a burst of events into one look, and reads the graph only when a device is made again: 55 ms of processor in
+  21 s of YouTube instead of about 2 s.
+- Equalizer: bands 9 and 10 (12 and 14 kHz) lay on top of each other on the graph; the top bands are now 7, 11 and
+  16 kHz (untouched bands at the old places move by themselves; at 0 dB they do nothing either way). The frequency
+  slider is logarithmic like the graph (60 Hz was in the first 2% of a linear 20-20000 Hz slider). The reset arrow of
+  the width (Q) of a shelf goes back to 0.71, its default, instead of 1.
+
 **Added**
 - No user picture on the lock screen, the login screen and the shutdown screen, only the name, in the same place
   (`ci/patch_plasma_defaults.py noface`: UserDelegate.qml of org.kde.breeze.components, used by all three). The

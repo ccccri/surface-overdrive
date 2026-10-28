@@ -220,3 +220,28 @@ class GraphTest(unittest.TestCase):
             self.assertTrue(graph.clear("dev"))
             self.assertFalse(graph.loaded("dev", "v1"))
         self.assertEqual(sent[-1], {graph.PROP: ""})
+
+
+class TopBandsTest(unittest.TestCase):
+    def test_untouched_old_top_bands_move(self):
+        old = eq.new_set()
+        for i, f in eq.OLD_TOP.items():
+            old["bands"][i]["freq"] = f
+        old["bands"][8]["gain"] = 0.0
+        moved = eq._normalise(old)
+        self.assertEqual([b["freq"] for b in moved["bands"][7:]], [7000.0, 11000.0, 16000.0])
+
+    def test_used_band_stays(self):
+        s = eq.new_set()
+        s["bands"][8]["freq"] = 12000.0
+        s["bands"][8]["gain"] = -2.0
+        self.assertEqual(eq._normalise(s)["bands"][8]["freq"], 12000.0)
+
+
+class RouteTest(unittest.TestCase):
+    def test_events(self):
+        from overdrive.audio import route
+        self.assertEqual(route.relevant("Event 'change' on sink #66"), (True, False))
+        self.assertEqual(route.relevant("Event 'new' on source #70"), (True, True))
+        self.assertEqual(route.relevant("Event 'change' on client #2809"), (False, False))
+        self.assertEqual(route.relevant("Event 'change' on sink-input #2812"), (False, False))

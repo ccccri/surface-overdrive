@@ -37,6 +37,20 @@ def node_serial(name):
     return None
 
 
+def node_serials(names):
+    """{name: (id, serial)} of the nodes with these node.name values, from one pw-dump (a missing node is left out)."""
+    rc, out = run(["pw-dump"], timeout=10)
+    found = {}
+    try:
+        for o in json.loads(out):
+            props = o.get("info", {}).get("props", {}) if o.get("type", "").endswith("Node") else {}
+            if props.get("node.name") in names:
+                found[props["node.name"]] = (o["id"], str(props.get("object.serial", o["id"])))
+    except ValueError:
+        pass
+    return found
+
+
 def _quote(value):
     return json.dumps(value) if isinstance(value, str) else "%g" % value
 
