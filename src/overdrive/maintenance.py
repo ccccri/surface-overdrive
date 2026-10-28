@@ -248,7 +248,8 @@ def images(run=subprocess.run):
         out.append({"version": str(d.get("version") or "?"), "built": _when(d.get("timestamp")), "state": state,
                     # an image that starts next and is older than the one in use is there because of "go back": that can be undone
                     "went_back": state == "next" and 0 < int(d.get("timestamp") or 0) < booted_built,
-                    "digest": str(d.get("container-image-reference-digest") or d.get("checksum") or "")[:19]})
+                    "digest": str(d.get("container-image-reference-digest") or d.get("checksum") or "")[:19],
+                    "source_sha": source_sha(d)})
     booted = next((d for d in deployments if d.get("booted")), {})
     return {"images": out, "can_go_back": any(i["state"] == "previous" for i in out) and not any(i["state"] == "next" for i in out),
             "source": source(str(booted.get("container-image-reference") or booted.get("origin") or ""))}
@@ -265,14 +266,63 @@ def source(reference):
     return reference or "unknown"
 
 
-def changes(run=subprocess.run):
-    """Packages that differ between the image in use and the other one on the disk, as lines of text (at most 40)."""
+def source_sha(deployment):
+    """The commit of this project an image was built from: the image build writes it into a label of the image."""
+    try:
+        config = json.loads(deployment.get("base-commit-meta", {}).get("ostree.container.image-config") or "{}")
+        sha = (config.get("config", {}).get("Labels") or {}).get("org.surfaceoverdrive.source-sha", "")
+    except (ValueError, AttributeError):
+        return ""
+    return sha if re.fullmatch(r"[0-9a-f]{40}", sha or "") else ""
+
+
+def project_log(older, newer, fetch=None, limit=30):
+    """What changed in this project between two commits, as the first lines of the commit messages, newest first, asked from
+    GitHub (the tablet keeps no copy of the project's history). {"project": [...], "project_more": n} or {"project_error": ...}."""
+    if not older or not newer:
+        return {"project_error": "This image does not say which version of Surface Overdrive it was built from."}
+    if older == newer:
+        return {"project": [], "project_more": 0}
+    url = "https://api.github.com/repos/%s/compare/%s...%s" % (REPO, older, newer)
+    if fetch is None:
+        def fetch(address):
+            from urllib.request import Request, urlopen
+            with urlopen(Request(address, headers={"Accept": "application/vnd.github+json", "User-Agent": "overdrivectl"}), timeout=12) as r:
+                return json.loads(r.read(4 * 1024 * 1024))
+    try:
+        data = fetch(url)
+        commits = data.get("commits") or []
+        if data.get("status") == "behind":           # going back: what the older image does not have
+            return {"project": [], "project_more": 0, "project_back": True}
+    except Exception:                                # no network, GitHub refusing, an answer that is not JSON
+        return {"project_error": "The list of changes could not be fetched from GitHub (no network?)."}
+    lines = []
+    for c in reversed(commits):
+        msg = str((c.get("commit") or {}).get("message") or "").split("\n", 1)[0].strip()
+        when = str(((c.get("commit") or {}).get("committer") or {}).get("date") or "")[:10]
+        if msg:
+            lines.append("%s  %s" % (when, msg) if when else msg)
+    return {"project": lines[:limit], "project_more": max(0, len(lines) - limit)}
+
+
+def changes(run=subprocess.run, fetch=None):
+    """What differs between the image in use and the other one on the disk: the changes of this project (from GitHub) and the
+    packages, as lines of text (at most 40 packages)."""
     try:
         text = run(["rpm-ostree", "db", "diff"], capture_output=True, text=True, timeout=60).stdout
     except (OSError, subprocess.SubprocessError):
         return {"lines": [], "error": "The difference could not be read."}
     lines = [line.strip() for line in text.splitlines() if line.startswith("  ")]
-    return {"lines": lines[:40], "more": max(0, len(lines) - 40)}
+    out = {"lines": lines[:40], "more": max(0, len(lines) - 40)}
+    listed = images(run)["images"]
+    used = next((i for i in listed if i["state"] == "in use"), None)
+    other = next((i for i in listed if i["state"] == "next"), None) or next((i for i in listed if i["state"] == "previous"), None)
+    if used and other:
+        # an update waiting for the restart: what it brings; otherwise what the image in use brought over the previous one
+        older, newer = (used, other) if other["state"] == "next" and not other.get("went_back") else (other, used)
+        out["project_newer"] = newer["version"]
+        out.update(project_log(older.get("source_sha"), newer.get("source_sha"), fetch))
+    return out
 
 
 def go_back(run=subprocess.run):
@@ -301,7 +351,9 @@ def _scrub(text):
     host = os.uname().nodename
     for word, mark in ((user, "<user>"), (host, "<host>")):
         if len(word) >= 3:
-            text = re.sub(re.escape(word), mark, text)
+            # a whole word only, and not the name of this project: a tablet called "Surface" made every "Surface Overdrive"
+            # read "<host> Overdrive"
+            text = re.sub(r"(?<![\w.-])%s(?![\w-])(?! Overdrive)" % re.escape(word), mark, text)
     text = re.sub(r"\b(?:[0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}\b", "<mac>", text)
     text = re.sub(r"\b(?:\d{1,3}\.){3}\d{1,3}\b", "<ip>", text)
     text = re.sub(r"\b(?:[0-9A-Fa-f]{1,4}:){4,7}[0-9A-Fa-f]{1,4}\b", "<ip6>", text)

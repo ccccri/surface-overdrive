@@ -136,34 +136,36 @@ Kirigami.Page {
             Layout.fillHeight: true
             contentWidth: availableWidth
             QQC2.ScrollBar.horizontal.policy: QQC2.ScrollBar.AlwaysOff
+            // One column that scrolls as a whole: the fixes, the system images, then the update settings of Plasma. (With the
+            // settings of Plasma fixed under a scrolling part, the end of the part above looked cut off.)
             ColumnLayout {
                 width: scroll.availableWidth
                 spacing: 0
                 Health { }
                 SystemImage { }
-            }
-        }
-        Kirigami.ListSectionHeader {
-            Layout.fillWidth: true
-            visible: kcm.stockPage !== null
-            text: i18n("Updates")
-        }
-        Item {
-            id: holder
-            Layout.fillWidth: true
-            // the page of Plasma is a short form: it gets the height of its content, at most half of the page
-            Layout.preferredHeight: !page ? (kcm.stockError.length > 0 ? Kirigami.Units.gridUnit * 6 : 0)
-                                    : Math.min(wrapper.height * 0.3, (page.flickable ? page.flickable.contentHeight : Kirigami.Units.gridUnit * 8) + Kirigami.Units.largeSpacing * 2)
-            readonly property Item page: kcm.stockPage
-            onPageChanged: if (page) { page.parent = holder; page.anchors.fill = holder; page.visible = true }
-            QQC2.Label {
-                anchors.centerIn: parent
-                width: parent.width - Kirigami.Units.gridUnit * 4
-                visible: kcm.stockError.length > 0
-                wrapMode: Text.WordWrap
-                horizontalAlignment: Text.AlignHCenter
-                opacity: 0.7
-                text: i18n("The update settings of Plasma could not be loaded: %1", kcm.stockError)
+                Kirigami.ListSectionHeader {
+                    Layout.fillWidth: true
+                    visible: kcm.stockPage !== null
+                    text: i18n("Updates")
+                }
+                Item {
+                    id: holder
+                    Layout.fillWidth: true
+                    // the page of Plasma is a short form: as tall as its content, so that it never scrolls on its own
+                    Layout.preferredHeight: !page ? (kcm.stockError.length > 0 ? Kirigami.Units.gridUnit * 6 : 0)
+                                            : (page.flickable ? page.flickable.contentHeight : Kirigami.Units.gridUnit * 8) + Kirigami.Units.largeSpacing * 2
+                    readonly property Item page: kcm.stockPage
+                    onPageChanged: if (page) { page.parent = holder; page.anchors.fill = holder; page.visible = true; if (page.flickable) page.flickable.interactive = false }
+                    QQC2.Label {
+                        anchors.centerIn: parent
+                        width: parent.width - Kirigami.Units.gridUnit * 4
+                        visible: kcm.stockError.length > 0
+                        wrapMode: Text.WordWrap
+                        horizontalAlignment: Text.AlignHCenter
+                        opacity: 0.7
+                        text: i18n("The update settings of Plasma could not be loaded: %1", kcm.stockError)
+                    }
+                }
             }
         }
     }

@@ -19,6 +19,23 @@ ColumnLayout {
     readonly property bool hasNext: info.images.some(i => i.state === "next")
 
     function reload() { kcm.call("image", ["image"]) }
+    // what changed: first the changes of this project (the first line of each, from GitHub), then the packages
+    function diffText(d) {
+        if (d.lines.length === 1 && d.project === undefined && d.project_error === undefined) return d.lines[0]    // "Reading…"
+        let parts = []
+        if (d.project && d.project.length > 0)
+            parts.push(i18n("Surface Overdrive, changes in %1:", d.project_newer || "") + "\n• " + d.project.join("\n• ")
+                       + (d.project_more > 0 ? "\n" + i18n("… and %1 more", d.project_more) : ""))
+        else if (d.project_back)
+            parts.push(i18n("Surface Overdrive: going back undoes the changes of the newer image."))
+        else if (d.project && d.project.length === 0)
+            parts.push(i18n("Surface Overdrive: the same version in both images."))
+        else if (d.project_error)
+            parts.push(d.project_error)
+        parts.push(d.lines.length === 0 ? i18n("Packages: the same in both images.")
+                   : i18n("Packages:") + "\n" + d.lines.join("\n") + (d.more > 0 ? "\n" + i18n("… and %1 more", d.more) : ""))
+        return parts.join("\n\n")
+    }
     Component.onCompleted: reload()
     Connections {
         target: kcm
@@ -102,11 +119,9 @@ ColumnLayout {
         visible: root.diff !== null
         Layout.fillWidth: true
         Layout.margins: Kirigami.Units.largeSpacing
-        wrapMode: Text.WrapAnywhere
+        wrapMode: Text.Wrap
         opacity: 0.8
-        font.family: "monospace"
-        text: root.diff === null ? "" : root.diff.lines.length === 0 ? i18n("The two images hold the same packages: only files of this project differ.")
-              : root.diff.lines.join("\n") + (root.diff.more > 0 ? "\n" + i18n("… and %1 more", root.diff.more) : "")
+        text: root.diff === null ? "" : root.diffText(root.diff)
     }
 
     QQC2.Dialog {

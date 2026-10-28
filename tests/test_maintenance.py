@@ -160,3 +160,31 @@ class Source(unittest.TestCase):
         self.assertIn("GitHub", maintenance.source("ostree-image-signed:docker://ghcr.io/ccccri/surface-overdrive:44"))
         self.assertIn("development", maintenance.source("ostree-unverified-registry:localhost:50000/surface-overdrive:44"))
         self.assertIn("Fedora", maintenance.source("ostree-unverified-registry:quay.io/fedora-ostree-desktops/kinoite:44"))
+
+
+class ProjectLogTest(unittest.TestCase):
+    A, B = "a" * 40, "b" * 40
+
+    def test_lines_newest_first(self):
+        data = {"status": "ahead", "commits": [
+            {"commit": {"message": "First change\n\nbody", "committer": {"date": "2026-10-27T10:00:00Z"}}},
+            {"commit": {"message": "Second change", "committer": {"date": "2026-10-28T10:00:00Z"}}}]}
+        out = maintenance.project_log(self.A, self.B, fetch=lambda url: data)
+        self.assertEqual(out["project"], ["2026-10-28  Second change", "2026-10-27  First change"])
+
+    def test_offline_and_unknown(self):
+        def fail(url):
+            raise OSError("no network")
+        self.assertIn("project_error", maintenance.project_log(self.A, self.B, fetch=fail))
+        self.assertIn("project_error", maintenance.project_log("", self.B, fetch=fail))
+        self.assertEqual(maintenance.project_log(self.A, self.A, fetch=fail)["project"], [])
+
+    def test_going_back(self):
+        out = maintenance.project_log(self.A, self.B, fetch=lambda url: {"status": "behind", "commits": []})
+        self.assertTrue(out["project_back"])
+
+    def test_source_sha(self):
+        import json as j
+        dep = {"base-commit-meta": {"ostree.container.image-config": j.dumps({"config": {"Labels": {"org.surfaceoverdrive.source-sha": self.A}}})}}
+        self.assertEqual(maintenance.source_sha(dep), self.A)
+        self.assertEqual(maintenance.source_sha({}), "")

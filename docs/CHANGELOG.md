@@ -43,6 +43,17 @@ What was added, what broke, and what fixed it. Newest first. "Verified" means tr
   slider is logarithmic like the graph (60 Hz was in the first 2% of a linear 20-20000 Hz slider). The reset arrow of
   the width (Q) of a shelf goes back to 0.71, its default, instead of 1.
 
+**Added (Software Update page)**
+- "What Changed" now lists the changes of Surface Overdrive between the image in use and the other one (or what an
+  update waiting for the restart brings), newest first, from the commit each image was built from (its
+  `org.surfaceoverdrive.source-sha` label, the history asked from GitHub; without network it says so), and then the
+  packages as before.
+- The page scrolls as one column: the update settings of Plasma used to sit fixed under the scrolling part, which cut
+  the "What Changed" button in half.
+- Problem report: the host name is taken out only as a whole word; a tablet called "Surface" turned every "Surface
+  Overdrive" of the log into "<host> Overdrive". Export, import, undo and refusal of foreign or broken files tried on
+  the tablet.
+
 **Changed**
 - No "Raise maximum volume" (Plasma's 150%): the image has its own volume boost with a limiter, inside the sound device,
   and the two together only add distortion and wear to the small speakers. plasma-pa is rebuilt from Fedora's SRPM
