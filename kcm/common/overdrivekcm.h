@@ -4,6 +4,8 @@
 #include <KQuickConfigModule>
 #include <QQuickItem>
 
+#include <QHash>
+
 class QProcess;
 
 
@@ -37,6 +39,12 @@ public:
     Q_INVOKABLE void call(const QString &tag, const QStringList &args);
     /** The same, with input written to its standard input (for a secret, which must not appear in the arguments). */
     Q_INVOKABLE void callWithInput(const QString &tag, const QStringList &args, const QString &input);
+    /**
+     * Send one line to a long-running `overdrivectl <args>` (started on the first line, kept for the life of the page): for changes
+     * made many times a second, such as a slider being dragged, which would cost a new process each. Each line it answers comes back
+     * through callFinished with this tag; if it cannot run (or ends), callFinished says so with ok false.
+     */
+    Q_INVOKABLE void stream(const QString &tag, const QStringList &args, const QString &line);
     /**
      * Load a page that ships with Plasma (for example "kcm_pulseaudio") so that our page can show it in one of its tabs. Its page is then
      * in stockPage; its Apply/Defaults buttons, its unsaved state and the sub-pages it opens are passed on to System Settings.
@@ -75,4 +83,5 @@ private:
     QString m_stockError;
     QString m_startTab;
     bool m_stockButtons = true;
+    QHash<QString, QProcess *> m_streams;
 };

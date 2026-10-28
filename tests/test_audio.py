@@ -245,3 +245,33 @@ class RouteTest(unittest.TestCase):
         self.assertEqual(route.relevant("Event 'new' on source #70"), (True, True))
         self.assertEqual(route.relevant("Event 'change' on client #2809"), (False, False))
         self.assertEqual(route.relevant("Event 'change' on sink-input #2812"), (False, False))
+
+
+class ServeTest(unittest.TestCase):
+    def test_lines(self):
+        import io
+        from overdrive import ctl
+        with mock.patch.object(ctl.eq, "set_output", return_value=True) as s, \
+                mock.patch.object(ctl.mic, "set_all", return_value=True) as m, \
+                mock.patch.object(ctl.pw, "remember_nodes"):
+            out = io.StringIO()
+            ctl.audio_serve(io.StringIO('["eq", "set", "speaker", {"boost": 120}]\n["mic", "set-all", "{}"]\nnot json\n'), out)
+        self.assertEqual(out.getvalue().splitlines(), ['{"ok": true}', '{"ok": true}', '{"ok": false}'])
+        s.assert_called_once_with("speaker", {"boost": 120})
+        m.assert_called_once_with({})
+
+
+class NodeMemoryTest(unittest.TestCase):
+    def test_remembered_and_forgotten(self):
+        from overdrive.audio import pw
+        try:
+            pw.remember_nodes()
+            with mock.patch.object(pw, "_node_serial", return_value=(40, "7")) as look:
+                self.assertEqual(pw.node_id("x"), 40)
+                self.assertEqual(pw.node_serial("x"), (40, "7"))
+                self.assertEqual(look.call_count, 1)
+                pw.forget_nodes()
+                pw.node_serial("x")
+                self.assertEqual(look.call_count, 2)
+        finally:
+            pw._known = None

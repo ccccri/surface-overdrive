@@ -12,8 +12,26 @@ def run(cmd, timeout=10):
         return 127, str(e)
 
 
+# A long-running caller (overdrivectl audio serve, fed by a slider being dragged) keeps what it learnt about the nodes here
+# instead of reading the whole graph for every value; None: no memory, every call looks again.
+_known = None
+
+
+def remember_nodes():
+    global _known
+    _known = {}
+
+
+def forget_nodes():
+    if _known is not None:
+        _known.clear()
+
+
 def node_id(name):
     """Id of the PipeWire node with this node.name, or None."""
+    if _known is not None:
+        found = node_serial(name)
+        return found[0] if found else None
     rc, out = run(["pw-dump"], timeout=10)
     try:
         for o in json.loads(out):
@@ -26,6 +44,15 @@ def node_id(name):
 
 def node_serial(name):
     """(id, serial) of the node with this node.name, or None. The serial is new every time the node is made again."""
+    if _known is not None and name in _known:
+        return _known[name]
+    found = _node_serial(name)
+    if _known is not None and found is not None:
+        _known[name] = found
+    return found
+
+
+def _node_serial(name):
     rc, out = run(["pw-dump"], timeout=10)
     try:
         for o in json.loads(out):
@@ -61,7 +88,13 @@ def set_params(name, params):
     if nid is None:
         return False
     items = " ".join('"%s" %s' % (k, _quote(v)) for k, v in params.items())
-    return run(["pw-cli", "set-param", str(nid), "Props", "{ params = [ %s ] }" % items])[0] == 0
+    if run(["pw-cli", "set-param", str(nid), "Props", "{ params = [ %s ] }" % items])[0] == 0:
+        return True
+    if _known:                                          # what was remembered may be out of date: look again once
+        forget_nodes()
+        nid = node_id(name)
+        return nid is not None and run(["pw-cli", "set-param", str(nid), "Props", "{ params = [ %s ] }" % items])[0] == 0
+    return False
 
 
 def get_params(name):

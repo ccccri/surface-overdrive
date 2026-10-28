@@ -25,18 +25,18 @@ Kirigami.Page {
     function cmd(tag, args) { kcm.call(tag, ["camera", cam].concat(args)) }
     function load() { cmd("load", ["describe"]) }
     function setLocal(key, value) { const o = {}; o[key] = value; d = Object.assign({}, d, { settings: Object.assign({}, d.settings, o) }) }
-    // sliders send many values while they move: keep the last one of each setting and send it a moment later
+    // Sliders send many values while they move. Each value is sent at once unless one is still on its way; then only the newest
+    // of each setting waits for it. (Waiting for the slider to rest, as before, changed the picture only once it was let go.)
     function edit(key, value) {
         if (typeof value === "number" && !isFinite(value)) return          // never send what is not a number
-        setLocal(key, value); pending[key] = value; sendTimer.restart()
+        setLocal(key, value); pending[key] = value
+        if (inFlight === 0) flush()
     }
     property var pending: ({})
-    Timer {
-        id: sendTimer; interval: 90
-        onTriggered: {
-            const p = root.pending; root.pending = ({})
-            for (const k in p) root.cmd("set", ["set", k, String(p[k])])
-        }
+    property int inFlight: 0
+    function flush() {
+        const p = root.pending; root.pending = ({})
+        for (const k in p) { inFlight++; root.cmd("set", ["set", k, String(p[k])]) }
     }
     Connections {
         target: kcm
@@ -51,6 +51,7 @@ Kirigami.Page {
                 return
             }
             if (tag !== "load" && tag !== "set" && tag !== "action") return
+            if (tag === "set" && --root.inFlight <= 0) { root.inFlight = 0; if (Object.keys(root.pending).length > 0) root.flush() }
             if (!ok) { message.text = error || i18n("The change was not applied."); return }
             let r
             try { r = JSON.parse(output) } catch (e) { return }
@@ -110,7 +111,7 @@ Kirigami.Page {
             Section {
                 title: i18n("Resolution")
                 QQC2.ComboBox {
-                    popup.modal: true; popup.dim: false      // a touch outside the list only closes it (see Bars.qml)
+                    popup.modal: true; popup.dim: false; popup.closePolicy: QQC2.Popup.CloseOnEscape | QQC2.Popup.CloseOnPressOutside      // a touch outside the list only closes it (see Bars.qml)
                     Layout.fillWidth: true
                     model: root.d.sizes.map(x => x.text)
                     // set once the list is in: a new list puts the selector back on its first entry after a plain binding
@@ -128,7 +129,7 @@ Kirigami.Page {
             Section {
                 title: i18n("Presets")
                 QQC2.ComboBox {
-                    popup.modal: true; popup.dim: false      // a touch outside the list only closes it (see Bars.qml)
+                    popup.modal: true; popup.dim: false; popup.closePolicy: QQC2.Popup.CloseOnEscape | QQC2.Popup.CloseOnPressOutside      // a touch outside the list only closes it (see Bars.qml)
                     Layout.fillWidth: true
                     enabled: root.d.presets.length > 0
                     model: root.d.presets.length > 0 ? root.d.presets.map(p => p.name + (p.current ? i18n("   (active)") : "")) : [i18n("No presets saved yet")]

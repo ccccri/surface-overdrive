@@ -15,6 +15,14 @@ What was added, what broke, and what fixed it. Newest first. "Verified" means tr
   speakers' pre-amplifier jumped to -16.5 dB), so it took several taps to get anything done. Every drop-down list of our
   pages, and of the Plasma pages inside them (Port of the sound devices...), is now modal without dimming: a touch
   outside only closes it (`kcm/common/qml/Bars.qml`, which every page already uses).
+- Modal, a list no longer closed with a second touch on its own button (the owner liked that): it now closes on any touch
+  outside the list, its button included.
+- Sliders of our pages acted only once let go: each value waited for the slider to rest and then started a new
+  overdrivectl (half a second on the tablet). The Sound page now sends every value at once to a long-running
+  `overdrivectl audio serve` (new `kcm.stream`), one at a time with only the newest waiting, with PipeWire's node ids
+  remembered: about 70 ms a value instead of 500, and the stored value follows the finger while it is held
+  (verified: -6.5, -5.5, -4.0, -3.0, -2.0 dB while dragging). The camera page sends at once too, one value on its
+  way at a time. Plasma's own volume slider was already live.
 - The band type showed "Peak" for every band (band 1 is a low shelf): the list of types changes with the band and puts
   the selector back on its first entry after its index was worked out. Same for "Settings for" and the camera page's
   lists; the index is now set once the list is in.

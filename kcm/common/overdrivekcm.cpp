@@ -232,6 +232,41 @@ void OverdriveKCM::call(const QString &tag, const QStringList &args)
     callWithInput(tag, args, QString());
 }
 
+void OverdriveKCM::stream(const QString &tag, const QStringList &args, const QString &line)
+{
+    QProcess *process = m_streams.value(tag);
+    if (!process || process->state() == QProcess::NotRunning) {
+        if (process) {
+            process->deleteLater();
+        }
+        process = new QProcess(this);
+        m_streams.insert(tag, process);
+        connect(process, &QProcess::readyReadStandardOutput, this, [this, process, tag]() {
+            while (process->canReadLine()) {
+                Q_EMIT callFinished(tag, true, QString::fromUtf8(process->readLine()).trimmed(), {});
+            }
+        });
+        connect(process, &QProcess::finished, this, [this, process, tag](int, QProcess::ExitStatus) {
+            if (m_streams.value(tag) == process) {
+                m_streams.remove(tag);
+            }
+            process->deleteLater();
+            Q_EMIT callFinished(tag, false, {}, QStringLiteral("overdrivectl ended"));
+        });
+        connect(process, &QProcess::errorOccurred, this, [this, process, tag](QProcess::ProcessError error) {
+            if (error == QProcess::FailedToStart) {
+                if (m_streams.value(tag) == process) {
+                    m_streams.remove(tag);
+                }
+                process->deleteLater();
+                Q_EMIT callFinished(tag, false, {}, QStringLiteral("Could not run overdrivectl"));
+            }
+        });
+        process->start(s_ctl, args);
+    }
+    process->write(line.toUtf8() + '\n');
+}
+
 void OverdriveKCM::callWithInput(const QString &tag, const QStringList &args, const QString &input)
 {
     if (asksPassword(args))

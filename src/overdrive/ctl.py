@@ -19,7 +19,7 @@ USAGE = """usage: overdrivectl <command>
   volume-hold [on|off]     hold-to-repeat of the device volume buttons
   stylus-filter [on|off]   hide the pen's fake battery (a change of "off" applies at the next restart)
   pen                      state of the pen, digitizer and Bluetooth pen battery, in JSON
-  audio describe | eq ... | mic ... | play <kind> | record | stop | volume <sink|source> <0-1.5>
+  audio describe | eq ... | mic ... | serve | play <kind> | record | stop | volume <sink|source> <0-1.5>
          | mute <sink|source>                                  output equaliser, microphone, test sounds, in JSON
   nfc                      state of the NFC reader and its services, in JSON
   settings export|inspect|import <file> | settings undo     all the settings of the user in one file, and back
@@ -109,6 +109,26 @@ def audio_describe():
             "volume_hold": read_state("volume-hold")}
 
 
+def audio_serve(stream_in=sys.stdin, stream_out=sys.stdout):
+    """overdrivectl audio serve: one JSON array per line on standard input, ["eq", "set", OUTPUT, SET] or ["mic", "set-all", VALUES],
+    applied at once; one line {"ok": true|false} answers each. Kept running by the Sound page while a slider is dragged, so
+    each value costs a pw-cli call and not a new overdrivectl (half a second on the tablet): the sound follows the finger."""
+    pw.remember_nodes()
+    for line in stream_in:
+        ok = False
+        try:
+            cmd = json.loads(line)
+            if cmd[:2] == ["eq", "set"]:
+                ok = bool(eq.set_output(cmd[2], cmd[3] if isinstance(cmd[3], dict) else json.loads(cmd[3])))
+            elif cmd[:2] == ["mic", "set-all"]:
+                ok = bool(mic.set_all(cmd[2] if isinstance(cmd[2], dict) else json.loads(cmd[2])))
+        except (KeyError, IndexError, ValueError, OSError, TypeError, AttributeError) as e:
+            print("error: %s" % e, file=sys.stderr, flush=True)
+        stream_out.write(json.dumps({"ok": ok}) + "\n")
+        stream_out.flush()
+    return 0
+
+
 def audio_command(args):
     """Audio settings of the user. Prints one JSON object; 'result' carries the outcome of the action."""
     if not args:
@@ -172,6 +192,8 @@ def audio_command(args):
                     raise IndexError(sub)
             else:
                 raise IndexError(action)
+        elif verb == "serve":
+            return audio_serve()
         elif verb == "play":
             return sounds.play(rest[0])
         elif verb == "record":

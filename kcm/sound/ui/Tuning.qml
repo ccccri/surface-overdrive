@@ -49,7 +49,7 @@ ColumnLayout {
     // What changes by itself (the jack, the volume keys) is read again every few seconds, only while the window is in front:
     // each look starts overdrivectl, which costs the tablet a third of a second of processor
     readonly property bool watching: root.visible && root.Window.active
-    function refresh() { if (!sendTimer.running && !micTimer.running) root.audio("quiet", ["describe"]) }
+    function refresh() { if (!root.liveBusy) root.audio("quiet", ["describe"]) }
     Timer { interval: 4000; repeat: true; running: root.watching; onTriggered: root.refresh() }
     onWatchingChanged: if (watching) refresh()
     // a value that reads the same keeps the object it had: lists made from it (the profile menus) are not made again
@@ -88,13 +88,40 @@ ColumnLayout {
         }
     }
 
-    // ---- equalizer edits: stored and applied live, a moment after the last change ----
-    property var pendingEq: null
+    // ---- edits: applied while the finger moves ----
+    // Every value goes at once to a long-running "overdrivectl audio serve" (kcm.stream): a new overdrivectl for each value took
+    // half a second on the tablet, so the sound changed only once the slider was let go. One value is on its way at a time;
+    // what comes meanwhile waits, and only the newest of each kind (equalizer, microphone) is sent next: the sound follows
+    // the finger without falling behind. If the long-running one cannot run, each value goes the old way.
+    property var livePending: ({})
+    property var liveSent: null
+    readonly property bool liveBusy: liveSent !== null || Object.keys(livePending).length > 0
+    function live(kind, cmd) {
+        const p = Object.assign({}, livePending); p[kind] = cmd; livePending = p
+        if (liveSent === null) liveNext()
+    }
+    function liveNext() {
+        const kinds = Object.keys(livePending)
+        if (kinds.length === 0) { liveSent = null; return }
+        const p = Object.assign({}, livePending), cmd = p[kinds[0]]
+        delete p[kinds[0]]; livePending = p
+        liveSent = cmd
+        kcm.stream("live", ["audio", "serve"], JSON.stringify(cmd))
+    }
+    Connections {
+        target: kcm
+        function onCallFinished(tag, ok, output, error) {
+            if (tag !== "live") return
+            const sent = root.liveSent
+            if (!ok && sent) root.audio("set", [sent[0], sent[1]].concat(sent.slice(2).map(x => typeof x === "string" ? x : JSON.stringify(x))))
+            else if (ok && output.indexOf('"ok": false') >= 0) message.text = i18n("The change was not applied.")
+            root.liveNext()
+        }
+    }
     function pushEq(set) {
         const sets = Object.assign({}, d.eq.sets); sets[editing] = set
         d = Object.assign({}, d, { eq: Object.assign({}, d.eq, { sets: sets }) })
-        pendingEq = { output: editing, set: set }
-        sendTimer.restart()
+        live("eq", ["eq", "set", editing, set])
     }
     function copyOfCurrent() { return JSON.parse(JSON.stringify(cur)) }
     function setBand(i, key, value) { const c = copyOfCurrent(); if (!c.bands[i]) return; c.bands[i][key] = value; pushEq(c) }
@@ -103,18 +130,12 @@ ColumnLayout {
         c.bands[i].freq = Math.round(f); c.bands[i].gain = Math.round(g * 10) / 10; pushEq(c)
     }
     function setTop(key, value) { const c = copyOfCurrent(); c[key] = value; pushEq(c) }
-    Timer {
-        id: sendTimer; interval: 120
-        onTriggered: { const p = root.pendingEq; root.pendingEq = null; if (p) root.audio("set", ["eq", "set", p.output, JSON.stringify(p.set)]) }
-    }
     // microphone
-    property var pendingMic: null
     function setMic(key, value) {
         const v = Object.assign({}, d.mic.values); v[key] = value
         d = Object.assign({}, d, { mic: Object.assign({}, d.mic, { values: v }) })
-        pendingMic = v; micTimer.restart()
+        live("mic", ["mic", "set-all", v])
     }
-    Timer { id: micTimer; interval: 120; onTriggered: { const v = root.pendingMic; root.pendingMic = null; if (v) root.audio("set", ["mic", "set-all", JSON.stringify(v)]) } }
 
     // A line of controls that goes on to a second line when the window is too narrow for all of them, instead of pushing
     // the page wider than the window.
@@ -179,7 +200,7 @@ ColumnLayout {
             Line {
                 Caption { text: i18n("Settings for:") }
                 QQC2.ComboBox {
-                    popup.modal: true; popup.dim: false      // a touch outside the list only closes it (see Bars.qml)
+                    popup.modal: true; popup.dim: false; popup.closePolicy: QQC2.Popup.CloseOnEscape | QQC2.Popup.CloseOnPressOutside      // a touch outside the list only closes it (see Bars.qml)
                     id: outputBox
                     width: Kirigami.Units.gridUnit * 14
                     readonly property var outputs: ["speaker", "headphones"]
@@ -272,7 +293,7 @@ ColumnLayout {
             Line {
                 Caption { text: i18n("Band %1:", root.sel + 1) }
                 QQC2.ComboBox {
-                    popup.modal: true; popup.dim: false      // a touch outside the list only closes it (see Bars.qml)
+                    popup.modal: true; popup.dim: false; popup.closePolicy: QQC2.Popup.CloseOnEscape | QQC2.Popup.CloseOnPressOutside      // a touch outside the list only closes it (see Bars.qml)
                     width: Kirigami.Units.gridUnit * 12
                     model: root.kindsFor(root.sel).map(k => root.kindNames[k])
                     enabled: count > 1

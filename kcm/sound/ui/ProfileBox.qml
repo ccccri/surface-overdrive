@@ -13,7 +13,7 @@ QQC2.ComboBox {
     signal chosen(string name)
 
     implicitWidth: Kirigami.Units.gridUnit * 12
-    popup.modal: true; popup.dim: false          // a touch outside the list only closes it (see Bars.qml)
+    popup.modal: true; popup.dim: false; popup.closePolicy: QQC2.Popup.CloseOnEscape | QQC2.Popup.CloseOnPressOutside          // a touch outside the list only closes it (see Bars.qml)
     model: presets.map(p => p.name)
     displayText: current >= 0 && current < presets.length ? presets[current].name : i18n("Custom")
     onActivated: index => { if (index >= 0 && index < presets.length) box.chosen(presets[index].name) }
