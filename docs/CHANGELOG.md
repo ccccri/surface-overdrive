@@ -43,13 +43,6 @@ What was added, what broke, and what fixed it. Newest first. "Verified" means tr
   slider is logarithmic like the graph (60 Hz was in the first 2% of a linear 20-20000 Hz slider). The reset arrow of
   the width (Q) of a shelf goes back to 0.71, its default, instead of 1.
 
-**Added (tablet mode, first version)**
-- User service `overdrive-tablet-mode` follows KWin's tablet mode (on the Surface it comes from the type cover's tablet
-  switch): without the keyboard the panel is 62 px instead of 46, the task icons are spaced wider and the title bar
-  buttons of Breeze are large; with the keyboard each goes back, unless it was changed by hand meanwhile (the values of
-  before are kept in ~/.local/state/surface-overdrive/tablet-mode.json). Verified on the tablet by plugging a virtual
-  tablet switch in and out.
-
 **Added (Software Update page)**
 - "What Changed" now lists the changes of Surface Overdrive between the image in use and the other one (or what an
   update waiting for the restart brings), newest first, from the commit each image was built from (its
