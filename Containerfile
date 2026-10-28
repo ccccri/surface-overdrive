@@ -40,6 +40,7 @@ RUN --mount=type=secret,id=modkey --mount=type=secret,id=modcert \
 FROM ${BASE} AS probe
 RUN rpm -q --qf '%{VERSION}-%{RELEASE}' libcamera > /libcamera-nvr && rpm -qa --qf '%{NAME}\n' | grep '^libcamera' | sort > /libcamera-packages \
     && rpm -q --qf '%{VERSION}-%{RELEASE}' plasma-login-manager > /login-nvr \
+    && rpm -q --qf '%{VERSION}-%{RELEASE}' plasma-pa > /plasma-pa-nvr \
     && rpm -q --qf '%{VERSION}-%{RELEASE}' pipewire > /pipewire-nvr
 
 FROM registry.fedoraproject.org/fedora:${FEDORA} AS libcamera
@@ -64,6 +65,13 @@ COPY --from=probe /login-nvr /
 RUN dnf -y install --setopt=install_weak_deps=False rpm-build dnf-plugins-core python3 curl diffutils && dnf clean all
 COPY ci/build_login.sh ci/patch_unlock_pad.py /src/ci/
 RUN /src/ci/build_login.sh "$(cat /login-nvr)" /out/rpms
+
+# ---- Plasma's sound controls rebuilt without "Raise maximum volume" (ci/build_plasma_pa.sh); nothing comes out when the patch does not fit
+FROM registry.fedoraproject.org/fedora:${FEDORA} AS plasmapa
+COPY --from=probe /plasma-pa-nvr /
+RUN dnf -y install --setopt=install_weak_deps=False rpm-build dnf-plugins-core python3 curl diffutils && dnf clean all
+COPY ci/build_plasma_pa.sh ci/patch_plasma_pa.py /src/ci/
+RUN /src/ci/build_plasma_pa.sh "$(cat /plasma-pa-nvr)" /out/rpms
 
 # ---- HID-BPF programs (compiled with the headers of the udev-hid-bpf release that Fedora ships)
 FROM registry.fedoraproject.org/fedora:${FEDORA} AS hidbpf
@@ -169,6 +177,13 @@ RUN set -eux; \
         dnf5 -y install $files; rpm -q plasma-login-manager | grep -q overdrive; \
     else echo "warning: stock login screen (password only)"; fi; \
     rm -rf /tmp/login-rpms; dnf5 clean all
+# Plasma's sound controls without "Raise maximum volume", when ci/build_plasma_pa.sh could make them
+COPY --from=plasmapa /out/rpms /tmp/pa-rpms
+RUN set -eux; \
+    if ls /tmp/pa-rpms/plasma-pa-[0-9]*.rpm >/dev/null 2>&1; then \
+        dnf5 -y install /tmp/pa-rpms/plasma-pa-[0-9]*.rpm; rpm -q plasma-pa | grep -q overdrive; \
+    else echo "warning: stock plasma-pa (with Raise maximum volume)"; fi; \
+    rm -rf /tmp/pa-rpms; dnf5 clean all
 # then the lock screen, and PAM (after the login package, which brings its own PAM file), the default panel and no user picture
 COPY ci/patch_lockscreen.py ci/patch_unlock_pad.py ci/patch_pam.py ci/patch_dimscreen.py ci/patch_plasma_defaults.py /tmp/
 RUN python3 /tmp/patch_lockscreen.py && python3 /tmp/patch_unlock_pad.py lockscreen \

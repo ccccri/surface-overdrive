@@ -43,6 +43,13 @@ What was added, what broke, and what fixed it. Newest first. "Verified" means tr
   slider is logarithmic like the graph (60 Hz was in the first 2% of a linear 20-20000 Hz slider). The reset arrow of
   the width (Q) of a shelf goes back to 0.71, its default, instead of 1.
 
+**Changed**
+- No "Raise maximum volume" (Plasma's 150%): the image has its own volume boost with a limiter, inside the sound device,
+  and the two together only add distortion and wear to the small speakers. plasma-pa is rebuilt from Fedora's SRPM
+  (`ci/build_plasma_pa.sh`, `ci/patch_plasma_pa.py`): the switch is gone from the volume popup of the panel (its bottom
+  strip held only that) and from "Configure Volume Controls", and every place that read the setting reads 100%, so a
+  switch turned on before cannot keep the 150% out of sight. Verified on the tablet from a test install.
+
 **Added**
 - No user picture on the lock screen, the login screen and the shutdown screen, only the name, in the same place
   (`ci/patch_plasma_defaults.py noface`: UserDelegate.qml of org.kde.breeze.components, used by all three). The
