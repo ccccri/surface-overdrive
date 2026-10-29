@@ -2,6 +2,25 @@
 
 What was added, what broke, and what fixed it. Newest first. "Verified" means tried on the Surface Go itself.
 
+## 2026-10-29
+
+**Fixed (cameras for video calls and every application, verified on the tablet with a development build)**
+- The front camera offered only 2560x1920 (with a profile of 2560) or 1152x864 and up, all 4:3: a browser asking for
+  640x480 or 1280x720 got 4.9 MP and scaled it down itself. Each camera now offers the picture size chosen in the
+  Cameras page first (Kamoso takes it) and 1280x720 for video calls (libcamera 0036, PipeWire 0003: the plugin put the
+  size closest to 640x480 first, it now puts the camera's default first). Firefox: 1280x720 at 27.7 fps, camera service
+  21-24% of a core, Firefox about 40%.
+- Only sizes that show the whole picture are offered: the ImgU's main output cannot scale, so a size the BDS cannot reach
+  from the sensor came out cropped. Measured from pictures: front 1152x864 to 2048x1536 zoomed 1.06-1.18x, 640x480
+  1.78x; now front 2560x1920, 1280x960 and 1280x720 (whole sensor), rear 1536x1152 to 3200x2400 and 1280x720.
+- The front camera comes first: a browser's camera prompt offered the rear one (libcamera registers the cameras from the
+  last receiver to the first now).
+- The front camera ran at 28.6 fps instead of 30, and its exposures were 4.8% longer than asked (10 ms lasted 10.5 ms,
+  so the flicker avoidance missed 50 Hz lights): the OV5693 driver reported the pixel rate of the MIPI link (167.68 MHz)
+  instead of the 160 MHz that drives the sensor (kernel patch ov5693/0002, like ov8865/0003 for the rear). The auto
+  exposure also never made frames shorter than the sensor's default blanking; the shortest is now a 30 fps frame
+  (libcamera 0037).
+
 ## 2026-10-28
 
 **Fixed (verified on the tablet from a test install)**

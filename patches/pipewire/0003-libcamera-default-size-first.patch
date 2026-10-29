@@ -1,0 +1,33 @@
+From: Surface Overdrive <noreply@surface-overdrive>
+Subject: [PATCH] spa: libcamera: the camera's default size comes first
+
+The first format a camera node offers is the one applications without wishes take (Kamoso, GStreamer's pipewiresrc). It was
+the size closest to 640x480; a camera that offers the sizes of video calls (640x480 among them) then gave Kamoso 0.3
+megapixels. The camera's own default size (the first of its configuration: the picture size chosen in the Cameras page)
+now comes first when it is among the sizes; otherwise nothing changes.
+
+---
+diff --git a/spa/plugins/libcamera/libcamera-source.cpp b/spa/plugins/libcamera/libcamera-source.cpp
+index 03bd676..f5f29c2 100644
+--- a/spa/plugins/libcamera/libcamera-source.cpp
++++ b/spa/plugins/libcamera/libcamera-source.cpp
+@@ -594,10 +594,19 @@ next_fmt:
+ 
+ 	if (!sizes.empty() && port->size_index <= sizes.size()) {
+ 		if (port->size_index == 0) {
++			/*
++			 * The first format is the one applications without wishes take (Kamoso, GStreamer's pipewiresrc): the size the
++			 * camera itself puts first (the default of its configuration) when it offers it, else the one closest to 640x480.
++			 * Picking the size closest to 640x480 made a camera offering 640x480 give such applications 0.3 megapixels.
++			 */
+ 			Size wanted = Size(640, 480);
+ 			int best = std::numeric_limits<int>::max();
+ 
+ 			for (const auto& test : sizes) {
++				if (test == streamConfig.size) {
++					frameSize = test;
++					break;
++				}
+ 				int score = score_size(wanted, test);
+ 				if (score < best) {
+ 					best = score;

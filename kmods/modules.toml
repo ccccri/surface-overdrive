@@ -15,7 +15,7 @@ modules = ["ov8865"]
 
 [[module]]
 name = "ov5693"
-description = "Front camera sensor: default timing capped at 30 fps"
+description = "Front camera sensor: default timing capped at 30 fps, real pixel rate (160 MHz)"
 sources = ["drivers/media/i2c/ov5693.c"]
 patches = "ov5693"
 build_dir = "drivers/media/i2c"

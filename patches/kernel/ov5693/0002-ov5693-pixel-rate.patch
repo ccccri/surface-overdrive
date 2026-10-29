@@ -1,0 +1,18 @@
+--- a/drivers/media/i2c/ov5693.c
++++ b/drivers/media/i2c/ov5693.c
+@@ -125,7 +125,14 @@
+ /* System Frequencies */
+ #define OV5693_XVCLK_FREQ			19200000
+ #define OV5693_LINK_FREQ_419_2MHZ		419200000
+-#define OV5693_PIXEL_RATE			167680000
++/*
++ * The pixel clock that drives the sensor timing, measured on the Surface Go: 2078 lines of 2688 pixels give 28.6 frames a
++ * second, so 160 MHz. The figure derived from the MIPI link (419.2 MHz * 2 * 2 lanes / 10 bits = 167.68 MHz) is 4.8% too
++ * high: the default timing meant for 30 fps gave 28.6, and userspace (libcamera) derives line duration, exposure time and
++ * frame duration from this rate, so a 10 ms exposure lasted 10.5 ms (banding under 50 Hz lights) and frames asked for
++ * at 30 fps came out at 28.6.
++ */
++#define OV5693_PIXEL_RATE			160000000
+ 
+ #define to_ov5693_sensor(x) container_of(x, struct ov5693_device, sd)
+ 

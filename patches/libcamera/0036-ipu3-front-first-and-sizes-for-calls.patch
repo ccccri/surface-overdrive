@@ -1,0 +1,115 @@
+From: Surface Overdrive <noreply@surface-overdrive>
+Subject: [PATCH] ipu3: front camera first; sizes for video calls, only ones that show the whole picture
+
+The cameras are registered from the last CSI-2 receiver to the first, so that the front camera of the Surface Go comes first:
+the first camera is the one applications offer first (a browser's camera prompt asked for the rear one).
+
+Each camera offers the picture size chosen in the Cameras page first (Kamoso takes it), the other picture sizes, and 1280x720
+for video calls (a browser asking for nothing or 640x480 used to get 2560x1920, 4.9 MP to scale down itself). Only sizes
+that show the whole picture are offered: the ImgU's main output cannot scale, so a size the BDS cannot reach from the
+sensor came out cropped (measured from pictures, zoom against the largest size: front 1152x864 to 2048x1536 1.06-1.18x,
+640x480 1.78x; front 1280x960, 1280x720 and 2560x1920 the whole sensor). The front camera now offers 2560x1920, 1280x960
+and 1280x720; the rear keeps 1536x1152 to 3200x2400 and adds 1280x720.
+
+---
+diff --git a/src/libcamera/pipeline/ipu3/ipu3.cpp b/src/libcamera/pipeline/ipu3/ipu3.cpp
+index d023ea2..8300a72 100644
+--- a/src/libcamera/pipeline/ipu3/ipu3.cpp
++++ b/src/libcamera/pipeline/ipu3/ipu3.cpp
+@@ -552,40 +552,51 @@ PipelineHandlerIPU3::generateConfiguration(Camera *camera, Span<const StreamRole
+ 			bufferCount = IPU3CameraConfiguration::kBufferCount;
+ 			streamFormats[pixelFormat] = { { kMinOfferedSize, maxSize } };
+ 
+-			if (data->cio2_.sensor()->model() == "ov8865") {
+-				/*
+-				 * The rear camera: the 1632x1224 binned sensor mode streams at 30 fps and the ImgU needs
+-				 * kOutputMargin* of margin around the picture, so 1536x1152 (aligned to the ImgU) is the
+-				 * largest 4:3 size at 30 fps. The PipeWire plugin only lists standard sizes for a range,
+-				 * and none of them is both 4:3 and aligned above 1152x864, so list the sizes explicitly.
+-				 * Bigger sizes need the full 3264x2448 mode (about 15 fps).
+-				 */
+-				std::vector<SizeRange> rearSizes;
+-				const char *minWidth = getenv("LIBCAMERA_IPU3_REAR_MIN_WIDTH");
+-				unsigned int minW = minWidth ? strtoul(minWidth, nullptr, 10) : 0;
++			/*
++			 * The sizes offered: first the picture size chosen in the Cameras page ("min_width" of the live profile,
++			 * LIBCAMERA_IPU3_REAR_MIN_WIDTH for the rear), which applications such as Kamoso simply take, then 1280x720 for
++			 * video calls, which a browser picks by its constraints. Only sizes that show the whole picture are offered:
++			 * the ImgU's main output cannot scale (its GDC size is the output size), so a size the BDS cannot reach from
++			 * the sensor comes out cropped. Measured from pictures (zoom against the largest size): front 2560x1920,
++			 * 1280x960 and 1280x720 show the whole sensor, 1152x864 to 2048x1536 were zoomed 1.06-1.18x and 640x480
++			 * 1.78x; rear 1536x1152 and 2048x1536 1.04x, 1280x720, 1280x960 and 2560x1920 1.10x against 3200x2400.
++			 * A browser that asks for 640x480 gets 1280x960 and scales it itself. The rear's sizes up to 1536x1152
++			 * come from its 1632x1224 mode at 30 fps, bigger ones need the full 3264x2448 mode (15 fps). The PipeWire
++			 * plugin lists explicit sizes only (a range gives standard sizes, none 4:3 and aligned above 1152x864).
++			 */
++			{
++				const bool rear = data->cio2_.sensor()->model() == "ov8865";
+ 				LiveProfile profile(data->cio2_.sensor()->model());
++				unsigned int minW = 0;
++				const char *minWidth = rear ? getenv("LIBCAMERA_IPU3_REAR_MIN_WIDTH") : nullptr;
++				if (minWidth)
++					minW = strtoul(minWidth, nullptr, 10);
+ 				if (profile.has("min_width"))
+ 					minW = std::clamp(profile.number("min_width", 0), 0.0, 10000.0);
+-				for (const Size &s : { Size{ 1536, 1152 }, Size{ 2048, 1536 }, Size{ 2560, 1920 }, Size{ 3200, 2400 } })
+-					if (s.width >= minW)
+-						rearSizes.emplace_back(s);
+-				if (rearSizes.empty())
+-					rearSizes.emplace_back(Size{ 1536, 1152 });
+-				/* The first size is the one applications such as Kamoso take: LIBCAMERA_IPU3_REAR_MIN_WIDTH picks it. */
+-				size = rearSizes.front().max;
+-				streamFormats[pixelFormat] = rearSizes;
+-			} else {
+-				/* The front camera: same idea, and "min_width" of its live profile picks the first size offered. */
+-				std::vector<SizeRange> frontSizes;
+-				LiveProfile profile(data->cio2_.sensor()->model());
+-				const unsigned int minW = std::clamp(profile.number("min_width", 0), 0.0, 10000.0);
+-				for (const Size &s : { Size{ 1152, 864 }, Size{ 1536, 1152 }, Size{ 2048, 1536 }, Size{ 2560, 1920 } })
+-					if (s.width >= minW && s.width <= maxSize.width)
+-						frontSizes.emplace_back(s);
+-				if (!frontSizes.empty()) {
+-					size = frontSizes.front().max;
+-					streamFormats[pixelFormat] = frontSizes;
+-				}
++
++				const std::vector<Size> pictures = rear
++					? std::vector<Size>{ { 1536, 1152 }, { 2048, 1536 }, { 2560, 1920 }, { 3200, 2400 } }
++					: std::vector<Size>{ { 1280, 960 }, { 2560, 1920 } };
++				const std::vector<Size> calls{ { 1280, 720 } };
++
++				/* the first picture size at least min_width wide (an older profile's 1152, 1536 or 2048 picks the next one) */
++				Size first = pictures.back();
++				for (const Size &s : pictures)
++					if (s.width >= minW) {
++						first = s;
++						break;
++					}
++
++				std::vector<SizeRange> offered{ SizeRange(first) };
++				for (const Size &s : pictures)
++					if (s != first && s.width <= maxSize.width)
++						offered.emplace_back(s);
++				for (const Size &s : calls)
++					if (s.width <= maxSize.width)
++						offered.emplace_back(s);
++
++				size = first;
++				streamFormats[pixelFormat] = offered;
+ 			}
+ 
+ 			break;
+@@ -1232,7 +1243,12 @@ int PipelineHandlerIPU3::registerCameras()
+ 	 * in a compatible format.
+ 	 */
+ 	unsigned int numCameras = 0;
+-	for (unsigned int id = 0; id < 4 && numCameras < 2; ++id) {
++	/*
++	 * The receivers are walked from the last to the first: on the Surface Go the front camera sits on a later receiver than
++	 * the rear one, and the first camera registered is the one applications offer first (a browser's camera prompt,
++	 * Kamoso). On a tablet that is the camera of video calls and pictures of oneself.
++	 */
++	for (int id = 3; id >= 0 && numCameras < 2; --id) {
+ 		std::unique_ptr<IPU3CameraData> data =
+ 			std::make_unique<IPU3CameraData>(this);
+ 		std::set<Stream *> streams = {

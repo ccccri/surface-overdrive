@@ -25,8 +25,8 @@ SENSORS = {"front": "ov5693", "rear": "ov8865"}
 # Frame rates measured on the tablet on 2026-10-26 (temporal denoise on one thread): the rear's sizes above 1536x1152 use
 # the full resolution mode of the sensor, which gives 15 frames a second.
 SIZES = {
-    "front": [(0, "1152x864", "1 MP, 28 fps"), (1536, "1536x1152", "1.8 MP, 28 fps"), (2048, "2048x1536", "3.1 MP, 28 fps"),
-              (2560, "2560x1920", "4.9 MP, 24 fps, maximum")],
+    # the front camera offers only the sizes that show its whole picture (patch 0036): 1152x864 to 2048x1536 came out cropped
+    "front": [(0, "1280x960", "1.2 MP, 28 fps"), (2560, "2560x1920", "4.9 MP, 28 fps, maximum")],
     "rear": [(0, "1536x1152", "1.8 MP, 30 fps"), (2048, "2048x1536", "3.1 MP, 15 fps"), (2560, "2560x1920", "4.9 MP, 15 fps"),
              (3200, "3200x2400", "7.7 MP, 15 fps, maximum")],
 }

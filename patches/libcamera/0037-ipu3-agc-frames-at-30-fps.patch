@@ -1,0 +1,91 @@
+From: Surface Overdrive <noreply@surface-overdrive>
+Subject: [PATCH] ipu3: agc: frames as short as 30 fps allows
+
+The auto exposure makes each frame just long enough for its exposure (patch 0031), but never shorter than the sensor's
+default vertical blanking. The cameras offer 30 fps; the OV5693's default blanking at full resolution gave 28.6. The shortest
+frame is now one of 30 fps (never below the sensor's minimum blanking), from the line duration the sensor reports.
+
+---
+diff --git a/src/ipa/ipu3/algorithms/agc.cpp b/src/ipa/ipu3/algorithms/agc.cpp
+index db2a91c..1f38553 100644
+--- a/src/ipa/ipu3/algorithms/agc.cpp
++++ b/src/ipa/ipu3/algorithms/agc.cpp
+@@ -136,6 +136,18 @@ int Agc::init(IPAContext &context, const ValueNode &tuningData)
+  *
+  * \return 0
+  */
++/*
++ * The vertical blanking of a frame of 30 fps (the rate the cameras offer), never below the sensor's minimum. The frames were
++ * never shorter than the sensor's default blanking, which on the OV5693 at full resolution is 134 lines: 2078 lines of
++ * 16.8 us, 28.6 fps. 30 fps needs 40.
++ */
++static int64_t shortestVBlank(const decltype(IPASessionConfiguration::sensor) &sensor)
++{
++	const double lines = (1.0s / 30) / sensor.lineDuration;
++	const int64_t vblank = static_cast<int64_t>(std::ceil(lines)) - static_cast<int64_t>(sensor.size.height);
++	return std::clamp<int64_t>(vblank, sensor.minVBlank, sensor.maxVBlank);
++}
++
+ int Agc::configure(IPAContext &context,
+ 		   const IPAConfigInfo &configInfo)
+ {
+@@ -156,7 +168,7 @@ int Agc::configure(IPAContext &context,
+ 		const int64_t lines = static_cast<int64_t>(sensor.size.height) + sensor.maxVBlank - kExposureMargin;
+ 		const utils::Duration longest = lines * sensor.lineDuration;
+ 		maxExposureTime_ = std::max(maxExposureTime_, std::min(longestExposureTime_, longest));
+-		activeState.agc.vblank = sensor.defVBlank;
++		activeState.agc.vblank = shortestVBlank(sensor);
+ 	}
+ 
+ 	minAnalogueGain_ = std::max(configuration.agc.minAnalogueGain, kMinAnalogueGain);
+@@ -369,10 +381,10 @@ void Agc::process(IPAContext &context, const uint32_t frame,
+ 	const double wanted = std::clamp(dGain * qGain, 1.0, kMaxDigitalGain);
+ 	activeState.agc.digitalGain += (wanted - activeState.agc.digitalGain) * 0.25;
+ 	if (activeState.agc.vblank) {
+-		/* the frame just long enough for the exposure, never shorter than the sensor's own */
++		/* the frame just long enough for the exposure, never shorter than a frame of 30 fps */
+ 		const auto &sensor = context.configuration.sensor;
+ 		const int64_t needed = static_cast<int64_t>(activeState.agc.exposure) + kExposureMargin - sensor.size.height;
+-		activeState.agc.vblank = std::clamp<int64_t>(needed, sensor.defVBlank, sensor.maxVBlank);
++		activeState.agc.vblank = std::clamp<int64_t>(needed, shortestVBlank(sensor), sensor.maxVBlank);
+ 	}
+ 
+ 	/* Remember the exposure only once it has really settled. */
+diff --git a/src/ipa/ipu3/ipa_context.cpp b/src/ipa/ipu3/ipa_context.cpp
+index 3b22f79..daa2c55 100644
+--- a/src/ipa/ipu3/ipa_context.cpp
++++ b/src/ipa/ipu3/ipa_context.cpp
+@@ -119,6 +119,9 @@ namespace libcamera::ipa::ipu3 {
+  * \var IPASessionConfiguration::sensor.defVBlank
+  * \brief The default vblank value of the sensor
+  *
++ * \var IPASessionConfiguration::sensor.minVBlank
++ * \brief The minimum vblank value of the sensor
++ *
+  * \var IPASessionConfiguration::sensor.size
+  * \brief Sensor output resolution
+  */
+diff --git a/src/ipa/ipu3/ipa_context.h b/src/ipa/ipu3/ipa_context.h
+index c66fdc3..a5e3e4e 100644
+--- a/src/ipa/ipu3/ipa_context.h
++++ b/src/ipa/ipu3/ipa_context.h
+@@ -41,6 +41,7 @@ struct IPASessionConfiguration {
+ 
+ 	struct {
+ 		int32_t defVBlank;
++		int32_t minVBlank;
+ 		int32_t maxVBlank;
+ 		utils::Duration lineDuration;
+ 		Size size;
+diff --git a/src/ipa/ipu3/ipu3.cpp b/src/ipa/ipu3/ipu3.cpp
+index 68e5756..326dde6 100644
+--- a/src/ipa/ipu3/ipu3.cpp
++++ b/src/ipa/ipu3/ipu3.cpp
+@@ -207,6 +207,7 @@ void IPAIPU3::updateSessionConfiguration(const ControlInfoMap &sensorControls)
+ {
+ 	const ControlInfo vBlank = sensorControls.find(V4L2_CID_VBLANK)->second;
+ 	context_.configuration.sensor.defVBlank = vBlank.def().get<int32_t>();
++	context_.configuration.sensor.minVBlank = vBlank.min().get<int32_t>();
+ 	context_.configuration.sensor.maxVBlank = vBlank.max().get<int32_t>();
+ 
+ 	const ControlInfo &v4l2Exposure = sensorControls.find(V4L2_CID_EXPOSURE)->second;
