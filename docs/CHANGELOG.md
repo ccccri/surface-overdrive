@@ -5,14 +5,19 @@ What was added, what broke, and what fixed it. Newest first. "Verified" means tr
 ## 2026-10-29
 
 **Fixed (cameras for video calls and every application, verified on the tablet with a development build)**
-- The front camera offered only 2560x1920 (with a profile of 2560) or 1152x864 and up, all 4:3: a browser asking for
-  640x480 or 1280x720 got 4.9 MP and scaled it down itself. Each camera now offers the picture size chosen in the
-  Cameras page first (Kamoso takes it) and 1280x720 for video calls (libcamera 0036, PipeWire 0003: the plugin put the
-  size closest to 640x480 first, it now puts the camera's default first). Firefox: 1280x720 at 27.7 fps, camera service
-  21-24% of a core, Firefox about 40%.
+- The front camera offered only 2560x1920 (with a profile of 2560) or 1152x864 and up: a browser got 4.9 MP to scale
+  down itself. Each camera now offers the picture size chosen in the Cameras page first (Kamoso takes it) and the other
+  sizes, among which a browser picks 1280x960 for a call (libcamera 0036, PipeWire 0003: the plugin put the size closest
+  to 640x480 first, it now puts the camera's default first). Firefox asking for 1280x720 gets 1280x960 and crops it:
+  27 fps, camera service 21-24% of a core, Firefox about 40%. 1280x720 itself is not offered: Kamoso took it whatever
+  came first (libcamera 0038).
 - Only sizes that show the whole picture are offered: the ImgU's main output cannot scale, so a size the BDS cannot reach
   from the sensor came out cropped. Measured from pictures: front 1152x864 to 2048x1536 zoomed 1.06-1.18x, 640x480
-  1.78x; now front 2560x1920, 1280x960 and 1280x720 (whole sensor), rear 1536x1152 to 3200x2400 and 1280x720.
+  1.78x; now front 2560x1920 and 1280x960 (whole sensor), rear 1536x1152 to 3200x2400.
+- Colours in browsers: applications decode the YUV with a matrix of their own whatever the stream declares (measured with
+  the sensor's test pattern, the screen against both decodes of the same frame): Firefox BT.601 at every size, Kamoso
+  BT.709 even with BT.601 declared. The colour conversion now goes by size (libcamera 0038): picture sizes keep BT.709
+  (Kamoso), the call sizes get BT.601 (browsers); Firefox's colours now match the camera's.
 - The front camera comes first: a browser's camera prompt offered the rear one (libcamera registers the cameras from the
   last receiver to the first now).
 - The front camera ran at 28.6 fps instead of 30, and its exposures were 4.8% longer than asked (10 ms lasted 10.5 ms,

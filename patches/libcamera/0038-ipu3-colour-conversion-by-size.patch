@@ -1,0 +1,165 @@
+From: Surface Overdrive <noreply@surface-overdrive>
+Subject: [PATCH] ipu3: colour conversion as applications decode it, no 16:9 size
+
+Applications decode the cameras' YUV with a matrix of their own whatever the stream declares (measured on the tablet with the
+OV5693 test pattern, the screen against both decodes of the same frame): Firefox with limited-range BT.601 at every size,
+Kamoso with limited-range BT.709 (GStreamer's default above 576 lines), even with BT.601 declared. The ImgU's colour
+conversion now goes by the size, from the BDS output size that both the IPA and the pipeline handler know: the picture
+sizes (BDS at least 2000 wide: front 2560x1920, rear 2048x1536 and up) keep BT.709, the smaller ones browsers pick for calls
+(front 1280x960, rear 1536x1152) get BT.601; the declared colour space follows.
+
+1280x720 is no longer offered: Kamoso took it whatever came first, and its pictures lost the size chosen for them. Browsers
+take 1280x960 and crop it to 16:9 themselves when a page asks for 1280x720.
+
+---
+diff --git a/src/ipa/ipu3/ipu3.cpp b/src/ipa/ipu3/ipu3.cpp
+index 326dde6..008df02 100644
+--- a/src/ipa/ipu3/ipu3.cpp
++++ b/src/ipa/ipu3/ipu3.cpp
+@@ -536,6 +536,8 @@ void IPAIPU3::unmapBuffers(const std::vector<unsigned int> &ids)
+ 
+ /* The luma offset of limited range, 16 of 255: the bias is in 1/32 of an 8-bit level (measured: 512 adds 16). */
+ static constexpr __s16 kCscLumaBias = 512;
++/* the BDS width from which the colour conversion is BT.709 (else BT.601); the pipeline handler has the same figure */
++static constexpr unsigned int kRec709MinBdsWidth = 2000;
+ 
+ /**
+  * \brief Fill and return a buffer with ISP processing parameters for a frame
+@@ -575,33 +577,50 @@ void IPAIPU3::computeParams(const uint32_t frame, const uint32_t bufferId)
+ 
+ 	/*
+ 	 * The ImgU's RGB to YUV matrix. The kernel's default one gives full-range analogue YUV (U = 0.492 (B - Y),
+-	 * V = 0.877 (R - Y)), which no application expects. Applications that do not read the colour space (Kamoso among
+-	 * them) take anything taller than 576 lines for limited-range BT.709, the GStreamer default: blacks were crushed,
+-	 * whites clipped and red came out 57% too strong. This is limited-range BT.709, which the pipeline handler also
+-	 * reports, so it reads right either way. LIBCAMERA_IPU3_CSC: "kernel" keeps the kernel's matrix, twelve numbers
+-	 * set one (rows of c1 c2 c3 bias, s0.14 and s13.0), for measuring.
++	 * V = 0.877 (R - Y)), which no application expects: blacks were crushed, whites clipped and red came out 57% too
++	 * strong. Applications decode the cameras' YUV with a matrix of their own, whatever the stream declares (measured
++	 * on the tablet with the sensor's test pattern): Firefox with limited-range BT.601 at every size, Kamoso with
++	 * limited-range BT.709 (GStreamer's default above 576 lines). So the matrix goes by the size: the picture sizes
++	 * (a BDS output at least kRec709MinBdsWidth wide: front 2560x1920, rear 2048x1536 and up, Kamoso's) get BT.709,
++	 * the smaller ones that browsers pick for calls (front 1280x960, rear 1536x1152) BT.601. The pipeline handler
++	 * declares the same, from the same BDS size. LIBCAMERA_IPU3_CSC: "kernel" keeps the kernel's matrix, twelve
++	 * numbers set one (rows of c1 c2 c3 bias, s0.14 and s13.0), for measuring.
+ 	 */
+-	static const std::optional<ipu3_uapi_csc_mat_config> csc = []() -> std::optional<ipu3_uapi_csc_mat_config> {
+-		ipu3_uapi_csc_mat_config m = {
+-			2991, 10064, 1016, kCscLumaBias,
+-			-1649, -5547, 7196, 0,
+-			7196, -6537, -659, 0,
+-		};
++	struct CscEnv {
++		bool kernel = false;
++		bool fixed = false;
++		ipu3_uapi_csc_mat_config m{};
++	};
++	static const CscEnv cscEnv = [] {
++		CscEnv e;
+ 		const char *env = getenv("LIBCAMERA_IPU3_CSC");
+-		if (env && !strcmp(env, "kernel"))
+-			return std::nullopt;
+ 		int v[12];
+-		if (env && sscanf(env, "%d %d %d %d %d %d %d %d %d %d %d %d", &v[0], &v[1], &v[2], &v[3], &v[4], &v[5],
+-				  &v[6], &v[7], &v[8], &v[9], &v[10], &v[11]) == 12)
+-			m = { static_cast<__s16>(v[0]), static_cast<__s16>(v[1]), static_cast<__s16>(v[2]),
+-			      static_cast<__s16>(v[3]), static_cast<__s16>(v[4]), static_cast<__s16>(v[5]),
+-			      static_cast<__s16>(v[6]), static_cast<__s16>(v[7]), static_cast<__s16>(v[8]),
+-			      static_cast<__s16>(v[9]), static_cast<__s16>(v[10]), static_cast<__s16>(v[11]) };
+-		return m;
++		if (env && !strcmp(env, "kernel"))
++			e.kernel = true;
++		else if (env && sscanf(env, "%d %d %d %d %d %d %d %d %d %d %d %d", &v[0], &v[1], &v[2], &v[3], &v[4], &v[5],
++				       &v[6], &v[7], &v[8], &v[9], &v[10], &v[11]) == 12) {
++			e.fixed = true;
++			e.m = { static_cast<__s16>(v[0]), static_cast<__s16>(v[1]), static_cast<__s16>(v[2]),
++				static_cast<__s16>(v[3]), static_cast<__s16>(v[4]), static_cast<__s16>(v[5]),
++				static_cast<__s16>(v[6]), static_cast<__s16>(v[7]), static_cast<__s16>(v[8]),
++				static_cast<__s16>(v[9]), static_cast<__s16>(v[10]), static_cast<__s16>(v[11]) };
++		}
++		return e;
+ 	}();
+-	if (csc) {
++	static constexpr ipu3_uapi_csc_mat_config kRec709 = {
++		2991, 10064, 1016, kCscLumaBias,
++		-1649, -5547, 7196, 0,
++		7196, -6537, -659, 0,
++	};
++	static constexpr ipu3_uapi_csc_mat_config kRec601 = {
++		4207, 8260, 1604, kCscLumaBias,
++		-2428, -4768, 7196, 0,
++		7196, -6026, -1170, 0,
++	};
++	if (!cscEnv.kernel) {
+ 		params->use.acc_csc = 1;
+-		params->acc_param.csc = *csc;
++		params->acc_param.csc = cscEnv.fixed ? cscEnv.m
++				      : context_.configuration.grid.bdsOutputSize.width >= kRec709MinBdsWidth ? kRec709 : kRec601;
+ 	}
+ 
+ 	paramsComputed.emit(frame);
+diff --git a/src/libcamera/pipeline/ipu3/ipu3.cpp b/src/libcamera/pipeline/ipu3/ipu3.cpp
+index 8300a72..af91358 100644
+--- a/src/libcamera/pipeline/ipu3/ipu3.cpp
++++ b/src/libcamera/pipeline/ipu3/ipu3.cpp
+@@ -419,13 +419,6 @@ CameraConfiguration::Status IPU3CameraConfiguration::validate()
+ 			cfg->stride = info.stride(cfg->size.width, 0, 1);
+ 			cfg->frameSize = info.frameSize(cfg->size, 1);
+ 
+-			/*
+-			 * The IPA sets the ImgU's colour conversion to limited-range BT.709, the colour space GStreamer
+-			 * assumes for these sizes when none is given; saying so helps the applications that do read it.
+-			 */
+-			if (cfg->colorSpace && *cfg->colorSpace != ColorSpace::Rec709)
+-				status = Adjusted;
+-			cfg->colorSpace = ColorSpace::Rec709;
+ 
+ 			/*
+ 			 * Use the main output stream in case only one stream is
+@@ -469,6 +462,22 @@ CameraConfiguration::Status IPU3CameraConfiguration::validate()
+ 					 << "unsupported resolutions.";
+ 			return Invalid;
+ 		}
++
++		/*
++		 * The colour space the IPA sets the ImgU's colour conversion to, chosen like the IPA does from the BDS size:
++		 * limited-range BT.709 for the picture sizes (a BDS output at least kRec709MinBdsWidth wide), limited-range
++		 * BT.601 for the smaller ones browsers pick for calls (see the IPA for why).
++		 */
++		static constexpr unsigned int kRec709MinBdsWidth = 2000;
++		const ColorSpace colorSpace = pipeConfig_.bds.width >= kRec709MinBdsWidth ? ColorSpace::Rec709
++											 : ColorSpace::Smpte170m;
++		for (StreamConfiguration &cfg : config_) {
++			if (cfg.pixelFormat != formats::NV12)
++				continue;
++			if (cfg.colorSpace && *cfg.colorSpace != colorSpace)
++				status = Adjusted;
++			cfg.colorSpace = colorSpace;
++		}
+ 	}
+ 
+ 	return status;
+@@ -554,8 +563,8 @@ PipelineHandlerIPU3::generateConfiguration(Camera *camera, Span<const StreamRole
+ 
+ 			/*
+ 			 * The sizes offered: first the picture size chosen in the Cameras page ("min_width" of the live profile,
+-			 * LIBCAMERA_IPU3_REAR_MIN_WIDTH for the rear), which applications such as Kamoso simply take, then 1280x720 for
+-			 * video calls, which a browser picks by its constraints. Only sizes that show the whole picture are offered:
++			 * LIBCAMERA_IPU3_REAR_MIN_WIDTH for the rear), which applications such as Kamoso simply take, then the others,
++			 * among which a browser picks by its constraints (1280x960 for a call). Only sizes that show the whole picture are offered:
+ 			 * the ImgU's main output cannot scale (its GDC size is the output size), so a size the BDS cannot reach from
+ 			 * the sensor comes out cropped. Measured from pictures (zoom against the largest size): front 2560x1920,
+ 			 * 1280x960 and 1280x720 show the whole sensor, 1152x864 to 2048x1536 were zoomed 1.06-1.18x and 640x480
+@@ -577,7 +586,11 @@ PipelineHandlerIPU3::generateConfiguration(Camera *camera, Span<const StreamRole
+ 				const std::vector<Size> pictures = rear
+ 					? std::vector<Size>{ { 1536, 1152 }, { 2048, 1536 }, { 2560, 1920 }, { 3200, 2400 } }
+ 					: std::vector<Size>{ { 1280, 960 }, { 2560, 1920 } };
+-				const std::vector<Size> calls{ { 1280, 720 } };
++				/*
++				 * No 16:9 size: Kamoso picks 1280x720 when it is offered, whatever comes first, and its pictures and
++				 * videos then lost the size chosen for them. Browsers take 1280x960 for a call (4:3, like most webcams).
++				 */
++				const std::vector<Size> calls{};
+ 
+ 				/* the first picture size at least min_width wide (an older profile's 1152, 1536 or 2048 picks the next one) */
+ 				Size first = pictures.back();
