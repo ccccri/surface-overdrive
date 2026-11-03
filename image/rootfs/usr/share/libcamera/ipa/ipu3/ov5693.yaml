@@ -79,3 +79,9 @@ algorithms:
       # [ alpha y0, u0, v0, ydiff, udiff, vdiff, coring u0, v0, udiff, vdiff, blending strength ]: alpha is the inverse of
       # the filter's sigma (32 = strong), 2048 is the full blending strength (patch 0026)
       xnr3: [ 32, 32, 32, 0, 0, 0, 0, 0, 0, 0, 2048 ]
+      # TNR3, the ImgU's temporal noise reduction (no cost to the processor): [ max feedback Y, U/V, knee Y1, Y2, sigma,
+      # slope, rounding ]. In good light it halves the grain of still scenes (off while the scene moves); in low light
+      # it is off: it left ghosts of moving hands there, and the software filter of the pipeline handler (motion
+      # adaptive per block) already took the grain of still areas to almost nothing (2026-11-03)
+      tnr3: [ 1024, 1024, 768, 1280, 256, 0, 0 ]
+      tnr3Dark: [ 0, 0, 768, 1280, 256, 0, 0 ]

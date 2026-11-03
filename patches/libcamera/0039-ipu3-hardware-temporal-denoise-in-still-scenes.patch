@@ -1,0 +1,258 @@
+From: Surface Overdrive <noreply@surface-overdrive>
+Subject: [PATCH] ipu3: hardware temporal denoise (TNR3) in still scenes; only the chosen picture size and bigger
+
+The ImgU has a temporal noise reduction (TNR3) that the kernel leaves at a feedback of 0. NoiseReduction now sets it from the
+tuning data (tnr3 in good light, tnr3Dark in the dark, interpolated from exposure x gain like the software filter) and the
+live profile ("tnr3"). Front camera, 2560x1920, bright room: temporal noise of still areas 1.27 -> 0.80, chroma 0.90 -> 0.56
+at a feedback of 1024, at no cost to the processor.
+
+TNR3 cannot tell motion from noise: moving hands and heads left banded ghosts. The feedback therefore follows the motion of
+the scene, judged from the 3A grid (green average of every cell against the previous frame at the same overall brightness,
+since the auto exposure changes the whole picture a little all the time): off at once when over 2.5% of the cells move, back
+after four still frames, by 8% a frame. In the dark the front camera's tuning leaves TNR3 off: the ghosts were worst there
+and the software filter already takes the grain of still areas to almost nothing.
+
+The sizes offered start at the size chosen in the Cameras page: applications without wishes (Kamoso, GStreamer) take the
+size closest to 640x480 whatever comes first, so a smaller size on offer took Kamoso's pictures down to it.
+
+---
+diff -ruN a/src/ipa/ipu3/algorithms/noise_reduction.cpp b/src/ipa/ipu3/algorithms/noise_reduction.cpp
+--- a/src/ipa/ipu3/algorithms/noise_reduction.cpp
++++ b/src/ipa/ipu3/algorithms/noise_reduction.cpp
+@@ -42,7 +42,22 @@
+  *   xnr3: [ alpha y0, u0, v0, ydiff, udiff, vdiff, coring u0, v0, udiff, vdiff, blending strength ]
+  *   xnr3Binned: the same for the 2x2 binned sensor modes
+  *   chnr: [ coring u, v, sense gain vy, vu, vv, hy, hu, hv, FIR tap 0, 1, 2, IIR weight ]
+- * The "xnr3" and "chnr" keys of the camera's live profile win over the tuning data (to tune on a running camera).
++ *   tnr3: [ max feedback Y, max feedback U/V, knee Y1, knee Y2, sigma, slope, rounding ]
++ *   tnr3Dark: the same in the dark; the values in between follow the light
++ * The "xnr3", "chnr" and "tnr3" keys of the camera's live profile win over the tuning data (to tune on a running camera).
++ *
++ * TNR3 is the ImgU's temporal noise reduction: each output frame is blended with the previous one in the hardware, at no
++ * cost to the processor. The kernel leaves its feedback at 0 (off). Measured on the Surface Go's front camera
++ * (2026-10-29, 2560x1920 in a bright room): with a max feedback of 1024 the temporal noise of still areas fell from 1.81
++ * to 1.04 and the chroma noise from 0.96 to 0.59, at 1536 to 0.69 and 0.38; moving edges leave a faint trail that grows
++ * with the feedback, and from about 1900 the picture freezes (2048 is full feedback). The rest of the values as the
++ * kernel computes them (knees 768 and 1280, sigma 256, slope and rounding 0).
++ *
++ * TNR3 has no motion detection worth the name: at a strong feedback a moving head left banded ghosts behind it, whatever
++ * its sigma. So the feedback follows the motion of the scene, judged from the 3A statistics of each frame (the green
++ * average of every cell of the grid against the previous frame): it drops to nothing as soon as the scene moves, and
++ * comes back over about half a second once it is still again. Still scenes get the full strength, moving ones none
++ * (and motion blur hides the grain there anyway).
+  */
+ 
+ namespace {
+@@ -81,6 +96,9 @@
+ /* What the kernel sets when it computes the parameters itself (drivers/staging/media/ipu3). */
+ constexpr std::array<double, 11> kXnr3Off = { 2047, 2047, 2047, 0, 0, 0, 0, 0, 0, 0, 0 };
+ constexpr std::array<double, 12> kChnrDefault = { 0, 0, 6, 6, 6, 4, 4, 4, 8, 12, 0, 129 };
++constexpr std::array<double, 7> kTnr3Off = { 0, 0, 768, 1280, 256, 0, 0 };
++/* the feedback never reaches the point where the picture freezes */
++constexpr double kTnr3MaxFeedback = 1800;
+ 
+ } /* namespace */
+ 
+@@ -89,6 +107,8 @@
+ 	hasXnr3_ = readList(tuningData, "xnr3", xnr3_);
+ 	hasXnr3Binned_ = readList(tuningData, "xnr3Binned", xnr3Binned_);
+ 	hasChnr_ = readList(tuningData, "chnr", chnr_);
++	hasTnr3_ = readList(tuningData, "tnr3", tnr3_);
++	hasTnr3Dark_ = readList(tuningData, "tnr3Dark", tnr3Dark_);
+ 	return 0;
+ }
+ 
+@@ -101,10 +121,14 @@
+ 	/* A new streaming session: the kernel starts from its own values again. */
+ 	xnr3Set_ = false;
+ 	chnrSet_ = false;
++	tnr3Set_ = false;
++	tnr3Still_ = 0.0;
++	stillFrames_ = 0;
++	prevCells_.clear();
+ 	return 0;
+ }
+ 
+-void NoiseReduction::prepare([[maybe_unused]] IPAContext &context, [[maybe_unused]] const uint32_t frame,
++void NoiseReduction::prepare(IPAContext &context, [[maybe_unused]] const uint32_t frame,
+ 			     [[maybe_unused]] IPAFrameContext &frameContext, ipu3_uapi_params *params)
+ {
+ 	if (profile_)
+@@ -133,6 +157,47 @@
+ 		xnr3Set_ = hasX;
+ 	}
+ 
++	/*
++	 * TNR3: the strength follows the light like the software filter of the pipeline handler, from the exposure time x
++	 * gain the auto exposure set: 8 ms at gain 1 and less is good light, 40 ms at gain 1 and more the dark.
++	 */
++	std::array<double, kTnr3Size> n = tnr3_;
++	bool hasN = hasTnr3_;
++	if (hasTnr3_ && hasTnr3Dark_) {
++		const auto &agc = context.activeState.agc;
++		const double light = agc.exposure * context.configuration.sensor.lineDuration.get<std::micro>() * agc.gain;
++		const double dark = std::clamp((light - 8000.0) / (40000.0 - 8000.0), 0.0, 1.0);
++		for (unsigned int i = 0; i < kTnr3Size; i++)
++			n[i] = tnr3_[i] + dark * (tnr3Dark_[i] - tnr3_[i]);
++	}
++	if (profileList(profile_.get(), "tnr3", n))
++		hasN = true;
++	n[0] *= tnr3Still_;
++	n[1] *= tnr3Still_;
++	if (!hasN && tnr3Set_)
++		n = kTnr3Off;
++	if (hasN || tnr3Set_) {
++		ipu3_uapi_isp_tnr3_params &t = params->tnr3_dmem_params;
++		t = {};
++		t.maxfb_y = clampU(std::min(n[0], kTnr3MaxFeedback), 0xffff);
++		t.maxfb_u = clampU(std::min(n[1], kTnr3MaxFeedback), 0xffff);
++		t.maxfb_v = t.maxfb_u;
++		t.knee_y1 = clampU(n[2], 0xffff);
++		t.knee_y2 = clampU(n[3], 0xffff);
++		t.round_adj_y = clampU(n[6], 0xffff);
++		t.round_adj_u = t.round_adj_y;
++		t.round_adj_v = t.round_adj_y;
++		params->use.tnr3_dmem_params = 1;
++		ipu3_uapi_isp_tnr3_vmem_params &v = params->tnr3_vmem_params;
++		v = {};
++		for (unsigned int i = 0; i < IPU3_UAPI_ISP_TNR3_VMEM_LEN; i++) {
++			v.sigma[i] = clampU(n[4], 0xffff);
++			v.slope[i] = clampU(n[5], 0xffff);
++		}
++		params->use.tnr3_vmem_params = 1;
++		tnr3Set_ = hasN;
++	}
++
+ 	std::array<double, kChnrSize> c = chnr_;
+ 	bool hasC = hasChnr_;
+ 	if (profileList(profile_.get(), "chnr", c))
+@@ -161,6 +226,61 @@
+ 	}
+ }
+ 
++/*
++ * How still the scene is, from the green average of every cell of the 3A grid against the previous frame: the share of
++ * cells that changed by more than noise does (6% of their value, at least 8 levels). Over 2.5% of moving cells is
++ * a moving scene: the TNR3 feedback goes to nothing at once, and comes back after four still frames, by 8% a frame.
++ */
++void NoiseReduction::process(IPAContext &context, [[maybe_unused]] const uint32_t frame,
++			     [[maybe_unused]] IPAFrameContext &frameContext,
++			     const ipu3_uapi_stats_3a *stats,
++			     [[maybe_unused]] ControlList &metadata)
++{
++	const ipu3_uapi_grid_config &grid = context.configuration.grid.bdsGrid;
++	const uint32_t stride = context.configuration.grid.stride;
++	std::vector<uint32_t> cells;
++	cells.reserve(static_cast<size_t>(grid.width) * grid.height);
++	for (uint32_t y = 0; y < grid.height; y++) {
++		for (uint32_t x = 0; x < grid.width; x++) {
++			const auto *cell = reinterpret_cast<const ipu3_uapi_awb_set_item *>(
++				&stats->awb_raw_buffer.meta_data[y * stride + x]);
++			cells.push_back(static_cast<uint32_t>(cell->Gr_avg) + cell->Gb_avg);
++		}
++	}
++
++	/*
++	 * Each frame is compared with the previous one at the same overall brightness: the auto exposure changes the whole
++	 * picture a little from frame to frame (much more in low light), which counted every cell as moving.
++	 */
++	double moving = 1.0;
++	if (prevCells_.size() == cells.size() && !cells.empty()) {
++		double sumA = 0, sumB = 0;
++		for (size_t k = 0; k < cells.size(); k++) {
++			sumA += cells[k];
++			sumB += prevCells_[k];
++		}
++		const double scale = sumA > 0 ? sumB / sumA : 1.0;
++		unsigned int changed = 0;
++		for (size_t k = 0; k < cells.size(); k++) {
++			const double a = cells[k] * scale, b = prevCells_[k];
++			if (std::abs(a - b) > std::max(8.0, 0.06 * std::max(a, b)))
++				changed++;
++		}
++		moving = static_cast<double>(changed) / cells.size();
++	}
++	prevCells_ = std::move(cells);
++
++	/* off at once when the scene moves; back only after a few still frames, then over half a second */
++	if (moving > 0.025) {
++		tnr3Still_ = 0.0;
++		stillFrames_ = 0;
++	} else if (++stillFrames_ >= 4) {
++		tnr3Still_ = std::min(1.0, tnr3Still_ + 0.08);
++	}
++
++	LOG(IPU3NoiseReduction, Debug) << "moving cells " << moving << ", TNR3 strength " << tnr3Still_;
++}
++
+ REGISTER_IPA_ALGORITHM(NoiseReduction, "NoiseReduction")
+ 
+ } /* namespace ipa::ipu3::algorithms */
+diff -ruN a/src/ipa/ipu3/algorithms/noise_reduction.h b/src/ipa/ipu3/algorithms/noise_reduction.h
+--- a/src/ipa/ipu3/algorithms/noise_reduction.h
++++ b/src/ipa/ipu3/algorithms/noise_reduction.h
+@@ -7,6 +7,7 @@
+ 
+ #include <array>
+ #include <memory>
++#include <vector>
+ 
+ #include "libcamera/internal/live_profile.h"
+ 
+@@ -24,10 +25,15 @@
+ 	void prepare(IPAContext &context, const uint32_t frame,
+ 		     IPAFrameContext &frameContext,
+ 		     ipu3_uapi_params *params) override;
++	void process(IPAContext &context, const uint32_t frame,
++		     IPAFrameContext &frameContext,
++		     const ipu3_uapi_stats_3a *stats,
++		     ControlList &metadata) override;
+ 
+ private:
+ 	static constexpr unsigned int kXnr3Size = 11;
+ 	static constexpr unsigned int kChnrSize = 12;
++	static constexpr unsigned int kTnr3Size = 7;
+ 
+ 	/* XNR3: alpha y0 u0 v0 ydiff udiff vdiff, coring u0 v0 udiff vdiff, blending strength. */
+ 	std::array<double, kXnr3Size> xnr3_{};
+@@ -37,6 +43,16 @@
+ 	/* CHNR: coring u v, sense gains vy vu vv hy hu hv, FIR taps 0 1 2, IIR weight. */
+ 	std::array<double, kChnrSize> chnr_{};
+ 	bool hasChnr_ = false;
++	/* TNR3: max feedback Y, max feedback UV, knee Y1, knee Y2, sigma, slope, rounding; in good light and in the dark. */
++	std::array<double, kTnr3Size> tnr3_{};
++	std::array<double, kTnr3Size> tnr3Dark_{};
++	bool hasTnr3_ = false;
++	bool hasTnr3Dark_ = false;
++	bool tnr3Set_ = false;
++	/* how much of the TNR3 feedback the scene allows: 0 while it moves, back to 1 once it is still (see process()) */
++	double tnr3Still_ = 0.0;
++	unsigned int stillFrames_ = 0;
++	std::vector<uint32_t> prevCells_;
+ 	/* Whether the last frame set XNR3 or CHNR: the kernel keeps the last values it got until it is told otherwise. */
+ 	bool xnr3Set_ = false;
+ 	bool chnrSet_ = false;
+diff -ruN a/src/libcamera/pipeline/ipu3/ipu3.cpp b/src/libcamera/pipeline/ipu3/ipu3.cpp
+--- a/src/libcamera/pipeline/ipu3/ipu3.cpp
++++ b/src/libcamera/pipeline/ipu3/ipu3.cpp
+@@ -600,12 +600,18 @@
+ 						break;
+ 					}
+ 
++				/*
++				 * Only that size and the bigger ones: applications without wishes (Kamoso, GStreamer) take the size closest
++				 * to 640x480, whatever comes first, so a smaller size on offer took Kamoso's pictures down to it (1.2 MP
++				 * instead of the 4.9 MP chosen, Fedora 45). The size chosen in the Cameras page is the smallest any
++				 * application gets; 1280x960 there makes calls lighter.
++				 */
+ 				std::vector<SizeRange> offered{ SizeRange(first) };
+ 				for (const Size &s : pictures)
+-					if (s != first && s.width <= maxSize.width)
++					if (s.width > first.width && s.width <= maxSize.width)
+ 						offered.emplace_back(s);
+ 				for (const Size &s : calls)
+-					if (s.width <= maxSize.width)
++					if (s.width >= first.width && s.width <= maxSize.width)
+ 						offered.emplace_back(s);
+ 
+ 				size = first;

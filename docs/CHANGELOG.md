@@ -2,6 +2,23 @@
 
 What was added, what broke, and what fixed it. Newest first. "Verified" means tried on the Surface Go itself.
 
+## 2026-11-03
+
+**Fedora 45 and Plasma 6.8** (the tablet now runs the :45 image)
+- KWin 6.8: the rotation effect builds again (paintScreen returns bool, SceneView takes the render device); the nightly
+  builds had failed since 2026-10-31.
+- The PIN/pattern pad laid the login and lock screens out forever (a whole core, no touch): Plasma 6.8 added a row to the
+  column of the prompts, and the pad took its own box for the action buttons. The other parts are now found around the
+  box. Lock screen changes, dimmed on-screen keyboard (moved to /usr/share/kwin) and the Flatpak service (no
+  dbus-run-session in Fedora 45) work with 6.8. Verified on the tablet: pattern at the login after a reboot.
+
+**Front camera: hardware temporal denoise** (libcamera 0039)
+- The ImgU's TNR3 is set from the tuning (no processor cost): in good light still areas lose about half their grain and
+  most of the colour blotches. It stops while the scene moves (judged from the 3A grid at equal brightness) and is off in
+  low light, where it left ghosts of moving hands and the software filter already removes the grain without any.
+- Only the picture size chosen in the Cameras page and bigger ones are offered: Kamoso took 1280x960 as soon as it was
+  on offer. A WebRTC call in Firefox (640x480) ran at 25 fps sent and received, no frame dropped.
+
 ## 2026-10-29
 
 **Fixed (cameras for video calls and every application, verified on the tablet with a development build)**
