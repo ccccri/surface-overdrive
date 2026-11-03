@@ -2,3 +2,5 @@
 org.kde.kmines
 org.kde.elisa
 org.kde.kolourpaint
+# replaced by the image's own Camera app (overdrive-camera): Kamoso encodes video on the processor, under 1 fps at 2560x1920
+org.kde.kamoso

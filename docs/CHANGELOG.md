@@ -12,6 +12,16 @@ What was added, what broke, and what fixed it. Newest first. "Verified" means tr
   box. Lock screen changes, dimmed on-screen keyboard (moved to /usr/share/kwin) and the Flatpak service (no
   dbus-run-session in Fedora 45) work with 6.8. Verified on the tablet: pattern at the login after a reboot.
 
+**Camera app instead of Kamoso**
+- Kamoso, GNOME Snapshot and Plasma Camera were tried on the tablet: all three encode video on the processor (2560x1920:
+  Kamoso under 1 fps in Theora, Plasma Camera 8.6 fps at 230% CPU, Snapshot 12 fps at 275%). The image's own app encodes
+  on the graphics chip (19.7 fps in a dim room, limited by the exposure, at 15% CPU), so it replaces Kamoso (removed once
+  by overdrive-flatpaks, no longer preinstalled).
+- The app redone like a phone camera (after Plasma Camera's look): full-window preview, translucent control bar (right in
+  landscape, bottom in portrait), one shutter for photo (white) and video (red), Photo | Video switch, timer 3/10 s, rule
+  of thirds grid, a gallery inside the app (swipe, play videos, open elsewhere, move to the trash), and a settings panel
+  with the picture size and the adjustments of the Cameras page (live) plus photo and video quality.
+
 **Front camera: hardware temporal denoise** (libcamera 0039)
 - The ImgU's TNR3 is set from the tuning (no processor cost): in good light still areas lose about half their grain and
   most of the colour blotches. It stops while the scene moves (judged from the 3A grid at equal brightness) and is off in

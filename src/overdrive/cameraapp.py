@@ -27,6 +27,8 @@ START_TRIES = 15                  # looks for the cameras every 2 s for half a m
 STALL_SECONDS = 5                 # a preview without frames this long is started again
 SWITCH_INTERVAL = 1.0             # seconds between two camera switches
 JPEG_QUALITY = 92
+CAPTURE_SUFFIXES = (".jpg", ".jpeg", ".png", ".mp4", ".mkv", ".webm", ".mov")
+MAX_GALLERY = 200
 
 
 # ---- Pure helpers (tested in tests/test_cameraapp.py)
@@ -58,9 +60,15 @@ def preview_size(width, height, max_width=PREVIEW_MAX_WIDTH):
     return w, h - h % 2
 
 
-def video_bitrate(width, height):
-    """H.264 bit rate in kbit/s: 2.5 per thousand pixels a frame, at least 4000 (12000 at 2560x1920)."""
-    return max(4000, round(width * height / 1e6 * 2.5) * 1000)
+# the quality choices of the settings: photo = JPEG quality, video = H.264 kbit/s per megapixel of a frame
+PHOTO_QUALITIES = {"standard": 85, "high": 92, "maximum": 98}
+VIDEO_QUALITIES = {"standard": 2.5, "high": 5.0, "maximum": 8.0}
+
+
+def video_bitrate(width, height, quality="standard"):
+    """H.264 bit rate in kbit/s: per megapixel of a frame as the quality says (2.5 standard), at least 4000 (12000 at
+    2560x1920 standard)."""
+    return max(4000, round(width * height / 1e6 * VIDEO_QUALITIES.get(quality, 2.5)) * 1000)
 
 
 def preview_description(node, width, height):
@@ -71,10 +79,10 @@ def preview_description(node, width, height):
             "! qml6glsink name=preview sync=false").format(node=node, w=width, h=height)
 
 
-def record_description(node, width, height, path, audio=True):
+def record_description(node, width, height, path, audio=True, quality="standard"):
     video = ("pipewiresrc target-object={node} stream-properties=props,media.type=Video,media.category=Capture,media.role=Camera ! video/x-raw,format=NV12,width={w},height={h} ! queue max-size-buffers=8 "
              "! vapostproc ! vah264enc bitrate={rate} ! h264parse name=parse ! queue ! mux. "
-             ).format(node=node, w=width, h=height, rate=video_bitrate(width, height))
+             ).format(node=node, w=width, h=height, rate=video_bitrate(width, height, quality))
     sound = "pulsesrc ! audioconvert ! audioresample ! audio/x-raw,rate=48000,channels=2 ! fdkaacenc ! queue ! mux. " if audio else ""
     return video + sound + "mp4mux name=mux ! filesink location=\"{}\"".format(path.replace("\"", "\\\""))
 
@@ -139,6 +147,9 @@ def main():
     class Camera(QObject):
         changed = Signal()
         message = Signal(str)
+        settingsChanged = Signal()
+        capturesChanged = Signal()
+        _sizeApplied = Signal()             # from the thread that restarted the camera service
 
         def __init__(self):
             super().__init__()
@@ -160,6 +171,11 @@ def main():
             self._stalls = 0
             self._bus_timer = QTimer(self, interval=100, timeout=self._poll)
             self._bus_timer.start()
+            self._applying_size = False
+            self._sizeApplied.connect(self._size_applied)
+            from overdrive import camera as cs
+            self._photo_quality = cs.ui_setting("cameraApp_photoQuality", "high")
+            self._video_quality = cs.ui_setting("cameraApp_videoQuality", "standard")
 
         # -- properties for QML
         def _get_key(self):
@@ -188,7 +204,7 @@ def main():
             return QUrl.fromLocalFile(self._last_capture).toString() if self._last_capture else ""
 
         def _get_last_is_video(self):
-            return self._last_capture.endswith(".mp4")
+            return self._last_capture.lower().endswith((".mp4", ".mkv", ".webm", ".mov"))
 
         key = Property(str, _get_key, notify=changed)
         keys = Property("QVariantList", _get_keys, notify=changed)
@@ -199,6 +215,125 @@ def main():
         mirrored = Property(bool, _get_mirrored, notify=changed)
         lastCapture = Property(str, _get_last, notify=changed)
         lastIsVideo = Property(bool, _get_last_is_video, notify=changed)
+
+        # -- settings of the camera in use: the same ones as the Cameras page of System Settings (overdrive.camera),
+        # written to the live profile that the patched libcamera reads while it runs
+        def _get_settings(self):
+            from overdrive import camera as cs
+            if self._key not in cs.SENSORS:
+                return "{}"
+            try:
+                return json.dumps({"controls": cs.controls(self._key), "values": cs.settings(self._key),
+                                   "sizes": [{"minWidth": w, "text": t, "desc": d} for w, t, d in cs.SIZES[self._key]]})
+            except (OSError, ValueError, KeyError):
+                return "{}"
+
+        def _get_applying(self):
+            return self._applying_size
+
+        settings = Property(str, _get_settings, notify=settingsChanged)
+
+        def _get_photo_quality(self):
+            return self._photo_quality
+
+        def _get_video_quality(self):
+            return self._video_quality
+
+        photoQuality = Property(str, _get_photo_quality, notify=settingsChanged)
+        videoQuality = Property(str, _get_video_quality, notify=settingsChanged)
+
+        @Slot(str, str)
+        def setQuality(self, kind, value):
+            """kind "photo" or "video"; remembered for the next start."""
+            from overdrive import camera as cs
+            if kind == "photo" and value in PHOTO_QUALITIES:
+                self._photo_quality = value
+            elif kind == "video" and value in VIDEO_QUALITIES:
+                self._video_quality = value
+            else:
+                return
+            cs.set_ui_setting("cameraApp_" + kind + "Quality", value)
+            self.settingsChanged.emit()
+        applyingSize = Property(bool, _get_applying, notify=settingsChanged)
+
+        @Slot(str, "QVariant")
+        def setSetting(self, key, value):
+            """One setting of the camera in use. A new picture size restarts the camera service (the sizes are read when
+            the camera nodes are made): the preview stops, the restart runs on a thread, the preview starts again."""
+            from overdrive import camera as cs
+            if self._key not in cs.SENSORS or self._recorder is not None:
+                return
+            cam = self._key
+            if key == "minWidth":
+                self._applying_size = True
+                self._stop_preview()
+                self._error = "Changing the picture size..."
+                self.changed.emit()
+                self.settingsChanged.emit()
+
+                def work():
+                    try:
+                        cs.set_setting(cam, key, value)
+                    except (OSError, ValueError, KeyError, subprocess.SubprocessError) as exc:
+                        self.message.emit("The size could not be changed: {}".format(exc))
+                    self._sizeApplied.emit()
+                threading.Thread(target=work, daemon=True).start()
+                return
+            try:
+                cs.set_setting(cam, key, value)
+            except (OSError, ValueError, KeyError) as exc:
+                self.message.emit("The setting could not be changed: {}".format(exc))
+            self.settingsChanged.emit()
+
+        def _size_applied(self):
+            self._applying_size = False
+            self._error = ""
+            self._tries = 0
+            self.settingsChanged.emit()
+            self.start()
+
+        @Slot()
+        def resetSettings(self):
+            from overdrive import camera as cs
+            if self._key in cs.SENSORS:
+                cs.reset_all(self._key, keep_size=True)
+                self.settingsChanged.emit()
+
+        # -- the photos and videos taken, newest first, for the gallery of the app
+        def _get_captures(self):
+            items = []
+            for d in (folder(QStandardPaths.StandardLocation.PicturesLocation, "Camera"),
+                      folder(QStandardPaths.StandardLocation.MoviesLocation, "")):
+                try:
+                    names = os.listdir(d)
+                except OSError:
+                    continue
+                for name in names:
+                    if name.lower().endswith(CAPTURE_SUFFIXES) and not name.endswith(".part"):
+                        path = os.path.join(d, name)
+                        try:
+                            items.append((os.path.getmtime(path), path))
+                        except OSError:
+                            pass
+            items.sort(reverse=True)
+            return [path for _, path in items[:MAX_GALLERY]]
+
+        captures = Property("QVariantList", _get_captures, notify=capturesChanged)
+
+        @Slot(str)
+        def trash(self, path):
+            """Into the trash, not deleted: a wrong tap can be undone from Dolphin."""
+            if path in self._get_captures():
+                subprocess.run(["gio", "trash", path], check=False, timeout=10)
+                if path == self._last_capture:
+                    rest = self._get_captures()
+                    self._last_capture = rest[0] if rest else ""
+                    self.changed.emit()
+                self.capturesChanged.emit()
+
+        @Slot(str)
+        def openExternally(self, path):
+            QDesktopServices.openUrl(QUrl.fromLocalFile(path))
 
         @Slot()
         def openLast(self):
@@ -259,6 +394,7 @@ def main():
             self._last_frame = time.monotonic() + 3      # the first frame takes a moment
             self._preview.set_state(Gst.State.PLAYING)
             self.changed.emit()
+            self.settingsChanged.emit()
 
         @Slot()
         def next(self):
@@ -297,10 +433,24 @@ def main():
             # the next frame of the preview is copied and encoded (JPEG, up to a second) on a thread of its own
             self._photo_wanted = path
 
+        @staticmethod
+        def _encode_jpeg(sample, quality):
+            """The frame as a JPEG of this quality (jpegenc; video_convert_sample has no quality setting)."""
+            pipe = Gst.parse_launch("appsrc name=src ! videoconvert ! jpegenc quality={} ! appsink name=out sync=false".format(int(quality)))
+            src, out = pipe.get_by_name("src"), pipe.get_by_name("out")
+            src.set_property("caps", sample.get_caps())
+            pipe.set_state(Gst.State.PLAYING)
+            src.emit("push-buffer", sample.get_buffer())
+            src.emit("end-of-stream")
+            result = out.emit("try-pull-sample", 5 * Gst.SECOND)
+            pipe.set_state(Gst.State.NULL)
+            if result is None:
+                raise OSError("the picture could not be encoded")
+            return result.get_buffer()
+
         def _save_photo(self, sample, path):
             try:
-                jpeg = GstVideo.video_convert_sample(sample, Gst.Caps.from_string("image/jpeg"), 5 * Gst.SECOND)
-                buf = jpeg.get_buffer()
+                buf = self._encode_jpeg(sample, PHOTO_QUALITIES.get(self._photo_quality, JPEG_QUALITY))
                 ok, mapping = buf.map(Gst.MapFlags.READ)
                 if not ok:
                     raise OSError("cannot read the encoded picture")
@@ -320,6 +470,7 @@ def main():
                 return
             self._last_capture = path
             self.changed.emit()
+            self.capturesChanged.emit()
 
         # -- videos
         @Slot()
@@ -335,7 +486,7 @@ def main():
                 return
             path = output_path(folder(QStandardPaths.StandardLocation.MoviesLocation, ""), "video")
             try:
-                rec = Gst.parse_launch(record_description(cam["node"], *cam["size"], path))
+                rec = Gst.parse_launch(record_description(cam["node"], *cam["size"], path, quality=self._video_quality))
             except Exception as exc:          # noqa: BLE001
                 self.message.emit("Cannot record: {}".format(exc))
                 return
@@ -425,6 +576,7 @@ def main():
                     if msg.type == Gst.MessageType.EOS and is_rec:
                         self._last_capture = self._recorded
                         self._finish_recording("Video saved")
+                        self.capturesChanged.emit()
                         break
                     if msg.type == Gst.MessageType.ERROR:
                         err, _ = msg.parse_error()
@@ -468,6 +620,9 @@ def main():
         QIcon.setThemeName("breeze")      # started outside Plasma (no platform theme): the buttons would have no icons
     app.setWindowIcon(QIcon.fromTheme("camera-photo"))
     camera = Camera()
+    previous = camera._get_captures()
+    if previous:
+        camera._last_capture = previous[0]
     engine = QQmlApplicationEngine()
     engine.rootContext().setContextProperty("camera", camera)
     engine.load(QUrl.fromLocalFile(os.path.join(os.path.dirname(os.path.abspath(__file__)), "cameraapp.qml")))

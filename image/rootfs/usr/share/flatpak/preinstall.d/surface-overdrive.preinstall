@@ -5,10 +5,6 @@
 [Flatpak Preinstall com.github.xournalpp.xournalpp]
 Branch=stable
 
-# Camera (through PipeWire, so with the image's libcamera)
-[Flatpak Preinstall org.kde.kamoso]
-Branch=stable
-
 # Kept from Kinoite's own set, so that a fresh install has them too
 [Flatpak Preinstall org.kde.okular]
 Branch=stable
