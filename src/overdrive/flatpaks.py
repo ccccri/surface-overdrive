@@ -5,6 +5,7 @@ app alone once the user has removed it) and the apps it does not want in REMOVE_
 installer, and each is uninstalled once only, so that installing it again by hand sticks. Runs at boot (no network: it tries
 again at the next one).
 """
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -25,8 +26,11 @@ def installed():
 
 
 def flatpak(*args):
-    # flatpak wants a session bus (for the authenticator of the OCI remote of Fedora), which a system service has not
-    return subprocess.run(["dbus-run-session", "--", "flatpak", *args], check=False).returncode
+    # flatpak wants a session bus for the authenticator of Fedora's OCI remote, which a system service has not. Fedora 45 no
+    # longer ships dbus-run-session (dbus-daemon is gone, dbus-broker has no such tool): there flatpak runs without one,
+    # which works for flathub and for an up to date installation (tried on the tablet, 2026-11-03).
+    prefix = ["dbus-run-session", "--"] if shutil.which("dbus-run-session") else []
+    return subprocess.run(prefix + ["flatpak", *args], check=False).returncode
 
 
 def main():
