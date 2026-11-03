@@ -75,7 +75,10 @@ LOADER = """    %(mark)s the keypad of a PIN or the dots of a pattern, when the 
                         let h = 0
                         for (let i = 0; i < inner.children.length; i++) {
                             const c = inner.children[i]
-                            if (c !== overdrivePadSlot && c.visible && c.height > 0) h += c.height + inner.spacing
+                            // the natural height: the height a layout gives them can depend on the pad itself (Plasma
+                            // 6.8 put a session button in this column, and its height through the pad's room made the
+                            // login screen lay itself out again forever: a whole core busy and no touch)
+                            if (c !== overdrivePadSlot && c.visible && c.implicitHeight > 0) h += c.implicitHeight + inner.spacing
                         }
                         return h
                     }
@@ -85,13 +88,24 @@ LOADER = """    %(mark)s the keypad of a PIN or the dots of a pattern, when the 
                     box.Layout.maximumWidth = Qt.binding(() => Math.max(Kirigami.Units.gridUnit * 16, overdrivePadSlot.Layout.preferredWidth))
                     const prompts = box.parent
                     prompts.anchors.topMargin = Qt.binding(() => Kirigami.Units.largeSpacing - overdrivePadSlot.lift)
-                    // the column is: messages, prompts, actions, filler, and it runs past the bottom of the screen. The pad gets the
-                    // height from the top of the column to the bottom of the window that the messages, the actions and the bottom row
-                    // of the screen (keyboard button, battery) leave, so that the actions stay above that row
-                    const messages = prompts.children[0], actions = prompts.children[2]
+                    // the column is: messages, (Plasma 6.8: the kind of authentication,) prompts, actions, filler, and it runs past
+                    // the bottom of the screen. The pad gets the height from the top of the column to the bottom of the window that
+                    // the other parts of the column and the bottom row of the screen (keyboard button, battery) leave, so that the
+                    // actions stay above that row. The other parts are found around the prompts box, not by position: Plasma 6.8
+                    // added a row, the box itself was taken for the actions and the pad's room then depended on its own height
+                    // (the screen laid itself out again forever: a whole core busy, no touch, 2026-11-03).
+                    const rest = () => {
+                        let h = 0, n = 0
+                        for (let i = 0; i < prompts.children.length; i++) {
+                            const c = prompts.children[i]
+                            if (c === box || !c.visible || c.implicitHeight <= 0) continue
+                            h += c.implicitHeight; n++
+                        }
+                        return h + n * prompts.spacing
+                    }
                     const top = () => { let y = 0; for (let i = prompts; i; i = i.parent) y += i.y; return y }
                     item.room = Qt.binding(() => (prompts.Window.window ? prompts.Window.window.height : prompts.height) - top()
-                                                 - messages.height - actions.height - others() - 3 * prompts.spacing - Kirigami.Units.gridUnit * 3)
+                                                 - rest() - others() - Kirigami.Units.gridUnit * 3)
                 } catch (e) {
                     console.warn("Surface Overdrive: could not make room for the unlock pad:", e)
                 }
@@ -125,7 +139,10 @@ TARGETS = {
     "lockscreen": {
         "path": "/usr/share/plasma/shells/org.kde.plasma.desktop/contents/lockscreen/MainBlock.qml",
         "changes": [
-            (FIELD_ROW, FIELD_ROW_NEW),
+            [(FIELD_ROW, FIELD_ROW_NEW),
+             # Plasma 6.8 names the row (passwordLayout)
+             (FIELD_ROW.replace("    RowLayout {\n", "    RowLayout {\n        id: passwordLayout\n"),
+              FIELD_ROW_NEW.replace("    RowLayout {\n", "    RowLayout {\n        id: passwordLayout\n"))],
             ("    readonly property alias mainPasswordBox: passwordBox\n",
              "    readonly property alias mainPasswordBox: passwordBox\n"
              "    %s the PIN or pattern pad is in use (the lock screen hides its keyboard button then, see lockscreen-footer)\n"
@@ -142,9 +159,20 @@ TARGETS = {
     "lockscreen-footer": {
         "path": "/usr/share/plasma/shells/org.kde.plasma.desktop/contents/lockscreen/LockScreenUi.qml",
         "changes": [
-            ("                visible: inputPanel.status === Loader.Ready\n",
-             "                %s nothing to type while the PIN or pattern pad is in use\n"
-             "                visible: inputPanel.status === Loader.Ready && !mainBlock.overdrivePadActive\n" % MARK),
+            [("                visible: inputPanel.status === Loader.Ready\n",
+              "                %s nothing to type while the PIN or pattern pad is in use\n"
+              "                visible: inputPanel.status === Loader.Ready && !mainBlock.overdrivePadActive\n" % MARK),
+             # Plasma 6.8: the button is always there (KWin's keyboard)
+             ("                id: virtualKeyboardButton\n",
+              "                id: virtualKeyboardButton\n"
+              "                %s nothing to type while the PIN or pattern pad is in use\n"
+              "                visible: !mainBlock.overdrivePadActive\n" % MARK)],
+            # Plasma 6.8 shows or hides the password row itself when an authentication method is chosen (also at start):
+            # a plain assignment that undid the pad's hiding of it. Plasma 6.7 has no such line (nothing to change there).
+            [("                                mainBlock.passwordInputVisible = passwordField\n",
+              "                                %s the password row stays out of the way while the PIN or pattern pad is in use\n"
+              "                                mainBlock.passwordInputVisible = Qt.binding(() => passwordField && !mainBlock.overdrivePadActive)\n" % MARK),
+             ("            Battery {}\n", "            Battery {}\n")],
         ],
     },
     "login": {
@@ -164,12 +192,16 @@ TARGETS = {
 
 def patch(text, target):
     """The changed text, the same text when already changed, None when the file does not look like the one this was written for."""
-    if all(new in text for _, new in TARGETS[target]["changes"]):
+    changes = [c if isinstance(c, list) else [c] for c in TARGETS[target]["changes"]]
+    if all(any(new in text for _, new in options) for options in changes):
         return text
-    for old, new in TARGETS[target]["changes"]:
-        if text.count(old) != 1:
+    for options in changes:
+        for old, new in options:
+            if text.count(old) == 1:
+                text = text.replace(old, new)
+                break
+        else:
             return None
-        text = text.replace(old, new)
     return text
 
 

@@ -8,7 +8,7 @@ spec.loader.exec_module(patch_unlock_pad)
 
 
 def stock(target):
-    return "SessionManagementScreen {\n" + "".join(old for old, _ in patch_unlock_pad.TARGETS[target]["changes"]) + "}\n"
+    return "SessionManagementScreen {\n" + "".join((c[0] if isinstance(c, list) else c)[0] for c in patch_unlock_pad.TARGETS[target]["changes"]) + "}\n"
 
 
 class UnlockPadPatch(unittest.TestCase):
@@ -26,7 +26,7 @@ class UnlockPadPatch(unittest.TestCase):
         self.assertLess(once.index("overdrivePad"), once.index("// Synchronise state"))
 
     def test_lock_screen_footer(self):
-        footer = "Item {\n" + patch_unlock_pad.TARGETS["lockscreen-footer"]["changes"][0][0] + "}\n"
+        footer = "Item {\n" + "".join(c[0][0] for c in patch_unlock_pad.TARGETS["lockscreen-footer"]["changes"]) + "}\n"
         once = patch_unlock_pad.patch("// Surface Overdrive: other change\n" + footer, "lockscreen-footer")
         self.assertIn("!mainBlock.overdrivePadActive", once)
         self.assertEqual(patch_unlock_pad.patch(once, "lockscreen-footer"), once)

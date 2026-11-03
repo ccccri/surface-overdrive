@@ -6,7 +6,7 @@ spec = importlib.util.spec_from_file_location("patch_lockscreen", Path(__file__)
 patch_lockscreen = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(patch_lockscreen)
 
-STOCK = "MouseArea {\n" + "".join(old for old, _ in patch_lockscreen.CHANGES) + "}\n"
+STOCK = "MouseArea {\n" + "".join((c[0] if isinstance(c, list) else c)[0] for c in patch_lockscreen.CHANGES) + "}\n"
 
 
 class LockScreenPatch(unittest.TestCase):

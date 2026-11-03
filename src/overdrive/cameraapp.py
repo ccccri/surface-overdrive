@@ -66,13 +66,13 @@ def video_bitrate(width, height):
 def preview_description(node, width, height):
     # One branch only: with a tee and an appsink for photos next to qml6glsink, the preview froze after four frames
     # (2026-10-27). A photo is a copy of the frame going to the preview at the time of the tap (Camera._on_frame).
-    return ("pipewiresrc target-object={node} ! video/x-raw,format=NV12,width={w},height={h} "
+    return ("pipewiresrc target-object={node} stream-properties=props,media.type=Video,media.category=Capture,media.role=Camera ! video/x-raw,format=NV12,width={w},height={h} "
             "! queue leaky=downstream max-size-buffers=1 ! glupload name=upload ! glcolorconvert "
             "! qml6glsink name=preview sync=false").format(node=node, w=width, h=height)
 
 
 def record_description(node, width, height, path, audio=True):
-    video = ("pipewiresrc target-object={node} ! video/x-raw,format=NV12,width={w},height={h} ! queue max-size-buffers=8 "
+    video = ("pipewiresrc target-object={node} stream-properties=props,media.type=Video,media.category=Capture,media.role=Camera ! video/x-raw,format=NV12,width={w},height={h} ! queue max-size-buffers=8 "
              "! vapostproc ! vah264enc bitrate={rate} ! h264parse name=parse ! queue ! mux. "
              ).format(node=node, w=width, h=height, rate=video_bitrate(width, height))
     sound = "pulsesrc ! audioconvert ! audioresample ! audio/x-raw,rate=48000,channels=2 ! fdkaacenc ! queue ! mux. " if audio else ""

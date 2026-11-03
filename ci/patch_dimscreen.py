@@ -11,7 +11,10 @@ usage: patch_dimscreen.py [path]
 import sys
 from pathlib import Path
 
-DEFAULT = "/usr/share/kwin-wayland/effects/dimscreen/contents/code/main.js"
+# Plasma 6.8 moved the KWin scripts from kwin-wayland/ to kwin/
+DEFAULTS = ("/usr/share/kwin/effects/dimscreen/contents/code/main.js",
+            "/usr/share/kwin-wayland/effects/dimscreen/contents/code/main.js")
+DEFAULT = DEFAULTS[-1]
 MARK = "// Surface Overdrive:"
 ANCHOR = """        if (window.popupWindow) {
             return;
@@ -35,7 +38,7 @@ def patch(text):
 
 
 def main():
-    path = Path(sys.argv[1] if len(sys.argv) > 1 else DEFAULT)
+    path = Path(sys.argv[1]) if len(sys.argv) > 1 else next((Path(d) for d in DEFAULTS if Path(d).exists()), Path(DEFAULT))
     try:
         original = path.read_text()
     except OSError as e:

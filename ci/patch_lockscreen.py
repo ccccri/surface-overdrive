@@ -26,7 +26,7 @@ CHANGES = [
         // which of Restart / Shut Down / Log Out was tapped once and waits for the second tap that confirms it
         property string armed: ""
         property bool blockUI: (containsMouse || touched) && (""" % MARK),
-    ("""        onExited: {
+    [("""        onExited: {
             uiVisible = false;
         }
 """,
@@ -47,6 +47,24 @@ CHANGES = [
         }
         Timer { id: disarm; interval: 4000; onTriggered: lockScreenRoot.armed = "" }
 """),
+     # Plasma 6.8 has no onExited any more (lifting the finger no longer hides the field), the rest still applies
+     ("""        Timer {
+            id: fadeoutTimer
+""",
+      """        PointHandler {
+            acceptedDevices: PointerDevice.TouchScreen
+            onActiveChanged: {
+                if (active) {
+                    lockScreenRoot.touched = true;
+                    lockScreenRoot.uiVisible = true;
+                }
+                fadeoutTimer.restart();
+            }
+        }
+        Timer { id: disarm; interval: 4000; onTriggered: lockScreenRoot.armed = "" }
+        Timer {
+            id: fadeoutTimer
+""")],
     # Restart, Shut Down and Log Out next to Sleep and Switch User. Nobody has typed the password at this point, so each
     # asks for a second tap within four seconds: a touch by accident (the tablet in a bag) does not switch it off.
     ("""                        visible: sessionManagement.canSwitchUser
@@ -84,17 +102,25 @@ CHANGES = [
                     }
                 ]
 """),
-    ("""                    lockScreenRoot.uiVisible = false;
+    [("""                    lockScreenRoot.uiVisible = false;
                 }
             }
         }
 """,
-     """                    lockScreenRoot.uiVisible = false;
+      """                    lockScreenRoot.uiVisible = false;
                     lockScreenRoot.touched = false;
                 }
             }
         }
 """),
+     # Plasma 6.8: the fadeout timer also hides the password text
+     ("""                    mainBlock.mainPasswordBox.showPassword = false;
+                    lockScreenRoot.uiVisible = false;
+""",
+      """                    mainBlock.mainPasswordBox.showPassword = false;
+                    lockScreenRoot.uiVisible = false;
+                    lockScreenRoot.touched = false;
+""")],
     # With a finger the on-screen keyboard opens at once and covers the large action buttons. The strip at the very bottom stays
     # in sight under the keyboard: while the keyboard is open, the same actions sit there as small buttons.
     ("""            Item {
@@ -136,14 +162,26 @@ CHANGES = [
 ]
 
 
+def keyboard_names(text, new):
+    """Plasma 6.8 replaced the lock screen's on-screen keyboard loader (inputPanel) with KWin's keyboard."""
+    if "inputPanel" not in text:
+        new = new.replace("inputPanel.keyboardActive", "Keyboards.KWinVirtualKeyboard.visible")
+    return new
+
+
 def patch(text):
-    """The changed text, or None when the file does not look like the one this was written for."""
+    """The changed text, or None when the file does not look like the one this was written for. A change is one (old, new)
+    pair or a list of alternatives for different Plasma versions, the first that fits is taken."""
     if MARK in text:
         return text                                   # already done
-    for old, new in CHANGES:
-        if text.count(old) != 1:
+    for change in CHANGES:
+        options = change if isinstance(change, list) else [change]
+        for old, new in options:
+            if text.count(old) == 1:
+                text = text.replace(old, keyboard_names(text, new))
+                break
+        else:
             return None
-        text = text.replace(old, new)
     return text
 
 

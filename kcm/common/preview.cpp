@@ -76,6 +76,9 @@ void PreviewItem::launch()
     m_process->setArguments({QStringLiteral("-q"),
                              QStringLiteral("pipewiresrc"),
                              QStringLiteral("target-object=") + m_node,
+                             // say it is a camera stream: GStreamer 1.28 (Fedora 45) no longer tells PipeWire what a pipewiresrc
+                             // without caps right after it wants, and WirePlumber then found no target ("target not found")
+                             QStringLiteral("stream-properties=props,media.type=Video,media.category=Capture,media.role=Camera"),
                              // PipeWire lets the camera write the next picture into a buffer a few frames after handing it out,
                              // whether or not we are done with it: copy each picture at once, or scaling a large one shows
                              // rectangles of two different frames. The queue drops pictures we are too slow for, so the preview
