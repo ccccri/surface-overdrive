@@ -156,9 +156,12 @@ COPY --from=spalibcamera /out/usr/lib64/spa-0.2/libcamera/libspa-libcamera.so /u
 # those codecs (patents): only JPEG works. RPM Fusion's intel-media-driver is the same open source driver built whole; it
 # installs in /usr/lib64/dri-nonfree, which Fedora's libva searches first. The RPM Fusion repositories (signed packages,
 # keys from their release packages) are used for this step only and removed again: the tablet does not update from them.
+# File lists are loaded for the release packages: on Fedora 45 they need the directory /usr/share/dnf5/libdnf.conf.d/,
+# which dnf5 finds owned by libdnf5 only with them ("nothing provides" otherwise, 2026-11-03).
 RUN set -eux; \
     f=$(rpm -E %fedora); \
-    dnf5 -y install "https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-$f.noarch.rpm" \
+    dnf5 -y install --setopt=optional_metadata_types=filelists \
+        "https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-$f.noarch.rpm" \
         "https://mirrors.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-$f.noarch.rpm"; \
     if rpm -q libva-intel-media-driver; then dnf5 -y swap libva-intel-media-driver intel-media-driver; \
     else dnf5 -y install --setopt=install_weak_deps=False intel-media-driver; fi; \
