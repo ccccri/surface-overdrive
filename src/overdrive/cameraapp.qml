@@ -418,44 +418,6 @@ ApplicationWindow {
                     Switch { checked: win.grid; onToggled: win.grid = checked }
                 }
 
-                // quality of what is saved
-                Label { Layout.leftMargin: 18; Layout.topMargin: 10; text: "QUALITY"; color: "#a0a0a0"; font.pixelSize: 13; font.bold: true }
-                Repeater {
-                    model: [["photo", "Photos", camera.photoQuality], ["video", "Videos", camera.videoQuality]]
-                    RowLayout {
-                        Layout.leftMargin: 18
-                        Layout.rightMargin: 18
-                        readonly property string kind: modelData[0]
-                        readonly property string current: modelData[2]
-                        Label { Layout.fillWidth: true; text: modelData[1]; color: "white"; font.pixelSize: 16 }
-                        Repeater {
-                            model: [["standard", "Standard"], ["high", "High"], ["maximum", "Max"]]
-                            AbstractButton {
-                                implicitWidth: 84
-                                implicitHeight: 38
-                                onClicked: camera.setQuality(kind, modelData[0])
-                                background: Rectangle { radius: height / 2; color: current === modelData[0] ? "#3d7eff" : "#2c2c2e" }
-                                contentItem: Label {
-                                    text: modelData[1]
-                                    horizontalAlignment: Text.AlignHCenter
-                                    verticalAlignment: Text.AlignVCenter
-                                    color: "white"
-                                    font.pixelSize: 14
-                                }
-                            }
-                        }
-                    }
-                }
-                Label {
-                    Layout.leftMargin: 18
-                    Layout.rightMargin: 18
-                    Layout.fillWidth: true
-                    wrapMode: Text.WordWrap
-                    color: "#a0a0a0"
-                    font.pixelSize: 13
-                    text: "Higher quality keeps more detail in bigger files. Videos are encoded by the graphics chip at any quality."
-                }
-
                 // the sliders, in the groups of the Cameras page
                 Repeater {
                     model: settingsDrawer.data.controls || []

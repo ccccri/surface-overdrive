@@ -174,8 +174,9 @@ def main():
             self._applying_size = False
             self._sizeApplied.connect(self._size_applied)
             from overdrive import camera as cs
-            self._photo_quality = cs.ui_setting("cameraApp_photoQuality", "high")
-            self._video_quality = cs.ui_setting("cameraApp_videoQuality", "standard")
+            # always the best: the owner wants no quality choice (2026-11-03)
+            self._photo_quality = "maximum"
+            self._video_quality = "maximum"
 
         # -- properties for QML
         def _get_key(self):
