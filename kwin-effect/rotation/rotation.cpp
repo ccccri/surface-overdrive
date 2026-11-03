@@ -30,6 +30,7 @@
 */
 // own
 #include "rotation.h"
+#include "compositor.h"
 #include "core/outputconfiguration.h"
 #include "core/outputlayer.h"
 #include "core/rendertarget.h"
@@ -147,7 +148,7 @@ void OverdriveRotationEffect::addScreen(LogicalOutput *screen)
         RenderTarget renderTarget(state.m_prev.framebuffer.get(), screen->blendingColor());
 
         Scene *scene = effects->scene();
-        SceneView delegate(scene, screen, nullptr, nullptr);
+        SceneView delegate(scene, screen, nullptr, nullptr, Compositor::self()->primaryDevice());
         delegate.setViewport(screen->geometryF());
         delegate.setScale(screen->scale());
         scene->prePaint(&delegate);
@@ -284,12 +285,11 @@ static RectF lerp(const RectF &a, const RectF &b, qreal t)
     return ret;
 }
 
-void OverdriveRotationEffect::paintScreen(const RenderTarget &renderTarget, const RenderViewport &viewport, int mask, const Region &deviceRegion, LogicalOutput *screen)
+bool OverdriveRotationEffect::paintScreen(const RenderTarget &renderTarget, const RenderViewport &viewport, int mask, const Region &deviceRegion, LogicalOutput *screen)
 {
     auto it = m_states.find(screen);
     if (it == m_states.end() || m_currentView->backendOutput() != screen->backendOutput()) {
-        effects->paintScreen(renderTarget, viewport, mask, deviceRegion, screen);
-        return;
+        return effects->paintScreen(renderTarget, viewport, mask, deviceRegion, screen);
     }
 
     // Render the screen in an offscreen texture.
@@ -299,7 +299,7 @@ void OverdriveRotationEffect::paintScreen(const RenderTarget &renderTarget, cons
         it->m_current.texture = GLTexture::allocate(renderTarget.texture()->internalFormat(), nativeSize);
         if (!it->m_current.texture) {
             m_states.remove(screen);
-            return;
+            return false;
         }
         it->m_current.framebuffer = std::make_unique<GLFramebuffer>(it->m_current.texture.get());
         it->m_currentFresh = true;
@@ -318,7 +318,10 @@ void OverdriveRotationEffect::paintScreen(const RenderTarget &renderTarget, cons
     // fix 7: paint the whole screen on every frame of the turn, not just the damage. Windows that are not painted get no
     // frame callback, and Plasma does not draw its next frame without one: after some turns (to the inverted landscape)
     // the desktop and panel kept their old size for as long as the turn waited for them.
-    effects->paintScreen(fboRenderTarget, fboViewport, mask, Region::infinite(), screen);
+    if (!effects->paintScreen(fboRenderTarget, fboViewport, mask, Region::infinite(), screen)) {
+        GLFramebuffer::popFramebuffer();
+        return false;
+    }
     GLFramebuffer::popFramebuffer();
 
     const qreal blendFactor = it->m_timeLine.value();
@@ -361,7 +364,7 @@ void OverdriveRotationEffect::paintScreen(const RenderTarget &renderTarget, cons
     GLVertexBuffer *vbo = texturedRectVbo(lerp(it->m_oldGeometry, screenRect, blendFactor), scale);
     if (!vbo) {
         sm->popShader();
-        return;
+        return false;
     }
     m_shader->setUniform(m_modelViewProjectioMatrixLocation, modelViewProjectionMatrix);
     const qreal fade = fadeOf(*it);
@@ -380,6 +383,7 @@ void OverdriveRotationEffect::paintScreen(const RenderTarget &renderTarget, cons
     it->m_current.texture->unbind();
 
     effects->addRepaintFull();
+    return true;
 }
 
 bool OverdriveRotationEffect::isActive() const
