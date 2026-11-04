@@ -168,6 +168,15 @@ RUN set -eux; \
     dnf5 -y remove rpmfusion-free-release rpmfusion-nonfree-release; \
     test -f /usr/lib64/dri-nonfree/iHD_drv_video.so; ! ls /etc/yum.repos.d/ | grep -q rpmfusion; \
     dnf5 clean all
+# H.264 decoding: Fedora's FFmpeg (ffmpeg-free) decodes H.264 only through Cisco's OpenH264, and the base image has
+# noopenh264, an empty stand-in: the videos of our camera app played nowhere (Qt Multimedia in the app, VLC; "Unable to
+# create decoder", 2026-11-04). Cisco's real library, from the fedora-cisco-openh264 repository Fedora ships, decodes
+# them (High profile included).
+RUN set -eux; \
+    if rpm -q noopenh264; then dnf5 -y --enablerepo=fedora-cisco-openh264 swap noopenh264 openh264; \
+    else dnf5 -y --enablerepo=fedora-cisco-openh264 install openh264; fi; \
+    rpm -q openh264; ! rpm -q noopenh264; \
+    dnf5 clean all
 COPY ci/patch_acp_mic.py /tmp/patch_acp_mic.py
 RUN python3 /tmp/patch_acp_mic.py && rm /tmp/patch_acp_mic.py
 # The login screen with the PIN and pattern pad, when ci/build_login.sh could make it
