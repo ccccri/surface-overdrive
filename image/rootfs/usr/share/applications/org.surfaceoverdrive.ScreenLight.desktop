@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Screen Light
+GenericName=Front camera light
+Comment=Lights your face with the screen in a dark room: tap to turn on, tap again to turn off
+Exec=overdrive-screenlight toggle
+Icon=flashlight-on
+Categories=Utility;
+Keywords=light;flash;camera;video call;webcam;ring light;selfie;
+StartupNotify=false
+Terminal=false
