@@ -78,13 +78,13 @@ def run():
     try:
         before = int(_brightness("brightness"))
         top = int(_brightness("brightnessMax"))
-        _brightness("setBrightness", top)
+        _brightness("setBrightnessSilent", top)
     except (TypeError, ValueError):
         before = None
 
     def restore():
         if before is not None:
-            _brightness("setBrightness", before)
+            _brightness("setBrightnessSilent", before)
 
     app.aboutToQuit.connect(restore)
     signal.signal(signal.SIGTERM, lambda *a: app.quit())

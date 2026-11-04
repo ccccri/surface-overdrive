@@ -27,6 +27,11 @@ START_TRIES = 15                  # looks for the cameras every 2 s for half a m
 STALL_SECONDS = 5                 # a preview without frames this long is started again
 SWITCH_INTERVAL = 1.0             # seconds between two camera switches
 JPEG_QUALITY = 92
+# Night: frames longer than this are the exposure at its longest (60 ms) in a dim room; shorter ones end it again
+NIGHT_ON_INTERVAL = 0.052
+NIGHT_OFF_INTERVAL = 0.045
+NIGHT_FRAMES = 12                 # a night photo: about 0.7 s of holding still at 60 ms a frame
+FLASH_SETTLE_MS = 700             # the auto exposure's time to take in the white screen before a front flash photo
 CAPTURE_SUFFIXES = (".jpg", ".jpeg", ".png", ".mp4", ".mkv", ".webm", ".mov")
 MAX_GALLERY = 200
 
@@ -117,6 +122,7 @@ def main():
     gi.require_version("GstVideo", "1.0")
     from gi.repository import Gst, GstVideo
     from PySide6.QtCore import Property, QObject, QStandardPaths, QTimer, QUrl, Signal, Slot
+    from PySide6.QtDBus import QDBusConnection, QDBusMessage
     from PySide6.QtGui import QDesktopServices, QGuiApplication, QIcon
     from PySide6.QtQml import QQmlApplicationEngine
     from PySide6.QtQuick import QQuickWindow, QSGRendererInterface
@@ -150,6 +156,8 @@ def main():
         settingsChanged = Signal()
         capturesChanged = Signal()
         _sizeApplied = Signal()             # from the thread that restarted the camera service
+        _darkSeen = Signal(bool)            # from GStreamer's thread: the frames say dark / not dark
+        _burstStep = Signal(float)          # from GStreamer's thread: share of the night frames collected
 
         def __init__(self):
             super().__init__()
@@ -173,7 +181,23 @@ def main():
             self._bus_timer.start()
             self._applying_size = False
             self._sizeApplied.connect(self._size_applied)
-            from overdrive import camera as cs
+            # night mode: on by itself when the frames get long (the dark), the user can turn it off for now
+            self._intervals = []
+            self._last_pts = None
+            self._dark = False
+            self._night_off = False
+            self._burst = None            # {"path", "frames", "info"} while a night photo collects its frames
+            self._progress = 0.0
+            self._busy = ""
+            self._darkSeen.connect(self._dark_seen)
+            self._burstStep.connect(self._burst_step)
+            # Screen Light (overdrive-screenlight): the same light as the tray and the launcher
+            self._light = False
+            self._light_mine = False
+            self._flash_mode = "auto"     # front photos in the dark: the screen lights the face for the shot
+            self._flash_before = None
+            self._light_timer = QTimer(self, interval=1500, timeout=self._poll_light)
+            self._light_timer.start()
             # always the best: the owner wants no quality choice (2026-11-03)
             self._photo_quality = "maximum"
             self._video_quality = "maximum"
@@ -206,6 +230,101 @@ def main():
 
         def _get_last_is_video(self):
             return self._last_capture.lower().endswith((".mp4", ".mkv", ".webm", ".mov"))
+
+        # -- night mode, Screen Light, flash
+        def _get_dark(self):
+            return self._dark
+
+        def _get_night(self):
+            return self._dark and not self._night_off
+
+        def _get_progress(self):
+            return self._progress
+
+        def _get_busy(self):
+            return self._busy
+
+        def _get_light(self):
+            return self._light
+
+        def _get_flash_mode(self):
+            return self._flash_mode
+
+        dark = Property(bool, _get_dark, notify=changed)
+        night = Property(bool, _get_night, notify=changed)
+        progress = Property(float, _get_progress, notify=changed)
+        busy = Property(str, _get_busy, notify=changed)
+        light = Property(bool, _get_light, notify=changed)
+        flashMode = Property(str, _get_flash_mode, notify=changed)
+
+        @Slot()
+        def toggleNight(self):
+            self._night_off = not self._night_off
+            self.changed.emit()
+
+        @Slot()
+        def cycleFlash(self):
+            self._flash_mode = {"auto": "on", "on": "off", "off": "auto"}[self._flash_mode]
+            self.changed.emit()
+
+        @Slot(result=bool)
+        def flashWanted(self):
+            """Whether this photo gets the screen as a flash: front camera, Screen Light off, and on or in the dark."""
+            if self._key != "front" or self._light or self._flash_mode == "off":
+                return False
+            return self._flash_mode == "on" or self._dark
+
+        def _dark_seen(self, dark):
+            if dark != self._dark:
+                self._dark = dark
+                self.changed.emit()
+
+        def _poll_light(self):
+            iface = QDBusConnection.sessionBus().interface()
+            reply = iface.isServiceRegistered("org.surfaceoverdrive.ScreenLight")
+            lit = bool(reply.value()) if hasattr(reply, "value") else bool(reply)
+            if lit != self._light:
+                self._light = lit
+                if not lit:
+                    self._light_mine = False
+                self.changed.emit()
+
+        @Slot()
+        def toggleLight(self):
+            if self._light:
+                subprocess.Popen(["overdrive-screenlight", "off"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                self._light = False
+                self._light_mine = False
+            else:
+                subprocess.Popen(["setsid", "-f", "overdrive-screenlight", "on"], stdout=subprocess.DEVNULL,
+                                 stderr=subprocess.DEVNULL)
+                self._light = True
+                self._light_mine = True
+            self.changed.emit()
+
+        def _brightness(self, method, *args):
+            msg = QDBusMessage.createMethodCall("org.kde.Solid.PowerManagement",
+                                                "/org/kde/Solid/PowerManagement/Actions/BrightnessControl",
+                                                "org.kde.Solid.PowerManagement.Actions.BrightnessControl", method)
+            if args:
+                msg.setArguments(list(args))
+            values = QDBusConnection.sessionBus().call(msg).arguments()
+            return values[0] if values else None
+
+        @Slot()
+        def flashOn(self):
+            """The screen at its brightest for a flash photo (the window shows white meanwhile)."""
+            try:
+                self._flash_before = int(self._brightness("brightness"))
+                self._brightness("setBrightnessSilent", int(self._brightness("brightnessMax")))
+            except (TypeError, ValueError):
+                self._flash_before = None
+
+        @Slot()
+        def flashOff(self):
+            if self._flash_before is not None:
+                self._brightness("setBrightnessSilent", self._flash_before)
+                self._flash_before = None
 
         key = Property(str, _get_key, notify=changed)
         keys = Property("QVariantList", _get_keys, notify=changed)
@@ -417,12 +536,44 @@ def main():
         # -- preview frames, from GStreamer's streaming thread
         def _on_frame(self, pad, info):
             self._last_frame = time.monotonic()
+            buf = info.get_buffer()
+            # the length of the frames: the dark (the exposure at its longest) makes them long
+            if buf.pts != Gst.CLOCK_TIME_NONE:
+                if self._last_pts is not None and buf.pts > self._last_pts:
+                    self._intervals = (self._intervals + [(buf.pts - self._last_pts) / 1e9])[-15:]
+                    if len(self._intervals) >= 8:
+                        median = sorted(self._intervals)[len(self._intervals) // 2]
+                        dark = median > (NIGHT_OFF_INTERVAL if self._dark else NIGHT_ON_INTERVAL)
+                        if dark != self._dark:
+                            self._darkSeen.emit(dark)
+                self._last_pts = buf.pts
+            burst = self._burst
+            if burst is not None:
+                ok, mapping = buf.map(Gst.MapFlags.READ)
+                if ok:
+                    try:
+                        burst["frames"].append(bytes(mapping.data))
+                    finally:
+                        buf.unmap(mapping)
+                    if burst["info"] is None:
+                        burst["info"] = GstVideo.VideoInfo.new_from_caps(pad.get_current_caps())
+                if len(burst["frames"]) >= NIGHT_FRAMES:
+                    self._burst = None
+                    threading.Thread(target=self._save_night, args=(burst,), daemon=True).start()
+                self._burstStep.emit(len(burst["frames"]) / NIGHT_FRAMES)
+                return Gst.PadProbeReturn.OK
             path = self._photo_wanted
             if path:
                 self._photo_wanted = ""
-                sample = Gst.Sample.new(info.get_buffer().copy_deep(), pad.get_current_caps(), None, None)
+                sample = Gst.Sample.new(buf.copy_deep(), pad.get_current_caps(), None, None)
                 threading.Thread(target=self._save_photo, args=(sample, path), daemon=True).start()
             return Gst.PadProbeReturn.OK
+
+        def _burst_step(self, share):
+            self._progress = share
+            if share >= 1:
+                self._busy = "Processing..."
+            self.changed.emit()
 
         # -- photos
         @Slot()
@@ -431,6 +582,13 @@ def main():
                 return
             path = output_path(folder(QStandardPaths.StandardLocation.PicturesLocation, "Camera"), "photo")
             open(path, "xb").close()     # the name is taken now: the next photo of the same second gets another one
+            if self._dark and not self._night_off:
+                # a night photo: the next NIGHT_FRAMES frames, aligned and merged (nightmerge) on a thread of its own
+                self._progress = 0.0
+                self._busy = "Hold still"
+                self.changed.emit()
+                self._burst = {"path": path, "frames": [], "info": None}
+                return
             # the next frame of the preview is copied and encoded (JPEG, up to a second) on a thread of its own
             self._photo_wanted = path
 
@@ -472,6 +630,42 @@ def main():
             self._last_capture = path
             self.changed.emit()
             self.capturesChanged.emit()
+
+        def _save_night(self, burst):
+            """The night frames merged into one photo. Frames come with the stride of the camera: made tight first."""
+            path = burst["path"]
+            try:
+                import numpy as np
+                from overdrive import nightmerge
+                vi = burst["info"]
+                w, h = vi.width, vi.height
+                stride_y, stride_uv, off_uv = vi.stride[0], vi.stride[1], vi.offset[1]
+                tight = []
+                for data in burst["frames"]:
+                    a = np.frombuffer(data, np.uint8)
+                    y = a[:stride_y * h].reshape(h, stride_y)[:, :w]
+                    uv = a[off_uv:off_uv + stride_uv * (h // 2)].reshape(h // 2, stride_uv)[:, :w]
+                    tight.append(np.concatenate([y.reshape(-1), uv.reshape(-1)]))
+                merged = nightmerge.merge(tight, w, h)
+                caps = Gst.Caps.from_string("video/x-raw,format=NV12,width={},height={},framerate=0/1".format(w, h))
+                sample = Gst.Sample.new(Gst.Buffer.new_wrapped(merged.tobytes()), caps, None, None)
+            except Exception as exc:          # noqa: BLE001 - numpy or GStreamer: the photo is lost, say so
+                self._night_done(path, None, "The night photo could not be made: {}".format(exc))
+                return
+            self._night_done(path, sample, "")
+
+        def _night_done(self, path, sample, error):
+            self._busy = ""
+            self._progress = 0.0
+            if sample is None:
+                try:
+                    os.remove(path)
+                except OSError:
+                    pass
+                self.message.emit(error)
+                self.changed.emit()
+                return
+            self._save_photo(sample, path)
 
         # -- videos
         @Slot()
@@ -613,6 +807,9 @@ def main():
                 else:
                     self._finish_recording("", discard=True)
             self._stop_preview()
+            self.flashOff()
+            if self._light_mine:
+                subprocess.run(["overdrive-screenlight", "off"], check=False, timeout=5)
 
     QGuiApplication.setDesktopFileName(APP_ID)
     app = QGuiApplication(sys.argv)

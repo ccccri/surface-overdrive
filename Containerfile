@@ -177,6 +177,8 @@ RUN set -eux; \
     else dnf5 -y --enablerepo=fedora-cisco-openh264 install openh264; fi; \
     rpm -q openh264; ! rpm -q noopenh264; \
     dnf5 clean all
+# The camera app's night photos align and merge a burst of frames with numpy (src/overdrive/nightmerge.py).
+RUN dnf5 -y install --setopt=install_weak_deps=False python3-numpy && dnf5 clean all && python3 -c "import numpy"
 COPY ci/patch_acp_mic.py /tmp/patch_acp_mic.py
 RUN python3 /tmp/patch_acp_mic.py && rm /tmp/patch_acp_mic.py
 # The login screen with the PIN and pattern pad, when ci/build_login.sh could make it
