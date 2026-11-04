@@ -1,8 +1,12 @@
-// The window of overdrive-camera (cameraapp.py). Laid out like the camera of an iPad: the picture in the middle, a black
-// column of controls at the right edge (at the bottom when the tablet stands upright) with the camera switch, the modes,
-// the shutter and the last picture; small round buttons over the picture for the screen light, the flash, night mode,
-// the timer, the grid and the settings. Yellow marks what is on. Night mode turns itself on in the dark (a moon with the
-// time to hold still) and a tap turns it off, as on an iPhone.
+// The window of overdrive-camera (cameraapp.py). The order of the iPhone camera, the look of Plasma: the picture alone
+// on the left, nothing drawn over it; every control in one column at the right edge (at the bottom when the tablet
+// stands upright), so that what a button opens comes out on its own side. In the column, from the top: the light,
+// the flash and night mode, the settings; then the modes and the shutter; then the last picture and the camera switch.
+// Breeze icons and Plasma's shapes and highlight colour.
+//
+// The light: the window draws a warm white frame round everything and moves picture and controls inside it, with
+// the backlight at its brightest; nothing is covered, the button stays where the finger expects it. A flash photo
+// lights the same frame for a moment.
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
@@ -20,323 +24,372 @@ ApplicationWindow {
     title: "Camera"
     color: "black"
 
-    readonly property color accent: "#ffd60a"
-    readonly property color glass: "#8c1c1c1e"
+    // Plasma's highlight (the accent the user picked), Breeze's dark surfaces
+    readonly property color accent: palette.highlight
+    readonly property color surface: "#232629"
+    readonly property color raised: "#31363b"
     readonly property bool landscape: width >= height
-    readonly property real column: landscape ? 140 : 190
+    readonly property real column: landscape ? 168 : 230
     property string mode: "photo"            // "photo" or "video"
-    property int timerSeconds: 0              // 0, 3 or 10 before a photo
-    property int countdown: 0
     property bool grid: false
-    property bool flashing: false            // the screen is white: a front flash photo is being taken
+    property bool flashing: false            // the frame lit for a flash photo
     property string note: ""
 
-    // ---- the picture, in the space the controls leave
+    // the light frame: warm white, as wide as a phone's ring light looks from arm's length
+    readonly property bool lit: camera.light || win.flashing
+    property real ring: lit ? Math.round(Math.min(width, height) * 0.085) : 0
+    Behavior on ring { NumberAnimation { duration: 220; easing.type: Easing.OutCubic } }
+    Rectangle {
+        anchors.fill: parent
+        color: "#fff1df"
+        visible: win.ring > 0
+    }
+
     Item {
-        id: stage
-        anchors.left: parent.left
-        anchors.top: parent.top
-        anchors.right: win.landscape ? controls.left : parent.right
-        anchors.bottom: win.landscape ? parent.bottom : controls.top
+        id: content
+        anchors.fill: parent
+        anchors.margins: win.ring
 
-        GstGLQt6VideoItem {
-            id: view
-            anchors.fill: parent
-            // the front camera is shown as a mirror, like every selfie camera; photos and videos are not mirrored
-            transform: Scale { origin.x: view.width / 2; xScale: camera.mirrored ? -1 : 1 }
-            Component.onCompleted: camera.setSink(view)
-        }
-
-        // rule-of-thirds grid
-        Item {
-            anchors.fill: parent
-            visible: win.grid
-            Repeater {
-                model: 2
-                Rectangle { x: parent.width * (index + 1) / 3; width: 1; height: parent.height; color: "#70ffffff" }
-            }
-            Repeater {
-                model: 2
-                Rectangle { y: parent.height * (index + 1) / 3; height: 1; width: parent.width; color: "#70ffffff" }
-            }
-        }
-
-        // the shutter's blink
+        // ---- the picture
         Rectangle {
-            id: blink
-            anchors.fill: parent
+            id: stage
             color: "black"
-            opacity: 0
-            SequentialAnimation on opacity {
-                id: blinkAnim
-                running: false
-                NumberAnimation { to: 0.85; duration: 40 }
-                NumberAnimation { to: 0; duration: 180 }
+            radius: win.ring > 0 ? 14 : 0
+            clip: true
+            anchors.left: parent.left
+            anchors.top: parent.top
+            anchors.right: win.landscape ? controls.left : parent.right
+            anchors.bottom: win.landscape ? parent.bottom : controls.top
+
+            GstGLQt6VideoItem {
+                id: view
+                anchors.fill: parent
+                // the front camera is shown as a mirror, like every selfie camera; photos and videos are not mirrored
+                transform: Scale { origin.x: view.width / 2; xScale: camera.mirrored ? -1 : 1 }
+                Component.onCompleted: camera.setSink(view)
+            }
+            Item {
+                anchors.fill: parent
+                visible: win.grid
+                Repeater {
+                    model: 2
+                    Rectangle { x: parent.width * (index + 1) / 3; width: 1; height: parent.height; color: "#60ffffff" }
+                }
+                Repeater {
+                    model: 2
+                    Rectangle { y: parent.height * (index + 1) / 3; height: 1; width: parent.width; color: "#60ffffff" }
+                }
+            }
+            // the shutter's blink
+            Rectangle {
+                anchors.fill: parent
+                color: "black"
+                opacity: 0
+                SequentialAnimation on opacity {
+                    id: blinkAnim
+                    running: false
+                    NumberAnimation { to: 0.85; duration: 40 }
+                    NumberAnimation { to: 0; duration: 180 }
+                }
+            }
+            // only when there is no picture at all: why
+            Label {
+                anchors.centerIn: parent
+                width: parent.width * 0.7
+                wrapMode: Text.WordWrap
+                horizontalAlignment: Text.AlignHCenter
+                color: "white"
+                font.pixelSize: 20
+                text: camera.error
+                visible: camera.error !== ""
             }
         }
 
-        // errors, the camera starting
-        Label {
-            anchors.centerIn: parent
-            width: parent.width * 0.7
-            wrapMode: Text.WordWrap
-            horizontalAlignment: Text.AlignHCenter
-            color: "white"
-            font.pixelSize: 20
-            text: camera.error
-            visible: camera.error !== ""
-        }
+        // ---- the column
+        Rectangle {
+            id: controls
+            color: win.surface
+            radius: win.ring > 0 ? 14 : 0
+            anchors.right: parent.right
+            anchors.bottom: parent.bottom
+            width: win.landscape ? win.column : parent.width
+            height: win.landscape ? parent.height : win.column
 
-        // countdown of the timer
-        Label {
-            anchors.centerIn: parent
-            visible: win.countdown > 0
-            text: win.countdown
-            color: "white"
-            font.pixelSize: 180
-            font.weight: Font.Thin
-            font.family: "monospace"
-        }
+            GridLayout {
+                anchors.fill: parent
+                anchors.margins: 18
+                flow: win.landscape ? GridLayout.TopToBottom : GridLayout.LeftToRight
+                rows: win.landscape ? 5 : 1
+                columns: win.landscape ? 1 : 5
+                rowSpacing: 14
+                columnSpacing: 22
 
-        // night photo: hold still, then the merge
-        Column {
-            anchors.centerIn: parent
-            spacing: 14
-            visible: camera.busy !== ""
-            Rectangle {
-                anchors.horizontalCenter: parent.horizontalCenter
-                radius: height / 2
-                color: win.glass
-                width: busyText.implicitWidth + 40
-                height: busyText.implicitHeight + 20
-                Label {
-                    id: busyText
-                    anchors.centerIn: parent
-                    text: camera.busy.toUpperCase()
-                    color: win.accent
-                    font.pixelSize: 17
-                    font.letterSpacing: 2
-                    font.weight: Font.DemiBold
+                // the quick settings: light, flash, night mode, settings
+                Grid {
+                    Layout.alignment: Qt.AlignCenter
+                    columns: win.landscape ? 2 : 4
+                    spacing: 10
+                    Tool {
+                        iconName: "flashlight-on"
+                        on: camera.light
+                        label: "Light"
+                        onClicked: camera.toggleLight()
+                    }
+                    Tool {
+                        glyph: "bolt"
+                        enabled: camera.key === "front" && win.mode === "photo"
+                        on: camera.flashMode === "on" || (camera.flashMode === "auto" && camera.dark && !camera.light)
+                        label: camera.flashMode === "auto" ? "Auto" : camera.flashMode === "on" ? "On" : "Off"
+                        onClicked: camera.cycleFlash()
+                    }
+                    Tool {
+                        glyph: "moon"
+                        enabled: camera.dark && win.mode === "photo"
+                        on: camera.night
+                        slashed: camera.dark && !camera.night
+                        label: !camera.dark ? "Night" : camera.night ? "2 s" : "Off"
+                        onClicked: camera.toggleNight()
+                    }
+                    Tool {
+                        iconName: "configure"
+                        label: "Settings"
+                        enabled: !camera.recording
+                        onClicked: settingsDrawer.open()
+                    }
+                }
+
+                Item { Layout.fillWidth: !win.landscape; Layout.fillHeight: win.landscape }
+
+                // modes, what is going on, the shutter
+                ColumnLayout {
+                    Layout.alignment: Qt.AlignCenter
+                    spacing: 14
+                    Row {
+                        Layout.alignment: Qt.AlignHCenter
+                        spacing: 4
+                        Repeater {
+                            model: [["photo", "Photo"], ["video", "Video"]]
+                            AbstractButton {
+                                implicitWidth: 62
+                                implicitHeight: 30
+                                enabled: !camera.recording && camera.busy === ""
+                                onClicked: win.mode = modelData[0]
+                                background: Rectangle {
+                                    radius: 6
+                                    color: win.mode === modelData[0] ? win.raised : "transparent"
+                                    border.color: win.mode === modelData[0] ? win.accent : "transparent"
+                                }
+                                contentItem: Label {
+                                    text: modelData[1]
+                                    horizontalAlignment: Text.AlignHCenter
+                                    verticalAlignment: Text.AlignVCenter
+                                    color: win.mode === modelData[0] ? "white" : "#a0a4a8"
+                                    font.pixelSize: 14
+                                }
+                            }
+                        }
+                    }
+                    // the status line: hold still, processing, recording time, messages
+                    Label {
+                        Layout.alignment: Qt.AlignHCenter
+                        Layout.preferredWidth: 140
+                        horizontalAlignment: Text.AlignHCenter
+                        wrapMode: Text.WordWrap
+                        font.pixelSize: 13
+                        color: camera.recording ? "#ff5f57" : camera.busy !== "" ? win.accent : "#d0d4d8"
+                        font.family: camera.recording ? "monospace" : ""
+                        text: camera.recording ? "● " + clock.text : camera.busy !== "" ? camera.busy : win.note
+                        Text { id: clock; visible: false; text: "0:00" }
+                        Timer {
+                            interval: 250; repeat: true; running: camera.recording; triggeredOnStart: true
+                            onTriggered: clock.text = camera.elapsed()
+                        }
+                    }
+                    AbstractButton {
+                        id: shutterButton
+                        Layout.alignment: Qt.AlignHCenter
+                        implicitWidth: 80
+                        implicitHeight: 80
+                        enabled: camera.key !== "" && camera.error === "" && !camera.applyingSize
+                        opacity: enabled ? 1 : 0.4
+                        onClicked: win.shutter()
+                        background: Item {
+                            Rectangle { anchors.fill: parent; radius: width / 2; color: "transparent"; border.color: "white"; border.width: 4 }
+                            Shape {
+                                anchors.fill: parent
+                                visible: camera.busy !== "" && camera.progress > 0
+                                ShapePath {
+                                    strokeColor: win.accent
+                                    strokeWidth: 4
+                                    fillColor: "transparent"
+                                    capStyle: ShapePath.RoundCap
+                                    PathAngleArc {
+                                        centerX: 40; centerY: 40; radiusX: 38; radiusY: 38
+                                        startAngle: -90
+                                        sweepAngle: 360 * camera.progress
+                                    }
+                                }
+                            }
+                        }
+                        contentItem: Item {
+                            Rectangle {
+                                anchors.centerIn: parent
+                                readonly property bool rec: camera.recording
+                                width: rec ? 28 : (shutterButton.pressed ? 56 : 64)
+                                height: width
+                                radius: rec ? 6 : width / 2
+                                color: win.mode === "video" ? "#da4453" : "white"
+                                Behavior on width { NumberAnimation { duration: 120 } }
+                                Behavior on radius { NumberAnimation { duration: 120 } }
+                                Behavior on color { ColorAnimation { duration: 150 } }
+                            }
+                        }
+                    }
+                }
+
+                Item { Layout.fillWidth: !win.landscape; Layout.fillHeight: win.landscape }
+
+                // the last picture and the camera switch
+                Row {
+                    Layout.alignment: Qt.AlignCenter
+                    spacing: 14
+                    AbstractButton {
+                        implicitWidth: 52
+                        implicitHeight: 52
+                        enabled: camera.lastCapture !== ""
+                        onClicked: gallery.openAt(0)
+                        background: Rectangle { radius: 8; color: win.raised; border.color: "#4d5257" }
+                        contentItem: Item {
+                            clip: true
+                            Image {
+                                anchors.fill: parent
+                                anchors.margins: 2
+                                fillMode: Image.PreserveAspectCrop
+                                asynchronous: true
+                                sourceSize.width: 160
+                                source: camera.lastCapture !== "" && !camera.lastIsVideo ? camera.lastCapture : ""
+                            }
+                            Label {
+                                anchors.centerIn: parent
+                                visible: camera.lastIsVideo
+                                text: "▶"
+                                color: "white"
+                                font.pixelSize: 20
+                            }
+                        }
+                    }
+                    Tool {
+                        iconName: "exchange-positions-clockwise"
+                        enabled: camera.keys.length > 1 && !camera.recording && !camera.applyingSize && camera.busy === ""
+                        onClicked: camera.next()
+                    }
                 }
             }
         }
-
-        // recording time
-        Rectangle {
-            anchors.top: parent.top
-            anchors.horizontalCenter: parent.horizontalCenter
-            anchors.topMargin: 18
-            radius: 8
-            color: "#e8ff3b30"
-            width: recLabel.implicitWidth + 28
-            height: recLabel.implicitHeight + 10
-            visible: camera.recording
-            Label {
-                id: recLabel
-                anchors.centerIn: parent
-                color: "white"
-                font.pixelSize: 20
-                font.family: "monospace"
-                text: clock.text
-            }
-            Text { id: clock; visible: false; text: "0:00" }
-            Timer {
-                interval: 250; repeat: true; running: camera.recording; triggeredOnStart: true
-                onTriggered: clock.text = camera.elapsed()
-            }
-        }
-
-        // messages
-        Label {
-            anchors.horizontalCenter: parent.horizontalCenter
-            anchors.bottom: parent.bottom
-            anchors.bottomMargin: 24
-            color: "white"
-            font.pixelSize: 16
-            text: win.note
-            visible: win.note !== ""
-            background: Rectangle { color: win.glass; radius: height / 2 }
-            leftPadding: 18; rightPadding: 18; topPadding: 9; bottomPadding: 9
-        }
-        Timer { id: noteTimer; interval: 2600; onTriggered: win.note = "" }
-        Connections {
-            target: camera
-            function onMessage(text) { win.note = text; noteTimer.restart() }
-        }
-
-        // ---- the small buttons over the picture: a column at the left (landscape) or a row at the top (portrait)
-        Grid {
-            id: tools
-            anchors.left: parent.left
-            anchors.top: parent.top
-            anchors.margins: 18
-            columns: win.landscape ? 1 : 6
-            spacing: 14
-
-            Chip {
-                iconName: "flashlight-on"
-                on: camera.light
-                hint: camera.light ? "Screen light on" : "Screen light"
-                onClicked: camera.toggleLight()
-            }
-            Chip {
-                glyph: "bolt"
-                visible: camera.key === "front" && win.mode === "photo"
-                on: camera.flashMode === "on" || (camera.flashMode === "auto" && camera.dark && !camera.light)
-                badge: camera.flashMode === "auto" ? "A" : camera.flashMode === "off" ? "OFF" : ""
-                onClicked: camera.cycleFlash()
-            }
-            Chip {
-                glyph: "moon"
-                visible: camera.dark && win.mode === "photo"
-                on: camera.night
-                slashed: !camera.night
-                badge: camera.night ? "1s" : ""
-                onClicked: camera.toggleNight()
-            }
-            Chip {
-                iconName: "chronometer"
-                visible: win.mode === "photo"
-                on: win.timerSeconds > 0
-                badge: win.timerSeconds > 0 ? win.timerSeconds + "s" : ""
-                onClicked: win.timerSeconds = win.timerSeconds === 0 ? 3 : win.timerSeconds === 3 ? 10 : 0
-            }
-            Chip {
-                iconName: "view-grid"
-                on: win.grid
-                onClicked: win.grid = !win.grid
-            }
-            Chip {
-                iconName: "configure"
-                enabled: !camera.recording
-                onClicked: settingsDrawer.open()
-            }
-        }
     }
 
-    // the screen as the flash of a front photo
-    Rectangle {
-        anchors.fill: parent
-        color: "#fff6ec"
-        visible: win.flashing
-        z: 10
+    Timer { id: noteTimer; interval: 2600; onTriggered: win.note = "" }
+    Connections {
+        target: camera
+        function onMessage(text) { win.note = text; noteTimer.restart() }
     }
 
-    // ---- a round button over the picture; yellow when on, a badge with its setting
-    component Chip: AbstractButton {
-        id: chip
+    // ---- a button of the column: Breeze icon (or a drawn glyph), its state underneath, the highlight when on
+    component Tool: AbstractButton {
+        id: tool
         property string iconName
+        property string glyph: ""
         property bool on: false
         property bool slashed: false
-        property string badge: ""
-        property string hint: ""
-        property string glyph: ""
-        implicitWidth: badge !== "" ? 44 + badgeLabel.implicitWidth + 6 : 44
-        implicitHeight: 44
+        property string label: ""
+        implicitWidth: 56
+        implicitHeight: label !== "" ? 66 : 52
         opacity: enabled ? 1 : 0.35
         background: Rectangle {
-            radius: height / 2
-            color: chip.on ? "#33ffd60a" : win.glass
-            border.color: chip.on ? win.accent : "transparent"
-            border.width: 1
-            scale: chip.pressed ? 0.92 : 1
-            Behavior on scale { NumberAnimation { duration: 90 } }
+            radius: 8
+            color: tool.pressed ? "#4d5257" : tool.on ? Qt.rgba(win.accent.r, win.accent.g, win.accent.b, 0.25) : win.raised
+            border.color: tool.on ? win.accent : "transparent"
         }
-        contentItem: Row {
-            spacing: 2
-            leftPadding: 11
+        contentItem: Column {
+            spacing: 3
+            topPadding: tool.label !== "" ? 8 : 14
             Item {
-                width: 22; height: 22
-                anchors.verticalCenter: parent.verticalCenter
-                // drawn glyphs where Breeze has none fitting: a lightning bolt, a crescent moon
+                anchors.horizontalCenter: parent.horizontalCenter
+                width: 24; height: 24
                 Shape {
                     anchors.fill: parent
-                    visible: chip.glyph === "bolt"
+                    visible: tool.glyph === "bolt"
                     ShapePath {
-                        fillColor: chip.on ? win.accent : "white"
+                        fillColor: tool.on ? win.accent : "#eff0f1"
                         strokeColor: "transparent"
-                        startX: 13; startY: 1
-                        PathLine { x: 4; y: 13 }
-                        PathLine { x: 10.5; y: 13 }
-                        PathLine { x: 8.5; y: 21 }
-                        PathLine { x: 18; y: 8.5 }
-                        PathLine { x: 11.5; y: 8.5 }
-                        PathLine { x: 13; y: 1 }
+                        startX: 14; startY: 1
+                        PathLine { x: 4; y: 14 }
+                        PathLine { x: 11; y: 14 }
+                        PathLine { x: 9; y: 23 }
+                        PathLine { x: 20; y: 9 }
+                        PathLine { x: 12.5; y: 9 }
+                        PathLine { x: 14; y: 1 }
                     }
                 }
                 Shape {
                     anchors.fill: parent
-                    visible: chip.glyph === "moon"
+                    visible: tool.glyph === "moon"
                     ShapePath {
-                        fillColor: chip.on ? win.accent : "white"
+                        fillColor: tool.on ? win.accent : "#eff0f1"
                         strokeColor: "transparent"
                         // round the left of a circle from top to bottom, back up along a flatter curve
-                        startX: 14; startY: 2.5
-                        PathArc { x: 14; y: 19.5; radiusX: 9; radiusY: 9; useLargeArc: true; direction: PathArc.Counterclockwise }
-                        PathArc { x: 14; y: 2.5; radiusX: 11; radiusY: 11; direction: PathArc.Clockwise }
+                        startX: 15; startY: 2.5
+                        PathArc { x: 15; y: 21.5; radiusX: 10; radiusY: 10; useLargeArc: true; direction: PathArc.Counterclockwise }
+                        PathArc { x: 15; y: 2.5; radiusX: 12; radiusY: 12; direction: PathArc.Clockwise }
                     }
                 }
                 Button {
-                    // the theme icon, coloured: through a button, which tints its icon
-                    visible: chip.glyph === ""
+                    // the theme icon, tinted: through a button, which colours its icon
+                    visible: tool.glyph === ""
                     anchors.centerIn: parent
-                    padding: 0
-                    flat: true
-                    enabled: false
-                    background: null
-                    icon.name: chip.iconName
-                    icon.color: chip.on ? win.accent : "white"
-                    icon.width: 22
-                    icon.height: 22
+                    padding: 0; flat: true; enabled: false; background: null
+                    icon.name: tool.iconName
+                    icon.color: tool.on ? win.accent : "#eff0f1"
+                    icon.width: 24; icon.height: 24
                 }
                 Rectangle {
-                    visible: chip.slashed
+                    visible: tool.slashed
                     anchors.centerIn: parent
-                    width: 28; height: 2
+                    width: 30; height: 2
                     rotation: -45
-                    color: "white"
+                    color: "#eff0f1"
                 }
             }
             Label {
-                id: badgeLabel
-                anchors.verticalCenter: parent.verticalCenter
-                visible: chip.badge !== ""
-                text: chip.badge
-                color: chip.on ? win.accent : "white"
-                font.pixelSize: 13
-                font.weight: Font.DemiBold
-                font.family: "monospace"
+                anchors.horizontalCenter: parent.horizontalCenter
+                visible: tool.label !== ""
+                text: tool.label
+                color: tool.on ? win.accent : "#a0a4a8"
+                font.pixelSize: 11
             }
         }
     }
 
     // ---- taking pictures
     Timer {
-        id: countdownTimer
-        interval: 1000
-        repeat: true
-        onTriggered: {
-            win.countdown -= 1
-            if (win.countdown <= 0) {
-                stop()
-                win.capturePhoto()
-            }
-        }
-    }
-    Timer {
-        // the front flash: the screen white and at its brightest, a moment for the exposure, then the photo
+        // the flash: the light frame and the backlight up, a moment for the exposure, then the photo
         id: flashTimer
-        interval: 700
+        interval: 600
         onTriggered: { camera.takePhoto(); flashEnd.restart() }
     }
     Timer {
         id: flashEnd
-        // a single frame is in at once; a night photo takes its frames under the light too
-        interval: camera.night ? 1000 : 250
+        // a single frame is in at once; a night photo takes its frames in the light too
+        interval: camera.night ? 1400 : 250
         onTriggered: { win.flashing = false; camera.flashOff() }
     }
-
-    function capturePhoto() {
+    function shutter() {
+        if (win.mode === "video") {
+            camera.toggleRecording()
+            return
+        }
+        if (camera.busy !== "")
+            return
         if (camera.flashWanted()) {
             win.flashing = true
             camera.flashOn()
@@ -346,207 +399,25 @@ ApplicationWindow {
         blinkAnim.restart()
         camera.takePhoto()
     }
-    function shutter() {
-        if (win.mode === "video") {
-            camera.toggleRecording()
-            return
-        }
-        if (camera.busy !== "")
-            return
-        if (countdownTimer.running) {           // a second tap cancels the countdown
-            countdownTimer.stop()
-            win.countdown = 0
-            return
-        }
-        if (win.timerSeconds > 0) {
-            win.countdown = win.timerSeconds
-            countdownTimer.start()
-        } else {
-            win.capturePhoto()
-        }
-    }
 
-    // ---- the control column: right edge (landscape) or bottom (portrait)
-    Rectangle {
-        id: controls
-        color: "black"
-        anchors.right: parent.right
-        anchors.bottom: parent.bottom
-        width: win.landscape ? win.column : parent.width
-        height: win.landscape ? parent.height : win.column
-
-        GridLayout {
-            anchors.fill: parent
-            anchors.topMargin: win.landscape ? 28 : 0
-            anchors.bottomMargin: win.landscape ? 28 : 0
-            anchors.leftMargin: win.landscape ? 0 : 36
-            anchors.rightMargin: win.landscape ? 0 : 36
-            flow: win.landscape ? GridLayout.TopToBottom : GridLayout.LeftToRight
-            rows: win.landscape ? 5 : 1
-            columns: win.landscape ? 1 : 5
-
-            // switch camera
-            AbstractButton {
-                Layout.alignment: Qt.AlignCenter
-                implicitWidth: 56
-                implicitHeight: 56
-                enabled: camera.keys.length > 1 && !camera.recording && !camera.applyingSize && camera.busy === ""
-                opacity: enabled ? 1 : 0.35
-                onClicked: { flip.restart(); camera.next() }
-                background: Rectangle { radius: width / 2; color: "#2c2c2e" }
-                contentItem: Item {
-                    Button {
-                        id: flipIcon
-                        anchors.centerIn: parent
-                        padding: 0; flat: true; enabled: false; background: null
-                        icon.name: "exchange-positions-clockwise"
-                        icon.color: "white"
-                        icon.width: 26; icon.height: 26
-                        RotationAnimation on rotation { id: flip; running: false; from: 0; to: 180; duration: 300 }
-                    }
-                }
-            }
-
-            Item { Layout.fillWidth: !win.landscape; Layout.fillHeight: win.landscape }
-
-            // the shutter with the modes beside it
-            ColumnLayout {
-                Layout.alignment: Qt.AlignCenter
-                spacing: 18
-                // modes: the chosen one in yellow, as on an iPhone
-                Column {
-                    Layout.alignment: Qt.AlignHCenter
-                    spacing: 10
-                    visible: win.landscape
-                    Repeater {
-                        model: [["video", "VIDEO"], ["photo", "PHOTO"]]
-                        Label {
-                            anchors.horizontalCenter: parent.horizontalCenter
-                            text: modelData[1]
-                            color: win.mode === modelData[0] ? win.accent : "#dddddd"
-                            font.pixelSize: 14
-                            font.letterSpacing: 2
-                            font.weight: Font.DemiBold
-                            TapHandler {
-                                enabled: !camera.recording && camera.busy === ""
-                                onTapped: { win.mode = modelData[0]; countdownTimer.stop(); win.countdown = 0 }
-                            }
-                        }
-                    }
-                }
-                AbstractButton {
-                    id: shutterButton
-                    Layout.alignment: Qt.AlignHCenter
-                    implicitWidth: 84
-                    implicitHeight: 84
-                    enabled: camera.key !== "" && camera.error === "" && !camera.applyingSize
-                    opacity: enabled ? 1 : 0.4
-                    onClicked: win.shutter()
-                    background: Item {
-                        Rectangle { anchors.fill: parent; radius: width / 2; color: "transparent"; border.color: "white"; border.width: 4 }
-                        // the night frames being collected
-                        Shape {
-                            anchors.fill: parent
-                            visible: camera.busy !== "" && camera.progress > 0
-                            ShapePath {
-                                strokeColor: win.accent
-                                strokeWidth: 4
-                                fillColor: "transparent"
-                                capStyle: ShapePath.RoundCap
-                                PathAngleArc {
-                                    centerX: 42; centerY: 42; radiusX: 40; radiusY: 40
-                                    startAngle: -90
-                                    sweepAngle: 360 * camera.progress
-                                }
-                            }
-                        }
-                    }
-                    contentItem: Item {
-                        Rectangle {
-                            anchors.centerIn: parent
-                            readonly property bool rec: camera.recording
-                            width: rec ? 30 : (shutterButton.pressed ? 60 : 68)
-                            height: width
-                            radius: rec ? 6 : width / 2
-                            color: win.mode === "video" ? "#ff3b30" : "white"
-                            Behavior on width { NumberAnimation { duration: 120 } }
-                            Behavior on radius { NumberAnimation { duration: 120 } }
-                            Behavior on color { ColorAnimation { duration: 150 } }
-                        }
-                    }
-                }
-                Row {
-                    Layout.alignment: Qt.AlignHCenter
-                    spacing: 22
-                    visible: !win.landscape
-                    Repeater {
-                        model: [["video", "VIDEO"], ["photo", "PHOTO"]]
-                        Label {
-                            text: modelData[1]
-                            color: win.mode === modelData[0] ? win.accent : "#dddddd"
-                            font.pixelSize: 14
-                            font.letterSpacing: 2
-                            font.weight: Font.DemiBold
-                            TapHandler {
-                                enabled: !camera.recording && camera.busy === ""
-                                onTapped: { win.mode = modelData[0]; countdownTimer.stop(); win.countdown = 0 }
-                            }
-                        }
-                    }
-                }
-            }
-
-            Item { Layout.fillWidth: !win.landscape; Layout.fillHeight: win.landscape }
-
-            // the last photo or video: opens the gallery
-            AbstractButton {
-                Layout.alignment: Qt.AlignCenter
-                implicitWidth: 56
-                implicitHeight: 56
-                enabled: camera.lastCapture !== ""
-                onClicked: gallery.openAt(0)
-                background: Rectangle { radius: 10; color: "#2c2c2e" }
-                contentItem: Item {
-                    clip: true
-                    Image {
-                        anchors.fill: parent
-                        fillMode: Image.PreserveAspectCrop
-                        asynchronous: true
-                        sourceSize.width: 160
-                        source: camera.lastCapture !== "" && !camera.lastIsVideo ? camera.lastCapture : ""
-                        layer.enabled: true
-                    }
-                    Label {
-                        anchors.centerIn: parent
-                        visible: camera.lastIsVideo
-                        text: "▶"
-                        color: "white"
-                        font.pixelSize: 22
-                    }
-                }
-            }
-        }
-    }
-
-    // ---- settings: the adjustments of the Cameras page, for the camera in use
+    // ---- settings: from the right, where the button is
     Drawer {
         id: settingsDrawer
         edge: Qt.RightEdge
         width: Math.min(440, win.width * 0.9)
         height: win.height
         dim: true
-        background: Rectangle { color: "#f21c1c1e" }
+        background: Rectangle { color: win.surface }
 
         property var data: {
             try { return JSON.parse(camera.settings) } catch (e) { return ({}) }
         }
 
         component Heading: Label {
-            Layout.leftMargin: 22
-            Layout.topMargin: 14
-            color: "#8e8e93"
-            font.pixelSize: 12
-            font.letterSpacing: 1.5
+            Layout.leftMargin: 20
+            Layout.topMargin: 16
+            color: "#a0a4a8"
+            font.pixelSize: 13
             font.weight: Font.DemiBold
         }
 
@@ -562,23 +433,22 @@ ApplicationWindow {
 
                 RowLayout {
                     Layout.fillWidth: true
-                    Layout.margins: 20
+                    Layout.margins: 18
                     Label {
                         Layout.fillWidth: true
                         text: (camera.key === "front" ? "Front" : "Rear") + " camera"
                         color: "white"
-                        font.pixelSize: 24
+                        font.pixelSize: 22
                         font.weight: Font.DemiBold
                     }
                     Button {
                         text: "Reset"
-                        flat: true
-                        palette.buttonText: win.accent
+                        icon.name: "edit-undo"
                         onClicked: camera.resetSettings()
                     }
                 }
 
-                Heading { text: "PICTURE SIZE" }
+                Heading { text: "Picture size" }
                 ColumnLayout {
                     Layout.leftMargin: 18
                     Layout.rightMargin: 18
@@ -588,30 +458,37 @@ ApplicationWindow {
                         model: settingsDrawer.data.sizes || []
                         AbstractButton {
                             Layout.fillWidth: true
-                            implicitHeight: 54
+                            implicitHeight: 50
                             readonly property bool current: (settingsDrawer.data.values || {}).minWidth === modelData.minWidth
                             enabled: !camera.applyingSize && !current && !camera.recording
                             onClicked: camera.setSetting("minWidth", modelData.minWidth)
                             background: Rectangle {
-                                radius: 12
-                                color: "#2c2c2e"
+                                radius: 8
+                                color: parent.current ? Qt.rgba(win.accent.r, win.accent.g, win.accent.b, 0.25) : win.raised
                                 border.color: parent.current ? win.accent : "transparent"
-                                border.width: 1.5
                             }
                             contentItem: RowLayout {
-                                Label { Layout.leftMargin: 16; text: modelData.text; color: "white"; font.pixelSize: 17; font.family: "monospace" }
-                                Label { Layout.fillWidth: true; Layout.rightMargin: 12; text: modelData.desc; color: "#aeaeb2"; font.pixelSize: 14; elide: Text.ElideRight; horizontalAlignment: Text.AlignRight }
+                                Label { Layout.leftMargin: 14; text: modelData.text; color: "white"; font.pixelSize: 16 }
+                                Label { Layout.fillWidth: true; Layout.rightMargin: 12; text: modelData.desc; color: "#a0a4a8"; font.pixelSize: 13; elide: Text.ElideRight; horizontalAlignment: Text.AlignRight }
                             }
                         }
                     }
                     Label {
                         Layout.fillWidth: true
                         wrapMode: Text.WordWrap
-                        color: "#8e8e93"
+                        color: "#a0a4a8"
                         font.pixelSize: 13
                         text: camera.applyingSize ? "Changing the picture size..." :
                               "The smallest size other apps get from this camera too. Video calls are lightest at the smaller size."
                     }
+                }
+
+                Heading { text: "View" }
+                RowLayout {
+                    Layout.leftMargin: 20
+                    Layout.rightMargin: 18
+                    Label { Layout.fillWidth: true; text: "Grid"; color: "white"; font.pixelSize: 16 }
+                    Switch { checked: win.grid; onToggled: win.grid = checked }
                 }
 
                 // the sliders, in the groups of the Cameras page
@@ -621,12 +498,12 @@ ApplicationWindow {
                         Layout.fillWidth: true
                         spacing: 2
                         readonly property var group: modelData
-                        Heading { text: group.group.toUpperCase() }
+                        Heading { text: group.group }
                         Repeater {
                             model: group.items.filter(it => !it.adv && it.key !== "hue_spin")
                             ColumnLayout {
                                 Layout.fillWidth: true
-                                Layout.leftMargin: 22
+                                Layout.leftMargin: 20
                                 Layout.rightMargin: 18
                                 spacing: 0
                                 readonly property var item: modelData
@@ -636,17 +513,15 @@ ApplicationWindow {
                                 }
                                 RowLayout {
                                     Layout.fillWidth: true
-                                    Label { Layout.fillWidth: true; text: item.label; color: "white"; font.pixelSize: 16 }
+                                    Label { Layout.fillWidth: true; text: item.label; color: "white"; font.pixelSize: 15 }
                                     Label {
-                                        color: Math.abs(slider.value - item.default) > item.step / 2 ? win.accent : "#aeaeb2"
+                                        color: Math.abs(slider.value - item.default) > item.step / 2 ? win.accent : "#a0a4a8"
                                         font.pixelSize: 14
-                                        font.family: "monospace"
                                         text: item.names ? item.names[Math.round(slider.value)]
                                               : slider.value.toFixed(item.step >= 1 ? 0 : (item.step >= 0.1 ? 1 : 2)) + (item.unit ? " " + item.unit : "")
                                     }
                                     ToolButton {
                                         icon.name: "edit-undo"
-                                        icon.color: "white"
                                         visible: Math.abs(slider.value - item.default) > item.step / 2
                                         onClicked: { slider.value = item.default; camera.setSetting(item.key, item.default) }
                                     }
@@ -738,7 +613,7 @@ ApplicationWindow {
                     anchors.centerIn: parent
                     visible: parent.isVideo && !(player.playing && ListView.isCurrentItem)
                     width: 96; height: 96; radius: 48
-                    color: win.glass
+                    color: "#b0232629"
                     Label { anchors.centerIn: parent; anchors.horizontalCenterOffset: 4; text: "▶"; color: "white"; font.pixelSize: 40 }
                     TapHandler { onTapped: { list.currentIndex = index; player.source = "file://" + modelData; player.play() } }
                 }
@@ -760,25 +635,26 @@ ApplicationWindow {
             onTapped: player.playing ? player.pause() : player.play()
         }
 
-        RowLayout {
+        Rectangle {
             anchors.top: parent.top
             anchors.left: parent.left
             anchors.right: parent.right
-            anchors.margins: 18
-            spacing: 12
-            Chip { iconName: "go-previous"; onClicked: gallery.close() }
-            Item { Layout.fillWidth: true }
-            Label {
-                color: "white"
-                font.pixelSize: 15
-                font.family: "monospace"
-                text: gallery.items.length ? (list.currentIndex + 1) + " / " + gallery.items.length : ""
-                background: Rectangle { color: win.glass; radius: height / 2 }
-                leftPadding: 14; rightPadding: 14; topPadding: 8; bottomPadding: 8
+            height: 68
+            color: "#d0232629"
+            RowLayout {
+                anchors.fill: parent
+                anchors.margins: 8
+                spacing: 10
+                Tool { iconName: "go-previous"; onClicked: gallery.close() }
+                Label {
+                    Layout.fillWidth: true
+                    color: "white"
+                    font.pixelSize: 15
+                    text: gallery.items.length ? (list.currentIndex + 1) + " of " + gallery.items.length : ""
+                }
+                Tool { iconName: "document-open"; onClicked: camera.openExternally(gallery.current) }
+                Tool { iconName: "edit-delete"; onClicked: confirmTrash.open() }
             }
-            Item { Layout.fillWidth: true }
-            Chip { iconName: "document-open"; onClicked: camera.openExternally(gallery.current) }
-            Chip { iconName: "edit-delete"; onClicked: confirmTrash.open() }
         }
         Dialog {
             id: confirmTrash

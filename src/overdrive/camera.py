@@ -79,7 +79,22 @@ def write_profile(cam, values):
             pass
         return
     lines = ["# Written by Surface Control. Read live by the patched libcamera; delete the file to go back to the tuning defaults."]
-    lines += [k + " " + " ".join("%g" % x for x in v) for k, v in values.items()]
+    # tnr_pause is a moment in time that "%g" would round by hours: it belongs to set_tnr_pause() alone
+    lines += [k + " " + " ".join("%g" % x for x in v) for k, v in values.items() if k != "tnr_pause"]
+    _write_atomic(path, "\n".join(lines) + "\n")
+
+
+def set_tnr_pause(cam, until=None):
+    """Hold the temporal grain removal back until the time `until` (seconds since 1970), or end the hold (None). The
+    Camera app's night photos merge raw frames themselves; past its time the key does nothing (patched libcamera)."""
+    path = profile_path(cam)
+    try:
+        with open(path) as f:
+            lines = [l.rstrip("\n") for l in f if not l.split("#")[0].split()[:1] == ["tnr_pause"]]
+    except OSError:
+        lines = ["# Written by Surface Control. Read live by the patched libcamera; delete the file to go back to the tuning defaults."]
+    if until is not None:
+        lines.append("tnr_pause %.1f" % until)
     _write_atomic(path, "\n".join(lines) + "\n")
 
 

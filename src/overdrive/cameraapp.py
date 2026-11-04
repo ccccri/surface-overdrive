@@ -30,7 +30,8 @@ JPEG_QUALITY = 92
 # Night: frames longer than this are the exposure at its longest (60 ms) in a dim room; shorter ones end it again
 NIGHT_ON_INTERVAL = 0.052
 NIGHT_OFF_INTERVAL = 0.045
-NIGHT_FRAMES = 12                 # a night photo: about 0.7 s of holding still at 60 ms a frame
+NIGHT_FRAMES = 20                 # a night photo: about 1.2 s of frames at 60 ms, after the skipped ones
+NIGHT_SKIP = 6                    # frames still averaged: libcamera reads the profile every 200 ms
 FLASH_SETTLE_MS = 700             # the auto exposure's time to take in the white screen before a front flash photo
 CAPTURE_SUFFIXES = (".jpg", ".jpeg", ".png", ".mp4", ".mkv", ".webm", ".mov")
 MAX_GALLERY = 200
@@ -191,13 +192,11 @@ def main():
             self._busy = ""
             self._darkSeen.connect(self._dark_seen)
             self._burstStep.connect(self._burst_step)
-            # Screen Light (overdrive-screenlight): the same light as the tray and the launcher
+            # the screen as a light: a warm frame the window draws round the picture, with the backlight at its brightest
             self._light = False
-            self._light_mine = False
-            self._flash_mode = "auto"     # front photos in the dark: the screen lights the face for the shot
-            self._flash_before = None
-            self._light_timer = QTimer(self, interval=1500, timeout=self._poll_light)
-            self._light_timer.start()
+            self._flash_mode = "auto"     # front photos in the dark: the frame lights the face for the shot
+            self._boosts = 0              # light and flash both want the backlight up: up while either does
+            self._brightness_before = None
             # always the best: the owner wants no quality choice (2026-11-03)
             self._photo_quality = "maximum"
             self._video_quality = "maximum"
@@ -269,7 +268,7 @@ def main():
 
         @Slot(result=bool)
         def flashWanted(self):
-            """Whether this photo gets the screen as a flash: front camera, Screen Light off, and on or in the dark."""
+            """Whether this photo gets the screen as a flash: front camera, the light off, and on or in the dark."""
             if self._key != "front" or self._light or self._flash_mode == "off":
                 return False
             return self._flash_mode == "on" or self._dark
@@ -279,28 +278,24 @@ def main():
                 self._dark = dark
                 self.changed.emit()
 
-        def _poll_light(self):
-            iface = QDBusConnection.sessionBus().interface()
-            reply = iface.isServiceRegistered("org.surfaceoverdrive.ScreenLight")
-            lit = bool(reply.value()) if hasattr(reply, "value") else bool(reply)
-            if lit != self._light:
-                self._light = lit
-                if not lit:
-                    self._light_mine = False
-                self.changed.emit()
-
         @Slot()
         def toggleLight(self):
-            if self._light:
-                subprocess.Popen(["overdrive-screenlight", "off"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                self._light = False
-                self._light_mine = False
-            else:
-                subprocess.Popen(["setsid", "-f", "overdrive-screenlight", "on"], stdout=subprocess.DEVNULL,
-                                 stderr=subprocess.DEVNULL)
-                self._light = True
-                self._light_mine = True
+            self._light = not self._light
+            self._boost(self._light)
             self.changed.emit()
+
+        def _boost(self, up):
+            """The backlight at its brightest while the light or a flash wants it, back where it was afterwards."""
+            self._boosts = max(0, self._boosts + (1 if up else -1))
+            try:
+                if up and self._boosts == 1:
+                    self._brightness_before = int(self._brightness("brightness"))
+                    self._brightness("setBrightnessSilent", int(self._brightness("brightnessMax")))
+                elif not up and self._boosts == 0 and self._brightness_before is not None:
+                    self._brightness("setBrightnessSilent", self._brightness_before)
+                    self._brightness_before = None
+            except (TypeError, ValueError):
+                pass
 
         def _brightness(self, method, *args):
             msg = QDBusMessage.createMethodCall("org.kde.Solid.PowerManagement",
@@ -313,18 +308,12 @@ def main():
 
         @Slot()
         def flashOn(self):
-            """The screen at its brightest for a flash photo (the window shows white meanwhile)."""
-            try:
-                self._flash_before = int(self._brightness("brightness"))
-                self._brightness("setBrightnessSilent", int(self._brightness("brightnessMax")))
-            except (TypeError, ValueError):
-                self._flash_before = None
+            """The backlight up for a flash photo (the window shows its light frame meanwhile)."""
+            self._boost(True)
 
         @Slot()
         def flashOff(self):
-            if self._flash_before is not None:
-                self._brightness("setBrightnessSilent", self._flash_before)
-                self._flash_before = None
+            self._boost(False)
 
         key = Property(str, _get_key, notify=changed)
         keys = Property("QVariantList", _get_keys, notify=changed)
@@ -552,13 +541,17 @@ def main():
                 ok, mapping = buf.map(Gst.MapFlags.READ)
                 if ok:
                     try:
-                        burst["frames"].append(bytes(mapping.data))
+                        if burst["skip"] > 0:
+                            burst["skip"] -= 1
+                        else:
+                            burst["frames"].append(bytes(mapping.data))
                     finally:
                         buf.unmap(mapping)
                     if burst["info"] is None:
                         burst["info"] = GstVideo.VideoInfo.new_from_caps(pad.get_current_caps())
                 if len(burst["frames"]) >= NIGHT_FRAMES:
                     self._burst = None
+                    self._pause_tnr(False)
                     threading.Thread(target=self._save_night, args=(burst,), daemon=True).start()
                 self._burstStep.emit(len(burst["frames"]) / NIGHT_FRAMES)
                 return Gst.PadProbeReturn.OK
@@ -587,7 +580,9 @@ def main():
                 self._progress = 0.0
                 self._busy = "Hold still"
                 self.changed.emit()
-                self._burst = {"path": path, "frames": [], "info": None}
+                # libcamera's temporal average held back for the burst: raw frames merge into far less grain
+                self._pause_tnr(True)
+                self._burst = {"path": path, "frames": [], "info": None, "skip": NIGHT_SKIP}
                 return
             # the next frame of the preview is copied and encoded (JPEG, up to a second) on a thread of its own
             self._photo_wanted = path
@@ -630,6 +625,15 @@ def main():
             self._last_capture = path
             self.changed.emit()
             self.capturesChanged.emit()
+
+        def _pause_tnr(self, on):
+            from overdrive import camera as cs
+            if self._key not in cs.SENSORS:
+                return
+            try:
+                cs.set_tnr_pause(self._key, time.time() + 3.0 if on else None)
+            except OSError:
+                pass
 
         def _save_night(self, burst):
             """The night frames merged into one photo. Frames come with the stride of the camera: made tight first."""
@@ -807,9 +811,12 @@ def main():
                 else:
                     self._finish_recording("", discard=True)
             self._stop_preview()
-            self.flashOff()
-            if self._light_mine:
-                subprocess.run(["overdrive-screenlight", "off"], check=False, timeout=5)
+            if self._burst is not None:
+                self._pause_tnr(False)
+            # the backlight back where it was, whatever was lit
+            if self._boosts:
+                self._boosts = 1
+                self._boost(False)
 
     QGuiApplication.setDesktopFileName(APP_ID)
     app = QGuiApplication(sys.argv)

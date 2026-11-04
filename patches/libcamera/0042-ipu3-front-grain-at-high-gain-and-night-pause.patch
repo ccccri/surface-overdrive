@@ -1,0 +1,181 @@
+From: Surface Overdrive <noreply@surface-overdrive>
+Subject: [PATCH] ipu3: less grain at high gain; colour denoise at every level; two threads; a pause for night photos
+
+At gain 5.75 the per-pixel soft ramp of the temporal filter kept much of the grain: with the motion map by
+brightness level the blocks judge motion well, so the ramp goes and the per-pixel limit rises (5/8 of the
+noise sum + 8): still flicker at the strongest level 2.26 -> 1.01, no trail seen on recordings of a moving
+person. The chroma denoise of dim light runs at every level, "off" too (wrong colour, not grain), on two
+threads (the slowest frames at 2560x1920 went from 57 to 41 ms; no frame dropped). The whole-picture
+brightness compensation runs from 1.5% (it ran at every small step of the digital gain). The live profile key
+tnr_pause <time> holds the temporal average back until then, for the Camera app's night photos, which merge
+unaveraged frames themselves.
+---
+diff --git a/src/libcamera/pipeline/ipu3/ipu3.cpp b/src/libcamera/pipeline/ipu3/ipu3.cpp
+index 37faec1..4628657 100644
+--- a/src/libcamera/pipeline/ipu3/ipu3.cpp
++++ b/src/libcamera/pipeline/ipu3/ipu3.cpp
+@@ -1528,7 +1528,7 @@ static inline int tnrSoft(int c, int p, int minWeight, int pass)
+ 	const int d = c - p, a = d < 0 ? -d : d;
+ 	if (a >= pass)
+ 		return c;
+-	const int knee = pass / 3;
++	const int knee = pass;
+ 	const int w = a <= knee ? minWeight : minWeight + (a - knee) * (128 - minWeight) / std::max(pass - knee, 1);
+ 	return p + ((d * w * 256 + 16384) >> 15);
+ }
+@@ -1563,7 +1563,7 @@ struct TnrRamp {
+ 
+ TNR_TARGET inline TnrRamp tnrRamp(int minWeight, int pass)
+ {
+-	const int knee = pass / 3;
++	const int knee = pass;
+ 	const int slope = std::min(((128 - minWeight) << 8) / std::max(pass - knee, 1), 32767);
+ 	return { _mm_set1_epi16(static_cast<int16_t>(minWeight)), _mm_set1_epi16(static_cast<int16_t>(knee)),
+ 		 _mm_set1_epi16(static_cast<int16_t>(slope)), _mm_set1_epi16(128),
+@@ -1836,9 +1836,14 @@ __attribute__((optimize("O3"))) void chromaDenoise(const uint8_t *y, uint8_t *uv
+ 		fx[x] = static_cast<unsigned int>(f16) % 16;
+ 	}
+ 
+-	/* each quarter pixel: the 4 nearest cells, by distance and by brightness; written to its 2x2 chroma pixels */
++	/*
++	 * each quarter pixel: the 4 nearest cells, by distance and by brightness; written to its 2x2 chroma pixels. Two
++	 * threads, a half of the rows each: this part is arithmetic, not memory, and the Surface Go has two cores
++	 * (2560x1920 in the dark: 11 ms on one, the frames then came late now and then).
++	 */
+ 	const int blend = strength;
+-	for (unsigned int r = 0; r < qh; r++) {
++	auto rows = [&](unsigned int first, unsigned int last) {
++	for (unsigned int r = first; r < last; r++) {
+ 		const int f16 = std::clamp(static_cast<int>(2 * r) + 1 - static_cast<int>(kCell), 0,
+ 					   static_cast<int>(16 * (gh - 1)));
+ 		const unsigned int y0 = static_cast<unsigned int>(f16) / 16, y1 = std::min(y0 + 1, gh - 1);
+@@ -1874,6 +1879,10 @@ __attribute__((optimize("O3"))) void chromaDenoise(const uint8_t *y, uint8_t *uv
+ 			}
+ 		}
+ 	}
++	};
++	std::thread other(rows, qh / 2, qh);
++	rows(0, qh / 2);
++	other.join();
+ }
+ 
+ } /* namespace */
+@@ -1921,8 +1930,17 @@ void IPU3CameraData::temporalDenoise(const Stream *stream, FrameBuffer *buffer)
+ 		params.threshold = std::clamp(static_cast<int>(tnr[1]), 0, 255);
+ 	}
+ 
+-	if (params.threshold <= 0)
+-		return;
++	/*
++	 * "tnr_pause <until>" (a time in seconds since 1970) holds the temporal average back until then: the night photos
++	 * of the Camera app merge a burst of frames themselves, and frames already averaged over the last second have
++	 * little left to give. Past its time the key does nothing, so an app that dies in a burst leaves no harm behind.
++	 */
++	const auto pause = profile_->list("tnr_pause");
++	const bool paused = !pause.empty() &&
++			    std::chrono::duration<double>(std::chrono::system_clock::now().time_since_epoch()).count() < pause[0];
++
++	/* "off" turns the temporal average off; the colour blotches of dim light still go (see chromaDenoise()) */
++	const bool temporal = params.threshold > 0 && !paused;
+ 
+ 	const StreamConfiguration &cfg = stream->configuration();
+ 	if (cfg.pixelFormat != formats::NV12)
+@@ -1942,6 +1960,29 @@ void IPU3CameraData::temporalDenoise(const Stream *stream, FrameBuffer *buffer)
+ 	if (mapped.planes()[0].size() < ySize || mapped.planes()[1].size() < uvSize)
+ 		return;
+ 
++	/*
++	 * The colour blotches of dim light (see chromaDenoise()), after the temporal average and on the output only: the
++	 * previous output it remembers keeps its own colour. With the real light, whatever level was chosen, "off" too:
++	 * the blotches are wrong colour rather than grain (seen as reddish noise in the background at the low levels,
++	 * 2026-11-04). From none at 15 ms x gain 1 to all of it at 40 ms x gain 1 and darker; at 2560x1920 (11 ms a frame
++	 * on the Surface Go) only with long frames, as the spatial part of the temporal filter.
++	 */
++	auto dimChroma = [&]() {
++		const double dim = tnrLight_ <= 0 ? 1.0 : std::clamp((tnrLight_ - 15000.0) / (40000.0 - 15000.0), 0.0, 1.0);
++		const int strength = static_cast<int>(std::lround(256 * dim));
++		const bool room = static_cast<size_t>(width) * height <= 2600000 || tnrExposure_ >= 45000;
++		if (strength > 0 && room)
++			chromaDenoise(y, uv, width, height, stride, strength, tnrChroma_[stream]);
++	};
++	if (!temporal) {
++		/* and the temporal filter starts afresh when it is turned on again */
++		tnrPrev_.erase(stream);
++		tnrNoise_.erase(stream);
++		tnrLevelKnown_.erase(stream);
++		dimChroma();
++		return;
++	}
++
+ 	std::vector<uint8_t> &prev = tnrPrev_[stream];
+ 	if (prev.size() != ySize + uvSize) {
+ 		/* First frame (or a new configuration): nothing to blend with. */
+@@ -2071,7 +2112,8 @@ void IPU3CameraData::temporalDenoise(const Stream *stream, FrameBuffer *buffer)
+ 			auto mid = ratios.begin() + ratios.size() / 2;
+ 			std::nth_element(ratios.begin(), mid, ratios.end());
+ 			const float ratio = std::clamp(*mid, 0.8f, 1.25f);
+-			if (std::abs(ratio - 1.0f) >= 0.006f) {
++			/* small changes (the digital gain easing, under 1.5%) stay within the motion thresholds: no pass for them */
++			if (std::abs(ratio - 1.0f) >= 0.015f) {
+ 				std::array<uint8_t, 256> lut;
+ 				for (int v = 0; v < 256; v++)
+ 					lut[v] = static_cast<uint8_t>(std::clamp(static_cast<int>(std::lround(v * ratio)), 0, 255));
+@@ -2088,8 +2130,10 @@ void IPU3CameraData::temporalDenoise(const Stream *stream, FrameBuffer *buffer)
+ 	using Clock = std::chrono::steady_clock;
+ 	static const bool timing = getenv("LIBCAMERA_IPU3_TNR_TIMING");
+ 	static double phase[4];
++	static double worst;
+ 	static unsigned int timedFrames;
+ 	auto t0 = Clock::now();
++	const auto tStart = t0;
+ 	auto lap = [&](int i) {
+ 		if (!timing)
+ 			return;
+@@ -2249,7 +2293,13 @@ void IPU3CameraData::temporalDenoise(const Stream *stream, FrameBuffer *buffer)
+ 	 */
+ 	const int widen = darkness >= 0.5 ? 256 : 0;
+ 	/* A difference far above the noise is never averaged (a change of exposure, a small fast thing in a still block). */
+-	const int pass = std::max(3 * std::max(params.threshold, 2), 3 * noise / 8 + 6);
++	/*
++	 * Per pixel a difference this large is never averaged. It was 3/8 of the noise sum + 6 with a soft ramp from a
++	 * third of it (2026-11-03, against trails). With the motion map by brightness level (2026-11-04) the blocks judge
++	 * motion well, and at gain 5.75 the ramp kept much of the grain: still flicker at "maximum" 2.26 -> 1.01 with no
++	 * ramp and 5/8 + 8, no trail seen on the recordings of a moving person.
++	 */
++	const int pass = std::max(3 * std::max(params.threshold, 2), 5 * noise / 8 + 8);
+ 	const int minWeight = std::clamp(params.minWeight / 2, 0, 128);
+ 
+ 	/* Block weights 0 (still) .. 256 (moving), then widened by one block (the largest of the 3x3 neighbourhood). */
+@@ -2376,23 +2426,16 @@ void IPU3CameraData::temporalDenoise(const Stream *stream, FrameBuffer *buffer)
+ 	});
+ 	lap(2);
+ 
+-	/*
+-	 * The colour blotches of dim light (see chromaDenoise()), after the temporal average and on the output only: the
+-	 * previous output it remembers keeps its own colour. With the real light, whatever level was chosen: from none at
+-	 * 15 ms x gain 1 to all of it at 40 ms x gain 1 and darker.
+-	 */
+-	{
+-		const double dim = tnrLight_ <= 0 ? 1.0 : std::clamp((tnrLight_ - 15000.0) / (40000.0 - 15000.0), 0.0, 1.0);
+-		const int strength = static_cast<int>(std::lround(256 * dim));
+-		/* 11 ms a frame at 2560x1920 on the Surface Go: there only with long frames, as the spatial part above */
+-		if (strength > 0 && fits)
+-			chromaDenoise(y, uv, width, height, stride, strength, tnrChroma_[stream]);
+-	}
++	dimChroma();
+ 	lap(3);
+-	if (timing && ++timedFrames % 60 == 0)
+-		fprintf(stderr, "tnr %ux%u ssse3 %d: sums %.2f map %.2f filter %.2f chroma %.2f ms\n", width, height,
+-			ssse3 ? 1 : 0, phase[0] / timedFrames, phase[1] / timedFrames, phase[2] / timedFrames,
+-			phase[3] / timedFrames);
++	if (timing)
++		worst = std::max(worst, std::chrono::duration<double, std::milli>(Clock::now() - tStart).count());
++	if (timing && ++timedFrames % 60 == 0) {
++		fprintf(stderr, "tnr %ux%u ssse3 %d: sums %.2f map %.2f filter %.2f chroma %.2f ms, slowest %.1f ms\n", width,
++			height, ssse3 ? 1 : 0, phase[0] / timedFrames, phase[1] / timedFrames, phase[2] / timedFrames,
++			phase[3] / timedFrames, worst);
++		worst = 0;
++	}
+ }
+ 
+ /*
