@@ -1,0 +1,275 @@
+From: Surface Overdrive <noreply@surface-overdrive>
+Subject: [PATCH] ipu3: digital gain cap from the tuning file; live keys for ANR, Y_EE_NR and IEFD
+
+The tuning file can lower the most digital gain the dark gets (maxDigitalGain): the front camera takes 2x
+instead of 3x, a darker and much cleaner picture at night (flicker 7.1 -> 2.5 with the grain removal on).
+The live profile gains keys to tune the ImgU blocks the kernel leaves at fixed values: anr (scales ANR's
+thresholds and weights), yee (Y_EE_NR, off in the kernel), iefd (its five units). Measured on the front camera
+at gain 7.9: Y_EE_NR has no effect on the video binaries, IEFD and ANR trade grain for detail one for one.
+---
+diff --git a/src/ipa/ipu3/algorithms/agc.cpp b/src/ipa/ipu3/algorithms/agc.cpp
+index c8f8c9a..4efbefb 100644
+--- a/src/ipa/ipu3/algorithms/agc.cpp
++++ b/src/ipa/ipu3/algorithms/agc.cpp
+@@ -85,8 +85,10 @@ static constexpr int32_t kExposureMargin = 8;
+ /*
+  * Digital gain, the light the sensor cannot give any more (longest exposure, highest analogue gain): applied by the
+  * ImgU with the white balance gains (Awb::prepare()). Its statistics are taken before them, so the auto exposure sees
+- * the same raw picture and asks for the same gain frame after frame. At most 3: in a dark room (60 ms, gain 7.9) the
+- * picture had a mean luma of 36 of 255; more would mostly show grain.
++ * the same raw picture and asks for the same gain frame after frame. At most 3 by default: in a dark room (60 ms, gain
++ * 7.9) the picture had a mean luma of 36 of 255; more would mostly show grain. The tuning file can lower it
++ * ("maxDigitalGain"): digital gain brightens the grain as much as the picture, and in the dark a slightly darker,
++ * cleaner picture is what phones show.
+  */
+ static constexpr double kMaxDigitalGain = 3.0;
+ 
+@@ -123,6 +125,7 @@ int Agc::init(IPAContext &context, const ValueNode &tuningData)
+ 	 * 60 ms, the frame rate only drops where the gain would otherwise go past 2.
+ 	 */
+ 	longestExposureTime_ = std::chrono::microseconds(tuningData["maxExposureTime"].get<uint32_t>(0));
++	maxDigitalGain_ = std::clamp(tuningData["maxDigitalGain"].get<double>(kMaxDigitalGain), 1.0, kMaxDigitalGain);
+ 
+ 	context.ctrlMap.merge(controls());
+ 
+@@ -406,7 +409,7 @@ void Agc::process(IPAContext &context, const uint32_t frame,
+ 	activeState.agc.exposure = newExposureTime / context.configuration.sensor.lineDuration;
+ 	activeState.agc.gain = aGain;
+ 	/* smoothed, so that the picture does not pump when the auto exposure moves between exposure and digital gain */
+-	const double wanted = std::clamp(dGain * qGain * heldResidual_, 1.0, kMaxDigitalGain);
++	const double wanted = std::clamp(dGain * qGain * heldResidual_, 1.0, maxDigitalGain_);
+ 	activeState.agc.digitalGain += (wanted - activeState.agc.digitalGain) * 0.25;
+ 	if (activeState.agc.vblank) {
+ 		/* the frame just long enough for the exposure, never shorter than a frame of 30 fps */
+diff --git a/src/ipa/ipu3/algorithms/agc.h b/src/ipa/ipu3/algorithms/agc.h
+index 96f0349..cee120c 100644
+--- a/src/ipa/ipu3/algorithms/agc.h
++++ b/src/ipa/ipu3/algorithms/agc.h
+@@ -79,6 +79,8 @@ private:
+ 	double heldAnalogueGain_ = 0.0;
+ 	/* The part of a small change made with the digital gain instead. */
+ 	double heldResidual_ = 1.0;
++	/* the most digital gain the dark may get (tuning "maxDigitalGain", 1 to 3) */
++	double maxDigitalGain_ = 3.0;
+ };
+ 
+ } /* namespace ipa::ipu3::algorithms */
+diff --git a/src/ipa/ipu3/algorithms/noise_reduction.cpp b/src/ipa/ipu3/algorithms/noise_reduction.cpp
+index 8076bc2..5ec3c6e 100644
+--- a/src/ipa/ipu3/algorithms/noise_reduction.cpp
++++ b/src/ipa/ipu3/algorithms/noise_reduction.cpp
+@@ -94,6 +94,76 @@ uint32_t clampU(double v, uint32_t max)
+ }
+ 
+ /* What the kernel sets when it computes the parameters itself (drivers/staging/media/ipu3). */
++
++/* The kernel's ANR defaults (drivers/staging/media/ipu3/ipu3-tables.c), scaled by the "anr" key. */
++constexpr uint16_t kAnrAlpha[3][4] = { { 13, 13, 13, 13 }, { 11, 11, 11, 11 }, { 14, 14, 14, 14 } };
++constexpr uint16_t kAnrBeta[3][4] = { { 24, 24, 24, 24 }, { 21, 20, 20, 21 }, { 25, 25, 25, 25 } };
++constexpr uint16_t kAnrColor[3][4][15] = {
++	{ { 166, 173, 149, 166, 161, 146, 145, 173, 145, 150, 141, 149, 145, 141, 142 },
++	  { 166, 173, 149, 165, 161, 145, 145, 173, 145, 150, 141, 149, 145, 141, 142 },
++	  { 166, 174, 149, 166, 162, 146, 146, 173, 145, 150, 141, 149, 145, 141, 142 },
++	  { 166, 173, 149, 165, 161, 145, 145, 173, 146, 150, 141, 149, 145, 141, 142 } },
++	{ { 141, 131, 140, 141, 144, 143, 144, 131, 143, 137, 140, 140, 144, 140, 141 },
++	  { 141, 131, 140, 141, 143, 143, 144, 131, 143, 137, 140, 140, 144, 140, 141 },
++	  { 141, 131, 141, 141, 144, 144, 144, 131, 143, 137, 140, 140, 144, 140, 141 },
++	  { 140, 131, 140, 141, 143, 143, 144, 131, 143, 137, 140, 140, 144, 140, 141 } },
++	{ { 184, 173, 188, 184, 182, 182, 181, 173, 182, 179, 182, 188, 181, 182, 180 },
++	  { 184, 173, 188, 184, 183, 182, 181, 173, 182, 178, 182, 188, 181, 182, 180 },
++	  { 184, 173, 188, 184, 182, 182, 181, 173, 182, 178, 182, 188, 181, 182, 181 },
++	  { 184, 172, 188, 184, 182, 182, 181, 173, 182, 178, 182, 188, 182, 182, 180 } } };
++constexpr uint16_t kAnrSqrtLut[25] = { 724, 768, 810, 849, 887, 923, 958, 991, 1024, 1056, 1086, 1116, 1145,
++				       1173, 1201, 1228, 1254, 1280, 1305, 1330, 1355, 1379, 1402, 1425, 1448 };
++constexpr uint8_t kAnrPyramid[22][3] = { { 1, 3, 5 }, { 7, 7, 5 }, { 3, 1, 3 }, { 9, 15, 21 }, { 21, 15, 9 },
++					 { 3, 5, 15 }, { 25, 35, 35 }, { 25, 15, 5 }, { 7, 21, 35 }, { 49, 49, 35 },
++					 { 21, 7, 7 }, { 21, 35, 49 }, { 49, 35, 21 }, { 7, 5, 15 }, { 25, 35, 35 },
++					 { 25, 15, 5 }, { 3, 9, 15 }, { 21, 21, 15 }, { 9, 3, 1 }, { 3, 5, 7 },
++					 { 7, 5, 3 }, { 1, 0, 0 } };
++/*
++ * Y_EE_NR, the kernel's defaults with the block on: enable, lpf a_diag a_periph a_cent, sense edge0 dEdge corner0
++ * dCorner, gain pos0 dPos neg0 dNeg, clip pos0 dPos neg0 dNeg, frng gain_exp min_edge lin_seg t1 t2.
++ */
++constexpr std::array<double, 21> kYeeDefault = { 1, 4, 8, 16, 8191, 0, 8191, 0, 8, 0, 8, 0, 8, 0, 8, 0, 2, 200, 2, 1, 1 };
++
++/* IEFD, the kernel's defaults (all its units on): sharpening, denoise, directional smoothing, radial, VSSNLM. */
++const ipu3_uapi_yuvp1_iefd_config kIefdDefault = {
++	.units = {
++		.cu_1 = { 0, 150, 7, 0 },
++		.cu_ed = { 7, 110, 244, 0, 307, 409, 511, 0,
++			   184, 255, 255, 0, 0, 0, 0,
++			   7, 81, 255, 0, 255, 255, 0 },
++		.cu_3 = { 148, 251, 10, 0 },
++		.cu_5 = { 25, 70, 501, 0, 32, 0 },
++		.cu_6 = { 32, 63, 183, 0, 397,
++			  33, 0, 0, 0,
++			  0, 64, 0, 64, 0 },
++		.cu_7 = { 200, 303,
++			  10, 0 },
++		.cu_unsharp = { 10, 64, 110, 0, 511,
++				66, 12, 0, 0,
++				0, 56, 0, 64, 0 },
++		.cu_radial = { 6, 203, 255, 255, 255, 255, 0,
++			      84, 444, 397, 288, 300, 0,
++			       4, 69, 207, 0, 369, 448, 0 },
++		.cu_vssnlm = { 61, 100, 25, 0}
++	},
++	.config = { 45, 0, 0, 0, 16, 0, 45, 0 },
++	.control = { 1, 1, 1, 1, 1, 0 },
++	.sharp = { { 50, 0, 511, 0, 50, 0, 50, 0 },
++		   { 64, 0, 0, 0, 0, 0},
++		   { 56, 0, 56, 0 } },
++	.unsharp = { { 36, 17, 8, 0 },
++		     { 13, 7, 3, 0 } },
++	.rad = { { -2104, 0, -1559, 0 },
++		 { 4426816, 0 },
++		 { 2430481, 0 },
++		 { 6, 0, 79, 0 },
++		 { 64, 0, 0, 0 },
++		 { 1, 0, 2, 0, 0, 0, 0, 0 },
++		 { 40, 0, 62, 0 } },
++	.vsslnm = { { 16, 32, 64, 0 },
++		    { 1, 0, 2, 0,  8, 0 } },
++};
++
+ constexpr std::array<double, 11> kXnr3Off = { 2047, 2047, 2047, 0, 0, 0, 0, 0, 0, 0, 0 };
+ constexpr std::array<double, 12> kChnrDefault = { 0, 0, 6, 6, 6, 4, 4, 4, 8, 12, 0, 129 };
+ constexpr std::array<double, 7> kTnr3Off = { 0, 0, 768, 1280, 256, 0, 0 };
+@@ -121,6 +191,9 @@ int NoiseReduction::configure([[maybe_unused]] IPAContext &context, const IPACon
+ 	/* A new streaming session: the kernel starts from its own values again. */
+ 	xnr3Set_ = false;
+ 	chnrSet_ = false;
++	anrSet_ = false;
++	yeeSet_ = false;
++	iefdSet_ = false;
+ 	tnr3Set_ = false;
+ 	tnr3Still_ = 0.0;
+ 	stillFrames_ = 0;
+@@ -198,6 +271,113 @@ void NoiseReduction::prepare(IPAContext &context, [[maybe_unused]] const uint32_
+ 		tnr3Set_ = hasN;
+ 	}
+ 
++
++	/*
++	 * ANR, the Bayer-domain denoiser: always on in the kernel, with fixed values. "anr <alpha> <beta> <weights>"
++	 * scales its thresholds (alpha, beta) and its weights; the radial part is centred on the BDS output.
++	 */
++	std::array<double, 3> anrScale{ 1.0, 1.0, 1.0 };
++	if (profileList(profile_.get(), "anr", anrScale) || anrSet_) {
++		ipu3_uapi_anr_config &anr = params->acc_param.anr;
++		anr = {};
++		ipu3_uapi_anr_transform_config &t = anr.transform;
++		t.enable = 1;
++		t.adaptive_treshhold_en = 1;
++		for (unsigned int i = 0; i < 3; i++) {
++			const uint16_t *a0 = kAnrAlpha[i];
++			t.alpha[i].gr = clampU(a0[0] * anrScale[0], 0xffff);
++			t.alpha[i].r = clampU(a0[1] * anrScale[0], 0xffff);
++			t.alpha[i].b = clampU(a0[2] * anrScale[0], 0xffff);
++			t.alpha[i].gb = clampU(a0[3] * anrScale[0], 0xffff);
++			t.beta[i].beta_gr = clampU(kAnrBeta[i][0] * anrScale[1], 0xffff);
++			t.beta[i].beta_r = clampU(kAnrBeta[i][1] * anrScale[1], 0xffff);
++			t.beta[i].beta_b = clampU(kAnrBeta[i][2] * anrScale[1], 0xffff);
++			t.beta[i].beta_gb = clampU(kAnrBeta[i][3] * anrScale[1], 0xffff);
++			for (unsigned int k = 0; k < 15; k++) {
++				t.color[i].reg_w_gr[k] = clampU(kAnrColor[i][0][k] * anrScale[2], 0xffff);
++				t.color[i].reg_w_r[k] = clampU(kAnrColor[i][1][k] * anrScale[2], 0xffff);
++				t.color[i].reg_w_b[k] = clampU(kAnrColor[i][2][k] * anrScale[2], 0xffff);
++				t.color[i].reg_w_gb[k] = clampU(kAnrColor[i][3][k] * anrScale[2], 0xffff);
++			}
++		}
++		for (unsigned int i = 0; i < 25; i++)
++			t.sqrt_lut[i] = kAnrSqrtLut[i];
++		const Size &bds = context.configuration.grid.bdsOutputSize;
++		const int xc = static_cast<int>(bds.width / 2), yc = static_cast<int>(bds.height / 2);
++		t.xreset = -xc;
++		t.yreset = -yc;
++		t.x_sqr_reset = static_cast<uint32_t>(xc * xc);
++		t.y_sqr_reset = static_cast<uint32_t>(yc * yc);
++		t.r_normfactor = 14;
++		t.gain_scale = 115;
++		anr.stitch.anr_stitch_en = 1;
++		for (unsigned int i = 0; i < 22; i++) {
++			anr.stitch.pyramid[i].entry0 = kAnrPyramid[i][0];
++			anr.stitch.pyramid[i].entry1 = kAnrPyramid[i][1];
++			anr.stitch.pyramid[i].entry2 = kAnrPyramid[i][2];
++		}
++		params->use.acc_anr = 1;
++		anrSet_ = anrScale != std::array<double, 3>{ 1.0, 1.0, 1.0 };
++	}
++
++	/* Y_EE_NR, edge-preserving luma smoothing and edge enhancement: off in the kernel. "yee <21 values>" (see above). */
++	std::array<double, 21> e = kYeeDefault;
++	const bool hasE = profileList(profile_.get(), "yee", e);
++	if (hasE || yeeSet_) {
++		if (!hasE) {
++			e = kYeeDefault;
++			e[0] = 0;
++		}
++		ipu3_uapi_yuvp1_y_ee_nr_config &y = params->acc_param.y_ee_nr;
++		y = {};
++		y.lpf.enable = clampU(e[0], 1);
++		y.lpf.a_diag = clampU(e[1], 31);
++		y.lpf.a_periph = clampU(e[2], 31);
++		y.lpf.a_cent = clampU(e[3], 31);
++		y.sense.edge_sense_0 = clampU(e[4], 8191);
++		y.sense.delta_edge_sense = clampU(e[5], 8191);
++		y.sense.corner_sense_0 = clampU(e[6], 8191);
++		y.sense.delta_corner_sense = clampU(e[7], 8191);
++		y.gain.gain_pos_0 = clampU(e[8], 16);
++		y.gain.delta_gain_posi = clampU(e[9], 16);
++		y.gain.gain_neg_0 = clampU(e[10], 16);
++		y.gain.delta_gain_neg = clampU(e[11], 16);
++		y.clip.clip_pos_0 = clampU(e[12], 16);
++		y.clip.delta_clip_posi = clampU(e[13], 16);
++		y.clip.clip_neg_0 = clampU(e[14], 16);
++		y.clip.delta_clip_neg = clampU(e[15], 16);
++		y.frng.gain_exp = clampU(e[16], 8);
++		y.frng.min_edge = clampU(e[17], 8191);
++		y.frng.lin_seg_param = clampU(e[18], 15);
++		y.frng.t1 = clampU(e[19], 1);
++		y.frng.t2 = clampU(e[20], 1);
++		y.diag.diag_disc_g = 1;
++		y.diag.hvw_hor = 4;
++		y.diag.dw_hor = 1;
++		y.diag.hvw_diag = 1;
++		y.diag.dw_diag = 4;
++		params->use.acc_y_ee_nr = 1;
++		yeeSet_ = hasE;
++	}
++
++
++	/* IEFD: "iefd <iefd> <denoise> <direct smooth> <radial> <vssnlm>" switches its units (all on in the kernel). */
++	std::array<double, 5> f{ 1, 1, 1, 1, 1 };
++	const bool hasF = profileList(profile_.get(), "iefd", f);
++	if (hasF || iefdSet_) {
++		ipu3_uapi_yuvp1_iefd_config &cfg = params->acc_param.iefd;
++		cfg = kIefdDefault;
++		if (hasF) {
++			cfg.control.iefd_en = clampU(f[0], 1);
++			cfg.control.denoise_en = clampU(f[1], 1);
++			cfg.control.direct_smooth_en = clampU(f[2], 1);
++			cfg.control.rad_en = clampU(f[3], 1);
++			cfg.control.vssnlm_en = clampU(f[4], 1);
++		}
++		params->use.acc_iefd = 1;
++		iefdSet_ = hasF;
++	}
++
+ 	std::array<double, kChnrSize> c = chnr_;
+ 	bool hasC = hasChnr_;
+ 	if (profileList(profile_.get(), "chnr", c))
+diff --git a/src/ipa/ipu3/algorithms/noise_reduction.h b/src/ipa/ipu3/algorithms/noise_reduction.h
+index 92401a1..9cc1988 100644
+--- a/src/ipa/ipu3/algorithms/noise_reduction.h
++++ b/src/ipa/ipu3/algorithms/noise_reduction.h
+@@ -56,6 +56,9 @@ private:
+ 	/* Whether the last frame set XNR3 or CHNR: the kernel keeps the last values it got until it is told otherwise. */
+ 	bool xnr3Set_ = false;
+ 	bool chnrSet_ = false;
++	bool anrSet_ = false;
++	bool yeeSet_ = false;
++	bool iefdSet_ = false;
+ 	bool binned_ = false;
+ 	std::unique_ptr<LiveProfile> profile_;
+ };
