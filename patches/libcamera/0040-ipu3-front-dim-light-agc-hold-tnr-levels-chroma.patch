@@ -1,0 +1,672 @@
+From: Surface Overdrive <noreply@surface-overdrive>
+Subject: [PATCH] ipu3: front camera in dim light - steady auto exposure, motion test by brightness, chroma denoise
+
+Auto exposure holds the exposure and analogue gain for changes under 8% and makes them up with the digital
+gain: the analogue gain alternated between two 1/16 steps and the picture pulsed by 4% every few frames.
+The software temporal denoiser compensates whole-picture brightness changes, remembers the noise from still
+moments, measures it per level of brightness, judges blocks with their neighbours, and in dim light a
+luma-guided chroma denoise takes away the coloured blotches.
+---
+diff --git a/src/ipa/ipu3/algorithms/agc.cpp b/src/ipa/ipu3/algorithms/agc.cpp
+index 1f38553..c8f8c9a 100644
+--- a/src/ipa/ipu3/algorithms/agc.cpp
++++ b/src/ipa/ipu3/algorithms/agc.cpp
+@@ -180,6 +180,8 @@ int Agc::configure(IPAContext &context,
+ 
+ 	haveValidFrame_ = false;
+ 	stableFrames_ = 0;
++	heldAnalogueGain_ = 0.0;
++	heldResidual_ = 1.0;
+ 
+ 	/* Start from what the previous session settled on, within the limits of this sensor mode. */
+ 	/* The first session after a reboot starts from where the last one before it settled. */
+@@ -369,6 +371,32 @@ void Agc::process(IPAContext &context, const uint32_t frame,
+ 		}
+ 	}
+ 
++	/*
++	 * Small changes are made with the digital gain, the exposure time and analogue gain stay. The analogue gain moves
++	 * in steps of 1/16 (6%): asked for 1.02, the sensor alternated between 1.0 and 1.0625, and in a dim room the
++	 * picture pulsed by 4% every few frames (129 -> 134 of luma for one frame in five, 2026-11-04), which also made
++	 * the temporal denoiser see the whole picture "moving" on those frames and let the grain through. Up to 8% (a
++	 * step and a bit) the ImgU's digital gain makes up the difference, smoothly and with no steps; the statistics are
++	 * taken before it, so the request stays the same and nothing hunts.
++	 */
++	{
++		constexpr double kHoldBand = 0.08;
++		const double wantedEv = newExposureTime.get<std::micro>() * aGain;
++		double residual = 1.0;
++		if (heldAnalogueGain_ > 0.0) {
++			const double heldEv = heldExposureTime_.get<std::micro>() * heldAnalogueGain_;
++			const double ratio = wantedEv / heldEv;
++			if (std::abs(ratio - 1.0) < kHoldBand) {
++				newExposureTime = heldExposureTime_;
++				aGain = heldAnalogueGain_;
++				residual = ratio;
++			}
++		}
++		heldExposureTime_ = newExposureTime;
++		heldAnalogueGain_ = aGain;
++		heldResidual_ = residual;
++	}
++
+ 	LOG(IPU3Agc, Debug)
+ 		<< "Divided up exposure time, analogue gain and digital gain are "
+ 		<< newExposureTime << ", " << aGain << " and " << dGain;
+@@ -378,7 +406,7 @@ void Agc::process(IPAContext &context, const uint32_t frame,
+ 	activeState.agc.exposure = newExposureTime / context.configuration.sensor.lineDuration;
+ 	activeState.agc.gain = aGain;
+ 	/* smoothed, so that the picture does not pump when the auto exposure moves between exposure and digital gain */
+-	const double wanted = std::clamp(dGain * qGain, 1.0, kMaxDigitalGain);
++	const double wanted = std::clamp(dGain * qGain * heldResidual_, 1.0, kMaxDigitalGain);
+ 	activeState.agc.digitalGain += (wanted - activeState.agc.digitalGain) * 0.25;
+ 	if (activeState.agc.vblank) {
+ 		/* the frame just long enough for the exposure, never shorter than a frame of 30 fps */
+diff --git a/src/ipa/ipu3/algorithms/agc.h b/src/ipa/ipu3/algorithms/agc.h
+index d98f1cd..96f0349 100644
+--- a/src/ipa/ipu3/algorithms/agc.h
++++ b/src/ipa/ipu3/algorithms/agc.h
+@@ -74,6 +74,11 @@ private:
+ 	uint32_t stableFrames_ = 0;
+ 	utils::Duration settledExposureTime_;
+ 	double settledAnalogueGain_ = 1.0;
++	/* The exposure time and analogue gain last asked of the sensor, kept for small changes (see process()). */
++	utils::Duration heldExposureTime_;
++	double heldAnalogueGain_ = 0.0;
++	/* The part of a small change made with the digital gain instead. */
++	double heldResidual_ = 1.0;
+ };
+ 
+ } /* namespace ipa::ipu3::algorithms */
+diff --git a/src/libcamera/pipeline/ipu3/ipu3.cpp b/src/libcamera/pipeline/ipu3/ipu3.cpp
+index 5d7ab42..3e6676a 100644
+--- a/src/libcamera/pipeline/ipu3/ipu3.cpp
++++ b/src/libcamera/pipeline/ipu3/ipu3.cpp
+@@ -19,6 +19,7 @@
+ #include <map>
+ #include <memory>
+ #include <queue>
++#include <set>
+ #include <thread>
+ #include <vector>
+ 
+@@ -113,6 +114,18 @@ public:
+ 	std::map<const Stream *, std::vector<int>> tnrSorted_;
+ 	std::map<const Stream *, std::vector<uint8_t>> tnrOrig_;
+ 	std::map<const Stream *, std::vector<uint8_t>> tnrWork_;
++	/* Noise of still blocks as remembered from still moments (see temporalDenoise()), < 0: not known yet. */
++	std::map<const Stream *, double> tnrNoise_;
++	/* Per stream: the noise of each level of brightness, remembered, and the scratch of the motion test. */
++	std::map<const Stream *, std::array<double, 8>> tnrLevelNoise_;
++	std::set<const Stream *> tnrLevelKnown_;
++	std::map<const Stream *, std::vector<int>> tnrPooled_;
++	std::map<const Stream *, std::vector<int>> tnrAcross_;
++	std::map<const Stream *, std::vector<uint8_t>> tnrChroma_;
++	std::map<const Stream *, std::vector<int>> tnrLevel_;
++	std::map<const Stream *, std::vector<uint8_t>> tnrLevels_;
++	std::map<const Stream *, std::vector<std::array<uint16_t, 8 * 255 + 1>>> tnrLevelHist_;
++	std::map<const Stream *, std::array<std::array<int, 8 * 255 + 1>, 8>> tnrLuts_;
+ 
+ 	/* Raw frames still to drop after the stream started: see cio2BufferReady(). */
+ 	unsigned int startupFramesToDrop_ = 0;
+@@ -952,6 +965,8 @@ void PipelineHandlerIPU3::stopDevice(Camera *camera)
+ 
+ 	data->cancelPendingRequests();
+ 	data->tnrPrev_.clear();
++	data->tnrNoise_.clear();
++	data->tnrLevelKnown_.clear();
+ 
+ 	data->ipa_->stop();
+ 
+@@ -1495,6 +1510,29 @@ namespace {
+  *   out    = still + w * (moving - still)
+  */
+ 
++/*
++ * One pixel of the temporal average: the remembered value p moves towards the current one c by a weight that depends on
++ * their difference. Small differences (noise) take the minimum weight, so the grain averages out; from a third of "pass"
++ * the weight rises evenly to the whole current value at "pass". The first version switched at "pass" in one step: a
++ * moving head or hand that changed the pixels by less than "pass" (about 30 levels in a dim room, where the noise is
++ * strong) counted as noise and stayed in the picture for many frames, the ghosting seen in low light. Now nothing
++ * clearly above the noise can linger: its weight is near 1.
++ */
++/* The motion test: thresholds in times the noise of the block's brightness, and judging blocks with their neighbours. */
++constexpr double kTnrFirst = 1.5;
++constexpr double kTnrSecond = 3.0;
++constexpr double kTnrPool = 1.0;
++
++static inline int tnrSoft(int c, int p, int minWeight, int pass)
++{
++	const int d = c - p, a = d < 0 ? -d : d;
++	if (a >= pass)
++		return c;
++	const int knee = pass / 3;
++	const int w = a <= knee ? minWeight : minWeight + (a - knee) * (128 - minWeight) / std::max(pass - knee, 1);
++	return p + ((d * w * 256 + 16384) >> 15);
++}
++
+ #if defined(__x86_64__) || defined(__i386__)
+ #define TNR_SSSE3 1
+ #define TNR_TARGET __attribute__((target("ssse3")))
+@@ -1511,11 +1549,35 @@ TNR_TARGET inline __m128i tnrWeight8(__m128i w)
+ 	return _mm_sub_epi16(_mm_slli_epi16(w, 8), _mm_srli_epi16(w, 7));
+ }
+ 
+-TNR_TARGET inline __m128i tnrStill(__m128i c, __m128i p, __m128i minWeight8, __m128i passMinus1)
++/*
++ * The weight of the current frame for a difference d with the remembered picture: the minimum weight up to a third of
++ * "pass", rising evenly to all of the current frame at "pass" (see tnrSoft()).
++ */
++struct TnrRamp {
++	__m128i minWeight;	/* 1/128 */
++	__m128i knee;		/* pass / 3 */
++	__m128i slope;		/* (128 - minWeight) * 256 / (pass - knee), for _mm_mulhi_epu16 with the excess << 8 */
++	__m128i full;		/* 128 */
++	__m128i passMinus1;
++};
++
++TNR_TARGET inline TnrRamp tnrRamp(int minWeight, int pass)
++{
++	const int knee = pass / 3;
++	const int slope = std::min(((128 - minWeight) << 8) / std::max(pass - knee, 1), 32767);
++	return { _mm_set1_epi16(static_cast<int16_t>(minWeight)), _mm_set1_epi16(static_cast<int16_t>(knee)),
++		 _mm_set1_epi16(static_cast<int16_t>(slope)), _mm_set1_epi16(128),
++		 _mm_set1_epi16(static_cast<int16_t>(pass - 1)) };
++}
++
++TNR_TARGET inline __m128i tnrStill(__m128i c, __m128i p, const TnrRamp &r)
+ {
+ 	const __m128i d = _mm_sub_epi16(c, p);
+-	const __m128i average = _mm_add_epi16(p, tnrScale(d, minWeight8));
+-	const __m128i large = _mm_cmpgt_epi16(_mm_abs_epi16(d), passMinus1);
++	const __m128i a = _mm_abs_epi16(d);
++	const __m128i excess = _mm_max_epi16(_mm_sub_epi16(a, r.knee), _mm_setzero_si128());
++	const __m128i w = _mm_min_epi16(_mm_add_epi16(r.minWeight, _mm_mulhi_epu16(_mm_slli_epi16(excess, 8), r.slope)), r.full);
++	const __m128i average = _mm_add_epi16(p, tnrScale(d, tnrWeight8(w)));
++	const __m128i large = _mm_cmpgt_epi16(a, r.passMinus1);
+ 	return _mm_or_si128(_mm_and_si128(large, c), _mm_andnot_si128(large, average));
+ }
+ 
+@@ -1524,8 +1586,7 @@ TNR_TARGET void tnrRowSsse3(uint8_t *out, uint8_t *prev, const int16_t *up, cons
+ 			    const int16_t *w, unsigned int n, int minWeight, int pass, int k)
+ {
+ 	const __m128i zero = _mm_setzero_si128();
+-	const __m128i minWeight8 = tnrWeight8(_mm_set1_epi16(static_cast<int16_t>(minWeight)));
+-	const __m128i passMinus1 = _mm_set1_epi16(static_cast<int16_t>(pass - 1));
++	const TnrRamp ramp = tnrRamp(minWeight, pass);
+ 	const __m128i hi = _mm_set1_epi16(static_cast<int16_t>(k)), lo = _mm_set1_epi16(static_cast<int16_t>(-k));
+ 	const __m128i ninth = _mm_set1_epi16(3641);	/* round(32768 / 9) */
+ 	unsigned int x = 0;
+@@ -1537,7 +1598,7 @@ TNR_TARGET void tnrRowSsse3(uint8_t *out, uint8_t *prev, const int16_t *up, cons
+ 			const unsigned int i = x + 8 * half;
+ 			const __m128i c = half ? _mm_unpackhi_epi8(c8, zero) : _mm_unpacklo_epi8(c8, zero);
+ 			const __m128i p = half ? _mm_unpackhi_epi8(p8, zero) : _mm_unpacklo_epi8(p8, zero);
+-			const __m128i still = tnrStill(c, p, minWeight8, passMinus1);
++			const __m128i still = tnrStill(c, p, ramp);
+ 			__m128i moving = c;
+ 			if (up) {
+ 				const __m128i sum = _mm_add_epi16(_mm_add_epi16(
+@@ -1555,8 +1616,8 @@ TNR_TARGET void tnrRowSsse3(uint8_t *out, uint8_t *prev, const int16_t *up, cons
+ 		_mm_storeu_si128(reinterpret_cast<__m128i *>(prev + x), r);
+ 	}
+ 	for (; x < n; x++) {
+-		const int c = out[x], p = prev[x], d = c - p;
+-		const int still = (d >= pass || d <= -pass) ? c : p + ((d * minWeight * 256 + 16384) >> 15);
++		const int c = out[x], p = prev[x];
++		const int still = tnrSoft(c, p, minWeight, pass);
+ 		int moving = c;
+ 		if (up) {
+ 			const int mean = ((up[x] + mid[x] + down[x]) * 3641 + 16384) >> 15;
+@@ -1570,21 +1631,20 @@ TNR_TARGET void tnrRowSsse3(uint8_t *out, uint8_t *prev, const int16_t *up, cons
+ TNR_TARGET void tnrStillSsse3(uint8_t *out, uint8_t *prev, unsigned int n, int minWeight, int pass)
+ {
+ 	const __m128i zero = _mm_setzero_si128();
+-	const __m128i minWeight8 = tnrWeight8(_mm_set1_epi16(static_cast<int16_t>(minWeight)));
+-	const __m128i passMinus1 = _mm_set1_epi16(static_cast<int16_t>(pass - 1));
++	const TnrRamp ramp = tnrRamp(minWeight, pass);
+ 	unsigned int x = 0;
+ 	for (; x + 16 <= n; x += 16) {
+ 		const __m128i c8 = _mm_loadu_si128(reinterpret_cast<const __m128i *>(out + x));
+ 		const __m128i p8 = _mm_loadu_si128(reinterpret_cast<const __m128i *>(prev + x));
+ 		const __m128i r = _mm_packus_epi16(
+-			tnrStill(_mm_unpacklo_epi8(c8, zero), _mm_unpacklo_epi8(p8, zero), minWeight8, passMinus1),
+-			tnrStill(_mm_unpackhi_epi8(c8, zero), _mm_unpackhi_epi8(p8, zero), minWeight8, passMinus1));
++			tnrStill(_mm_unpacklo_epi8(c8, zero), _mm_unpacklo_epi8(p8, zero), ramp),
++			tnrStill(_mm_unpackhi_epi8(c8, zero), _mm_unpackhi_epi8(p8, zero), ramp));
+ 		_mm_storeu_si128(reinterpret_cast<__m128i *>(out + x), r);
+ 		_mm_storeu_si128(reinterpret_cast<__m128i *>(prev + x), r);
+ 	}
+ 	for (; x < n; x++) {
+-		const int c = out[x], p = prev[x], d = c - p;
+-		out[x] = prev[x] = static_cast<uint8_t>((d >= pass || d <= -pass) ? c : p + ((d * minWeight * 256 + 16384) >> 15));
++		const int c = out[x], p = prev[x];
++		out[x] = prev[x] = static_cast<uint8_t>(tnrSoft(c, p, minWeight, pass));
+ 	}
+ }
+ 
+@@ -1609,8 +1669,8 @@ void tnrRowPlain(uint8_t *out, uint8_t *prev, const int16_t *up, const int16_t *
+ 		 const int16_t *w, unsigned int n, int minWeight, int pass, int k)
+ {
+ 	for (unsigned int x = 0; x < n; x++) {
+-		const int c = out[x], p = prev[x], d = c - p;
+-		const int still = (d >= pass || d <= -pass) ? c : p + ((d * minWeight * 256 + 16384) >> 15);
++		const int c = out[x], p = prev[x];
++		const int still = tnrSoft(c, p, minWeight, pass);
+ 		int moving = c;
+ 		if (up) {
+ 			const int mean = ((up[x] + mid[x] + down[x]) * 3641 + 16384) >> 15;
+@@ -1623,8 +1683,8 @@ void tnrRowPlain(uint8_t *out, uint8_t *prev, const int16_t *up, const int16_t *
+ void tnrStillPlain(uint8_t *out, uint8_t *prev, unsigned int n, int minWeight, int pass)
+ {
+ 	for (unsigned int x = 0; x < n; x++) {
+-		const int c = out[x], p = prev[x], d = c - p;
+-		out[x] = prev[x] = static_cast<uint8_t>((d >= pass || d <= -pass) ? c : p + ((d * minWeight * 256 + 16384) >> 15));
++		const int c = out[x], p = prev[x];
++		out[x] = prev[x] = static_cast<uint8_t>(tnrSoft(c, p, minWeight, pass));
+ 	}
+ }
+ 
+@@ -1669,6 +1729,153 @@ void tnrExpand(const int *weights, unsigned int blocks, int16_t *w, unsigned int
+ 		w[x] = w[4 * blocks - 1];
+ }
+ 
++/*
++ * Chroma noise reduction for dim light, luma-guided. In a dim room the noise of the front camera is mostly coloured
++ * blotches of 5 to 20 pixels (purple, green), which neither the ImgU's XNR3 (no visible change from alpha 32 down to 4)
++ * nor the temporal average of moving areas take away. The eye sees detail in the luma, not in the colour, so the
++ * colour is averaged over cells of 16x16 chroma pixels (32x32 of the picture), where the blotches cancel out, and
++ * brought back to full resolution between the 4 nearest cells, each weighted by how close its brightness is to the
++ * pixel's (the luma smoothed 5x5 first, or its own grain would bring the blotches back): colour does not bleed across
++ * the edges of things. Measured on a frame at gain 5.75 (2560x1920): chroma blotches 3.38 -> 0.91, skin, hair and wall
++ * keep their colours and edges. strength 0..256 blends it with the input. Rows and columns past the last whole
++ * quarter pixel (a size not a multiple of 4) are left as they are.
++ */
++__attribute__((optimize("O3"))) void chromaDenoise(const uint8_t *y, uint8_t *uv, unsigned int width,
++						     unsigned int height, unsigned int stride, int strength,
++						     std::vector<uint8_t> &scratch)
++{
++	/* Worked on a quarter grid (2x2 chroma pixels, 4x4 of the picture): colour that precise is more than the eye sees. */
++	constexpr unsigned int kCell = 8;	/* quarter pixels: 16x16 chroma, 32x32 picture */
++	constexpr float kSigma = 24.0f;
++	const unsigned int qw = width / 4, qh = height / 4;
++	if (qw < 2 * kCell || qh < 2 * kCell || strength <= 0)
++		return;
++	const unsigned int gw = (qw + kCell - 1) / kCell, gh = (qh + kCell - 1) / kCell;
++	const size_t qn = static_cast<size_t>(qw) * qh;
++
++	scratch.resize(qn * 4 + static_cast<size_t>(width) * 2 * sizeof(uint16_t));
++	uint8_t *lq = scratch.data(), *tmp = lq + qn, *uq = tmp + qn, *vq = uq + qn;
++	uint16_t *col = reinterpret_cast<uint16_t *>(vq + qn);
++
++	/* luma and chroma of every quarter pixel: means of 4x4 luma and 2x2 chroma (column sums first, vectorised) */
++	for (unsigned int r = 0; r < qh; r++) {
++		const uint8_t *l0 = y + static_cast<size_t>(4 * r) * stride, *l1 = l0 + stride, *l2 = l1 + stride;
++		const uint8_t *l3 = l2 + stride;
++		for (unsigned int x = 0; x < 4 * qw; x++)
++			col[x] = static_cast<uint16_t>(l0[x] + l1[x] + l2[x] + l3[x]);
++		uint8_t *dl = lq + static_cast<size_t>(r) * qw;
++		for (unsigned int x = 0; x < qw; x++)
++			dl[x] = static_cast<uint8_t>((col[4 * x] + col[4 * x + 1] + col[4 * x + 2] + col[4 * x + 3] + 8) >> 4);
++		const uint8_t *c0 = uv + static_cast<size_t>(2 * r) * stride, *c1 = c0 + stride;
++		for (unsigned int x = 0; x < 4 * qw; x++)
++			col[x] = static_cast<uint16_t>(c0[x] + c1[x]);
++		uint8_t *du = uq + static_cast<size_t>(r) * qw, *dv = vq + static_cast<size_t>(r) * qw;
++		for (unsigned int x = 0; x < qw; x++) {
++			du[x] = static_cast<uint8_t>((col[4 * x] + col[4 * x + 2] + 2) >> 2);
++			dv[x] = static_cast<uint8_t>((col[4 * x + 1] + col[4 * x + 3] + 2) >> 2);
++		}
++	}
++	/* the luma smoothed once more, 3x3, or its grain would bring the blotches back through the weights */
++	for (unsigned int r = 0; r < qh; r++) {
++		const uint8_t *src = lq + static_cast<size_t>(r) * qw;
++		uint8_t *d = tmp + static_cast<size_t>(r) * qw;
++		d[0] = static_cast<uint8_t>((2 * src[0] + src[1] + 1) / 3);
++		for (unsigned int x = 1; x + 1 < qw; x++)
++			d[x] = static_cast<uint8_t>((src[x - 1] + src[x] + src[x + 1]) * 21846 >> 16);
++		d[qw - 1] = static_cast<uint8_t>((src[qw - 2] + 2 * src[qw - 1] + 1) / 3);
++	}
++	for (unsigned int r = 0; r < qh; r++) {
++		const uint8_t *up = tmp + static_cast<size_t>(r ? r - 1 : 0) * qw;
++		const uint8_t *mid = tmp + static_cast<size_t>(r) * qw;
++		const uint8_t *down = tmp + static_cast<size_t>(std::min(r + 1, qh - 1)) * qw;
++		uint8_t *d = lq + static_cast<size_t>(r) * qw;
++		for (unsigned int x = 0; x < qw; x++)
++			d[x] = static_cast<uint8_t>((up[x] + mid[x] + down[x]) * 21846 >> 16);
++	}
++
++	/* cell means (U and V in 1/16) */
++	const size_t cells = static_cast<size_t>(gw) * gh;
++	std::vector<unsigned int> sy(cells), su(cells), sv(cells), count(cells);
++	for (unsigned int r = 0; r < qh; r++) {
++		const size_t row = static_cast<size_t>(r / kCell) * gw;
++		const uint8_t *l = lq + static_cast<size_t>(r) * qw, *u = uq + static_cast<size_t>(r) * qw;
++		const uint8_t *v = vq + static_cast<size_t>(r) * qw;
++		for (unsigned int cx = 0, x = 0; cx < gw; cx++) {
++			const unsigned int end = std::min(x + kCell, qw);
++			unsigned int a = 0, bu = 0, bv = 0;
++			for (unsigned int k = x; k < end; k++) {
++				a += l[k];
++				bu += u[k];
++				bv += v[k];
++			}
++			sy[row + cx] += a;
++			su[row + cx] += bu;
++			sv[row + cx] += bv;
++			count[row + cx] += end - x;
++			x = end;
++		}
++	}
++	std::vector<int> cy(cells), cu(cells), cv(cells);
++	for (size_t i = 0; i < cells; i++) {
++		const unsigned int n = std::max(count[i], 1U);
++		cy[i] = static_cast<int>((sy[i] + n / 2) / n);
++		cu[i] = static_cast<int>((su[i] * 16 + n / 2) / n);
++		cv[i] = static_cast<int>((sv[i] * 16 + n / 2) / n);
++	}
++
++	/* the brightness weight exp(-(d / sigma)^2) in 1/256, at least 1 */
++	std::array<uint32_t, 256> range;
++	for (int d = 0; d < 256; d++)
++		range[d] = std::max<uint32_t>(1, static_cast<uint32_t>(std::lround(256 * std::exp(-(d / kSigma) * (d / kSigma)))));
++	/* cell positions: (x + 0.5) / 8 - 0.5 falls on sixteenths exactly */
++	std::vector<unsigned int> x0(qw), fx(qw);
++	for (unsigned int x = 0; x < qw; x++) {
++		const int f16 = std::clamp(static_cast<int>(2 * x) + 1 - static_cast<int>(kCell), 0,
++					   static_cast<int>(16 * (gw - 1)));
++		x0[x] = static_cast<unsigned int>(f16) / 16;
++		fx[x] = static_cast<unsigned int>(f16) % 16;
++	}
++
++	/* each quarter pixel: the 4 nearest cells, by distance and by brightness; written to its 2x2 chroma pixels */
++	const int blend = strength;
++	for (unsigned int r = 0; r < qh; r++) {
++		const int f16 = std::clamp(static_cast<int>(2 * r) + 1 - static_cast<int>(kCell), 0,
++					   static_cast<int>(16 * (gh - 1)));
++		const unsigned int y0 = static_cast<unsigned int>(f16) / 16, y1 = std::min(y0 + 1, gh - 1);
++		const uint32_t wy1 = static_cast<uint32_t>(f16) % 16, wy0 = 16 - wy1;
++		const int *cyA = cy.data() + static_cast<size_t>(y0) * gw, *cyB = cy.data() + static_cast<size_t>(y1) * gw;
++		const int *cuA = cu.data() + static_cast<size_t>(y0) * gw, *cuB = cu.data() + static_cast<size_t>(y1) * gw;
++		const int *cvA = cv.data() + static_cast<size_t>(y0) * gw, *cvB = cv.data() + static_cast<size_t>(y1) * gw;
++		const uint8_t *l = lq + static_cast<size_t>(r) * qw;
++		uint8_t *c0 = uv + static_cast<size_t>(2 * r) * stride, *c1 = c0 + stride;
++		for (unsigned int x = 0; x < qw; x++) {
++			const unsigned int xa = x0[x], xb = std::min(xa + 1, gw - 1);
++			const uint32_t wx1 = fx[x], wx0 = 16 - wx1;
++			const int lx = l[x];
++			const uint32_t w0 = wy0 * wx0 * range[std::abs(cyA[xa] - lx)];
++			const uint32_t w1 = wy0 * wx1 * range[std::abs(cyA[xb] - lx)];
++			const uint32_t w2 = wy1 * wx0 * range[std::abs(cyB[xa] - lx)];
++			const uint32_t w3 = wy1 * wx1 * range[std::abs(cyB[xb] - lx)];
++			const float inv = 1.0f / static_cast<float>(w0 + w1 + w2 + w3);
++			const float uo = (w0 * cuA[xa] + w1 * cuA[xb] + w2 * cuB[xa] + w3 * cuB[xb]) * inv * (1.0f / 16);
++			const float vo = (w0 * cvA[xa] + w1 * cvA[xb] + w2 * cvB[xa] + w3 * cvB[xb]) * inv * (1.0f / 16);
++			const int u = static_cast<int>(uo + 0.5f), v = static_cast<int>(vo + 0.5f);
++			uint8_t *p[4] = { c0 + 4 * x, c0 + 4 * x + 2, c1 + 4 * x, c1 + 4 * x + 2 };
++			if (blend >= 256) {
++				for (uint8_t *c : p) {
++					c[0] = static_cast<uint8_t>(u);
++					c[1] = static_cast<uint8_t>(v);
++				}
++			} else {
++				for (uint8_t *c : p) {
++					c[0] = static_cast<uint8_t>(c[0] + (((u - c[0]) * blend) >> 8));
++					c[1] = static_cast<uint8_t>(c[1] + (((v - c[1]) * blend) >> 8));
++				}
++			}
++		}
++	}
++}
++
+ } /* namespace */
+ 
+ /*
+@@ -1738,6 +1945,8 @@ void IPU3CameraData::temporalDenoise(const Stream *stream, FrameBuffer *buffer)
+ 	std::vector<uint8_t> &prev = tnrPrev_[stream];
+ 	if (prev.size() != ySize + uvSize) {
+ 		/* First frame (or a new configuration): nothing to blend with. */
++		tnrNoise_.erase(stream);
++		tnrLevelKnown_.erase(stream);
+ 		prev.resize(ySize + uvSize);
+ 		std::copy(y, y + ySize, prev.begin());
+ 		std::copy(uv, uv + uvSize, prev.begin() + ySize);
+@@ -1833,6 +2042,48 @@ void IPU3CameraData::temporalDenoise(const Stream *stream, FrameBuffer *buffer)
+ 	uint8_t *py = prev.data();
+ 	uint8_t *puv = prev.data() + ySize;
+ 
++	/*
++	 * A change of brightness of the whole picture (the auto exposure, a lamp) is brought into the previous output
++	 * first: otherwise every block differs a little from it, the whole frame counts as moving and the grain comes
++	 * through on that frame (seen when the gain alternated between two steps, 2026-11-04). The ratio is the median of
++	 * 16x2-pixel means on a sparse grid, so that a person moving in front of the camera does not change it.
++	 */
++	{
++		std::vector<float> ratios;
++		ratios.reserve(static_cast<size_t>(height / 32 + 1) * (width / 64 + 1));
++		for (unsigned int r = 16; r + 2 < height; r += 32) {
++			for (unsigned int x = 24; x + 16 < width; x += 64) {
++				int sc = 0, sp = 0;
++				for (unsigned int k = 0; k < 2; k++) {
++					const uint8_t *c = y + static_cast<size_t>(r + k) * stride + x;
++					const uint8_t *q = py + static_cast<size_t>(r + k) * stride + x;
++					for (unsigned int i = 0; i < 16; i++) {
++						sc += c[i];
++						sp += q[i];
++					}
++				}
++				/* dark blocks say little about a ratio (and are mostly noise) */
++				if (sp >= 32 * 24 && sc >= 32 * 24)
++					ratios.push_back(static_cast<float>(sc) / static_cast<float>(sp));
++			}
++		}
++		if (ratios.size() >= 16) {
++			auto mid = ratios.begin() + ratios.size() / 2;
++			std::nth_element(ratios.begin(), mid, ratios.end());
++			const float ratio = std::clamp(*mid, 0.8f, 1.25f);
++			if (std::abs(ratio - 1.0f) >= 0.006f) {
++				std::array<uint8_t, 256> lut;
++				for (int v = 0; v < 256; v++)
++					lut[v] = static_cast<uint8_t>(std::clamp(static_cast<int>(std::lround(v * ratio)), 0, 255));
++				for (unsigned int r = 0; r < height; r++) {
++					uint8_t *line = py + static_cast<size_t>(r) * stride;
++					for (unsigned int x = 0; x < width; x++)
++						line[x] = lut[line[x]];
++				}
++			}
++		}
++	}
++
+ 	/* LIBCAMERA_IPU3_TNR_TIMING=1: the time of every phase, averaged, on stderr every 60 frames. */
+ 	using Clock = std::chrono::steady_clock;
+ 	static const bool timing = getenv("LIBCAMERA_IPU3_TNR_TIMING");
+@@ -1877,28 +2128,124 @@ void IPU3CameraData::temporalDenoise(const Stream *stream, FrameBuffer *buffer)
+ 	for (const auto &bandH : bandHist)
+ 		for (size_t i = 0; i < hist.size(); i++)
+ 			hist[i] += bandH[i];
+-	int noise = 0;
+-	for (size_t acc = 0; noise < static_cast<int>(hist.size()) - 1; noise++) {
+-		acc += hist[noise];
++	int median = 0;
++	for (size_t acc = 0; median < static_cast<int>(hist.size()) - 1; median++) {
++		acc += hist[median];
+ 		if (acc > sums.size() / 2)
+ 			break;
+ 	}
++	/*
++	 * The median block is the noise only while most of the picture is still. When someone moves in front of the
++	 * camera, or the camera moves, the median is a moving block: the thresholds below rose with it, the motion fell
++	 * under them and was averaged with the past frames, the ghosting seen in low light at the strong levels. So the
++	 * noise is remembered from still moments: it follows the median down at once and up by 3% a frame at most (twice
++	 * in about 0.8 s at 30 fps, for a change of light). Modelled offline on raw frames of a dim room (2026-11-03, level
++	 * "maximum"): trail behind a moving person 3.20 -> 0.21 (1.62 -> 0.21, 2.23 -> 0.23 on two older recordings),
++	 * flicker of a still scene unchanged (0.20, raw 1.98).
++	 */
++	/* The overall noise, remembered from still moments (see the noise of each brightness below): for "pass". */
++	auto known = tnrNoise_.find(stream);
++	const double remembered = known == tnrNoise_.end() ? median : std::min<double>(median, known->second * 1.03);
++	tnrNoise_[stream] = remembered;
++	const int noise = static_cast<int>(std::lround(remembered));
+ 	const int base = std::max(params.threshold, 2) * 8;
++
++	/*
++	 * Tuning of the motion test, for measuring: LIBCAMERA_IPU3_TNR_MOTION="<first> <second> <pool>", the thresholds
++	 * in times the noise and 1 to judge each block with its neighbours.
++	 */
++	static const std::array<double, 3> motion = [] {
++		std::array<double, 3> m{ kTnrFirst, kTnrSecond, kTnrPool };
++		if (const char *env = getenv("LIBCAMERA_IPU3_TNR_MOTION"))
++			sscanf(env, "%lf %lf %lf", &m[0], &m[1], &m[2]);
++		return m;
++	}();
++
++	/*
++	 * Neighbours: the sums of a block and the 8 around it, averaged. A moving hand or face moves many blocks
++	 * together, the noise of each block is its own: in the average the noise spreads much less and the motion stays.
++	 * A block much above its neighbourhood (a small thing moving) keeps half of its own sum.
++	 */
++	if (motion[2] > 0) {
++		/* box sums: 3 columns of every row first, then 3 rows */
++		std::vector<int> &pooled = tnrPooled_[stream];
++		std::vector<int> &across = tnrAcross_[stream];
++		pooled.resize(sums.size());
++		across.resize(sums.size());
++		for (unsigned int br = 0; br < blockRows; br++) {
++			const int *src = sums.data() + static_cast<size_t>(br) * blockCols;
++			int *dst = across.data() + static_cast<size_t>(br) * blockCols;
++			dst[0] = 2 * src[0] + src[1];
++			for (unsigned int bc = 1; bc + 1 < blockCols; bc++)
++				dst[bc] = src[bc - 1] + src[bc] + src[bc + 1];
++			dst[blockCols - 1] = src[blockCols - 2] + 2 * src[blockCols - 1];
++		}
++		for (unsigned int br = 0; br < blockRows; br++) {
++			const int *up = across.data() + static_cast<size_t>(br ? br - 1 : 0) * blockCols;
++			const int *mid = across.data() + static_cast<size_t>(br) * blockCols;
++			const int *down = across.data() + static_cast<size_t>(std::min(br + 1, blockRows - 1)) * blockCols;
++			const int *own = sums.data() + static_cast<size_t>(br) * blockCols;
++			int *dst = pooled.data() + static_cast<size_t>(br) * blockCols;
++			for (unsigned int bc = 0; bc < blockCols; bc++)
++				dst[bc] = std::max((up[bc] + mid[bc] + down[bc]) * 7282 >> 16, own[bc] / 2);
++		}
++		sums.swap(pooled);
++	}
++
+ 	/*
+-	 * The noise of still blocks spreads around the median: half of them are above it by definition. With the median
+-	 * as the first threshold half the still picture counted as a little moving, the widening by one block made that
+-	 * nearly all of it, and the grain stayed (measured at 2592x1944, gain 1.3: flicker of still pixels only -18%).
+-	 * 1.5 and 3 times the median: -27% there (-31% with the smoothing below), the same trail at 1152x864.
++	 * The noise depends on the brightness: in a dim room the blocks of a middle grey differed by 27 (median of the
++	 * sums), the dark and the light ones by 12 to 17 (2560x1920, 2026-11-04). With one threshold for all, the middle
++	 * tones counted as moving where they were only noisy (grain) and the dark ones did not where they moved (trail).
++	 * So the noise is measured and remembered for each of 8 levels of brightness, and each block is judged against
++	 * the noise of its own level: from "first" times it on partly moving, from "second" times moving. A level with
++	 * too few blocks to measure takes the overall noise.
+ 	 */
+-	/* ...in a dim room. In good light the median and twice it, as before: higher thresholds there only let the
+-	 * outlines of moving things trail (seen on the rear camera, 2026-10-27) where there is little grain to take. */
+-	const int t2 = std::max(base, static_cast<int>(noise * (2.0 + 2.0 * darkness)));
+-	const int t1 = std::min(std::max(base / 2, static_cast<int>(noise * (1.0 + darkness))), t2 - 1);
++	constexpr unsigned int kLevels = 8;
++	std::vector<uint8_t> &levelOf = tnrLevels_[stream];
++	levelOf.resize(sums.size());
++	std::vector<std::array<uint16_t, 8 * 255 + 1>> &levelHist = tnrLevelHist_[stream];
++	levelHist.resize(kLevels);
++	for (auto &lh : levelHist)
++		lh.fill(0);
++	std::array<unsigned int, kLevels> levelCount{};
++	for (unsigned int br = 0; br < blockRows; br++) {
++		const uint8_t *line = y + static_cast<size_t>(br * kBlock + 1) * stride;
++		for (unsigned int bc = 0; bc < blockCols; bc++) {
++			const size_t i = static_cast<size_t>(br) * blockCols + bc;
++			const unsigned int level = (line[4 * bc] + line[4 * bc + 1] + line[4 * bc + 2] + line[4 * bc + 3]) >> 7;
++			levelOf[i] = static_cast<uint8_t>(level);
++			const int v = std::min(sums[i], 8 * 255);
++			if (levelHist[level][v] < 65535)
++				levelHist[level][v]++;
++			levelCount[level]++;
++		}
++	}
++	std::array<double, kLevels> &levelNoise = tnrLevelNoise_[stream];
++	const bool firstLevels = tnrLevelKnown_.insert(stream).second;
++	std::array<std::array<int, 8 * 255 + 1>, kLevels> &luts = tnrLuts_[stream];
++	for (unsigned int level = 0; level < kLevels; level++) {
++		double measured = remembered;
++		if (levelCount[level] >= sums.size() / 100 + 16) {
++			int m = 0;
++			for (unsigned int acc = 0; m < 8 * 255; m++) {
++				acc += levelHist[level][m];
++				if (acc > levelCount[level] / 2)
++					break;
++			}
++			measured = m;
++		}
++		levelNoise[level] = firstLevels ? measured : std::min(measured, levelNoise[level] * 1.03);
++		const int t2 = std::max(base, static_cast<int>(levelNoise[level] * motion[1]));
++		const int t1 = std::min(std::max(base / 2, static_cast<int>(levelNoise[level] * motion[0])), t2 - 1);
++		for (int m = 0; m <= 8 * 255; m++)
++			luts[level][m] = m <= t1 ? 0 : m >= t2 ? 256 : (m - t1) * 256 / (t2 - t1);
++	}
++
+ 	/*
+ 	 * In a dim room the noise alone puts many blocks a little over the first threshold, and widening every one of them
+ 	 * to its neighbours left nearly the whole picture "moving", without the temporal average: the grain stayed. There
+ 	 * only blocks that clearly move are widened. Measured offline on 40 still frames at gain 2 (2560x1920): flicker of
+-	 * still pixels 1.41 -> 0.88 (raw 2.00), together with the thresholds of 2 and 4 times the median above.
++	 * still pixels 1.41 -> 0.88 (raw 2.00), with the thresholds of that time.
+ 	 */
+ 	const int widen = darkness >= 0.5 ? 256 : 0;
+ 	/* A difference far above the noise is never averaged (a change of exposure, a small fast thing in a still block). */
+@@ -1906,20 +2253,21 @@ void IPU3CameraData::temporalDenoise(const Stream *stream, FrameBuffer *buffer)
+ 	const int minWeight = std::clamp(params.minWeight / 2, 0, 128);
+ 
+ 	/* Block weights 0 (still) .. 256 (moving), then widened by one block (the largest of the 3x3 neighbourhood). */
+-	std::array<int, 8 * 255 + 1> lut;
+-	for (int m = 0; m < static_cast<int>(lut.size()); m++)
+-		lut[m] = m <= t1 ? 0 : m >= t2 ? 256 : (m - t1) * 256 / (t2 - t1);
++	std::vector<int> &level = tnrLevel_[stream];
++	level.resize(sums.size());
++	for (size_t i = 0; i < sums.size(); i++)
++		level[i] = luts[levelOf[i]][std::min(sums[i], 8 * 255)];
+ 	std::vector<int> &weights = tnrWeights_[stream];
+ 	std::vector<int> &wide = tnrSorted_[stream];
+ 	weights.resize(sums.size());
+ 	wide.resize(sums.size());
+ 	parallel(blockRows, [&](unsigned int first, unsigned int last) {
+ 		for (unsigned int br = first; br < last; br++) {
+-			const int *src = sums.data() + static_cast<size_t>(br) * blockCols;
++			const int *src = level.data() + static_cast<size_t>(br) * blockCols;
+ 			int *dst = wide.data() + static_cast<size_t>(br) * blockCols;
+-			int left = lut[src[0]], here = left;
++			int left = src[0], here = left;
+ 			for (unsigned int bc = 0; bc < blockCols; bc++) {
+-				const int right = bc + 1 < blockCols ? lut[src[bc + 1]] : here;
++				const int right = bc + 1 < blockCols ? src[bc + 1] : here;
+ 				dst[bc] = std::max(std::max(left >= widen ? left : 0, here), right >= widen ? right : 0);
+ 				left = here;
+ 				here = right;
+@@ -2027,9 +2375,24 @@ void IPU3CameraData::temporalDenoise(const Stream *stream, FrameBuffer *buffer)
+ 		}
+ 	});
+ 	lap(2);
++
++	/*
++	 * The colour blotches of dim light (see chromaDenoise()), after the temporal average and on the output only: the
++	 * previous output it remembers keeps its own colour. With the real light, whatever level was chosen: from none at
++	 * 15 ms x gain 1 to all of it at 40 ms x gain 1 and darker.
++	 */
++	{
++		const double dim = tnrLight_ <= 0 ? 1.0 : std::clamp((tnrLight_ - 15000.0) / (40000.0 - 15000.0), 0.0, 1.0);
++		const int strength = static_cast<int>(std::lround(256 * dim));
++		/* 11 ms a frame at 2560x1920 on the Surface Go: there only with long frames, as the spatial part above */
++		if (strength > 0 && fits)
++			chromaDenoise(y, uv, width, height, stride, strength, tnrChroma_[stream]);
++	}
++	lap(3);
+ 	if (timing && ++timedFrames % 60 == 0)
+-		fprintf(stderr, "tnr %ux%u ssse3 %d: sums %.2f map %.2f filter %.2f ms\n", width, height, ssse3 ? 1 : 0,
+-			phase[0] / timedFrames, phase[1] / timedFrames, phase[2] / timedFrames);
++		fprintf(stderr, "tnr %ux%u ssse3 %d: sums %.2f map %.2f filter %.2f chroma %.2f ms\n", width, height,
++			ssse3 ? 1 : 0, phase[0] / timedFrames, phase[1] / timedFrames, phase[2] / timedFrames,
++			phase[3] / timedFrames);
+ }
+ 
+ /*
