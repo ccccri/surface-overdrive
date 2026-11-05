@@ -26,6 +26,14 @@ class CamerasFromDump(unittest.TestCase):
         self.assertEqual(cameraapp.cameras_from_dump(None), {})
 
 
+class PenButton(unittest.TestCase):
+    def test_click_double_click_and_hold_are_the_shutter(self):
+        for code in (196, 197, 198):                  # F18, F19, F20 (evdev + 8)
+            self.assertTrue(cameraapp.is_pen_button(code))
+        self.assertFalse(cameraapp.is_pen_button(198, autorepeat=True))
+        self.assertFalse(cameraapp.is_pen_button(36))  # Return
+
+
 class Sizes(unittest.TestCase):
     def test_preview_is_scaled_down_and_even(self):
         self.assertEqual(cameraapp.preview_size(2560, 1920), (1280, 960))

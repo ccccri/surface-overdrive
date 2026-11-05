@@ -114,6 +114,15 @@ def pw_dump():
         return []
 
 
+# The top button of the Surface Pen (a Bluetooth keyboard): Meta+F20 for a click, Meta+F19 for a double click, Meta+F18 when
+# held. Known by their XKB key codes (evdev + 8): the keyboard map turns F20 into Microphone Mute and F18 into Launch9.
+PEN_KEYCODES = {196, 197, 198}
+
+
+def is_pen_button(keycode, autorepeat=False):
+    return keycode in PEN_KEYCODES and not autorepeat
+
+
 # ---- The app
 
 def main():
@@ -122,7 +131,7 @@ def main():
     gi.require_version("GstApp", "1.0")
     gi.require_version("GstVideo", "1.0")
     from gi.repository import Gst, GstVideo
-    from PySide6.QtCore import Property, QObject, QStandardPaths, QTimer, QUrl, Signal, Slot
+    from PySide6.QtCore import QEvent, Property, QObject, QStandardPaths, QTimer, QUrl, Signal, Slot
     from PySide6.QtDBus import QDBusConnection, QDBusMessage
     from PySide6.QtGui import QDesktopServices, QGuiApplication, QIcon
     from PySide6.QtQml import QQmlApplicationEngine
@@ -156,6 +165,7 @@ def main():
         message = Signal(str)
         settingsChanged = Signal()
         capturesChanged = Signal()
+        penButton = Signal()                # the top button of the Surface Pen: a press of the shutter
         _sizeApplied = Signal()             # from the thread that restarted the camera service
         _darkSeen = Signal(bool)            # from GStreamer's thread: the frames say dark / not dark
         _burstStep = Signal(float)          # from GStreamer's thread: share of the night frames collected
@@ -912,6 +922,21 @@ def main():
     if not engine.rootObjects():
         return 1
     app.aboutToQuit.connect(camera.shutdown)
+
+    class PenKeys(QObject):
+        """The pen's button as the shutter while the app has the keyboard (KWin hands it to the active window)."""
+        def eventFilter(self, obj, event):
+            if event.type() in (QEvent.KeyPress, QEvent.ShortcutOverride) and is_pen_button(
+                    event.nativeScanCode(), event.isAutoRepeat()):
+                if event.type() == QEvent.KeyPress:
+                    camera.penButton.emit()
+                event.accept()
+                return True
+            if event.type() == QEvent.KeyRelease and event.nativeScanCode() in PEN_KEYCODES:
+                return True
+            return False
+    pen_keys = PenKeys()
+    app.installEventFilter(pen_keys)
     # the camera starts once the window has drawn its first frame: qml6glsink shares the window's OpenGL context, and
     # started before there was one it stopped after a few frames (the preview froze and the watchdog restarted it)
     window = engine.rootObjects()[0]

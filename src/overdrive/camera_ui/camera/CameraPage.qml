@@ -54,6 +54,16 @@ Kirigami.Page {
         captureMode: root.captureMode
     }
 
+    // Surface Overdrive: the top button of the Surface Pen is a shutter, as the button on screen (a photo, or a video
+    // started or stopped, after the mode); cameraapp.py knows its keys
+    Connections {
+        target: backend
+        function onPenButton() {
+            if (captureAction.enabled)
+                captureAction.trigger();
+        }
+    }
+
     // These actions are used for functional purposes, but are not actually visible
     actions: [
         Kirigami.Action {
