@@ -1,0 +1,26 @@
+From: Surface Overdrive <noreply@surface-overdrive>
+Subject: [PATCH] ipu3: eight buffers per output stream
+
+With four, behind PipeWire one buffer was with the application, one in the software denoiser, one in the ImgU,
+one waiting for the CIO2, and often none was left to queue the next request with: frames were skipped. Front
+camera, 2560x1920 in good light: 19 fps through PipeWire against 31 with cam; with eight, 28 (the Camera
+app's preview path the same).
+---
+diff --git a/src/libcamera/pipeline/ipu3/ipu3.cpp b/src/libcamera/pipeline/ipu3/ipu3.cpp
+index 5abc5b9..ccc6061 100644
+--- a/src/libcamera/pipeline/ipu3/ipu3.cpp
++++ b/src/libcamera/pipeline/ipu3/ipu3.cpp
+@@ -163,7 +163,12 @@ private:
+ class IPU3CameraConfiguration : public CameraConfiguration
+ {
+ public:
+-	static constexpr unsigned int kBufferCount = 4;
++	/*
++	 * Buffers of each output stream. 4 were too few behind PipeWire: one with the application, one in the software
++	 * denoiser, one in the ImgU, one waiting for the CIO2, and often none left to queue the next request with, so
++	 * frames were skipped (2560x1920 in good light: 19 fps through PipeWire against 31 with cam, 2026-11-05).
++	 */
++	static constexpr unsigned int kBufferCount = 8;
+ 	static constexpr unsigned int kMaxStreams = 3;
+ 
+ 	IPU3CameraConfiguration(IPU3CameraData *data);
