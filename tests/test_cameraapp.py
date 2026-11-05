@@ -53,6 +53,9 @@ class Pipelines(unittest.TestCase):
         self.assertIn("vah264enc", d)
         self.assertIn("fdkaacenc", d)
         self.assertIn('location="/tmp/a b.mp4"', d)
+        self.assertIn("pipewiresrc name=vsrc", d)               # end_of_stream finds the sources by these names
+        self.assertIn("pulsesrc name=asrc", d)
+        self.assertIn("fragment-duration=1000", d)   # a recording cut short still plays
         self.assertNotIn("pulsesrc", cameraapp.record_description("n", 2560, 1920, "/tmp/x.mp4", audio=False))
 
     def test_preview_has_both_sinks(self):

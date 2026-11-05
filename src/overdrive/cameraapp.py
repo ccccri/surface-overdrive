@@ -86,11 +86,25 @@ def preview_description(node, width, height):
 
 
 def record_description(node, width, height, path, audio=True, quality="standard"):
-    video = ("pipewiresrc target-object={node} stream-properties=props,media.type=Video,media.category=Capture,media.role=Camera ! video/x-raw,format=NV12,width={w},height={h} ! queue max-size-buffers=8 "
+    # Sources by name: stopping pushes the end of stream right after them (see _stop_recording). The MP4 is written in
+    # one-second fragments, so that a recording cut short (the app killed, the tablet off) still plays up to there.
+    video = ("pipewiresrc name=vsrc target-object={node} stream-properties=props,media.type=Video,media.category=Capture,media.role=Camera ! video/x-raw,format=NV12,width={w},height={h} ! queue max-size-buffers=8 "
              "! vapostproc ! vah264enc bitrate={rate} ! h264parse name=parse ! queue ! mux. "
              ).format(node=node, w=width, h=height, rate=video_bitrate(width, height, quality))
-    sound = "pulsesrc ! audioconvert ! audioresample ! audio/x-raw,rate=48000,channels=2 ! fdkaacenc ! queue ! mux. " if audio else ""
-    return video + sound + "mp4mux name=mux ! filesink location=\"{}\"".format(path.replace("\"", "\\\""))
+    sound = "pulsesrc name=asrc ! audioconvert ! audioresample ! audio/x-raw,rate=48000,channels=2 ! fdkaacenc ! queue ! mux. " if audio else ""
+    return video + sound + "mp4mux name=mux fragment-duration=1000 ! filesink location=\"{}\"".format(path.replace("\"", "\\\""))
+
+
+def end_of_stream(pipeline):
+    """The end of a recording, pushed into the pads right after its sources, each on a thread of its own. Sent to the
+    pipeline it waits in the camera source for the next frame, and a camera that stopped sending frames never ends the
+    recording; this way the encoders and the muxer finish what they have."""
+    from gi.repository import Gst
+    for name in ("vsrc", "asrc"):
+        src = pipeline.get_by_name(name)
+        peer = src.get_static_pad("src").get_peer() if src is not None else None
+        if peer is not None:
+            threading.Thread(target=peer.send_event, args=(Gst.Event.new_eos(),), daemon=True).start()
 
 
 def output_path(directory, kind, now=None):
@@ -168,6 +182,7 @@ def main():
         refreshed = Signal()                # back in the app: the gallery may have changed meanwhile
         penButton = Signal()                # the top button of the Surface Pen: a press of the shutter
         _sizeApplied = Signal()             # from the thread that restarted the camera service
+        _recordingClosed = Signal(bool)     # from the thread that stopped a recording: whether it was finished
         _darkSeen = Signal(bool)            # from GStreamer's thread: the frames say dark / not dark
         _burstStep = Signal(float)          # from GStreamer's thread: share of the night frames collected
 
@@ -189,6 +204,7 @@ def main():
             self._last_switch = 0.0
             self._last_frame = 0.0
             self._stalls = 0
+            self._got_frame = False         # a frame came since the preview last started
             self._bus_timer = QTimer(self, interval=100, timeout=self._poll)
             self._bus_timer.start()
             self._applying_size = False
@@ -202,6 +218,7 @@ def main():
             self._progress = 0.0
             self._busy = ""
             self._darkSeen.connect(self._dark_seen)
+            self._recordingClosed.connect(self._recording_closed)
             self._burstStep.connect(self._burst_step)
             # the screen as a light: a warm frame the window draws round the picture, with the backlight at its brightest
             self._light = False
@@ -600,6 +617,7 @@ def main():
             # frames counted where they enter the GPU, for the watchdog (_watch_frames)
             self._preview.get_by_name("upload").get_static_pad("sink").add_probe(Gst.PadProbeType.BUFFER, self._on_frame)
             self._last_frame = time.monotonic() + 3      # the first frame takes a moment
+            self._got_frame = False
             self._preview.set_state(Gst.State.PLAYING)
             self.changed.emit()
             self.settingsChanged.emit()
@@ -624,6 +642,7 @@ def main():
         # -- preview frames, from GStreamer's streaming thread
         def _on_frame(self, pad, info):
             self._last_frame = time.monotonic()
+            self._got_frame = True
             buf = info.get_buffer()
             # the length of the frames: the dark (the exposure at its longest) makes them long
             if buf.pts != Gst.CLOCK_TIME_NONE:
@@ -814,7 +833,7 @@ def main():
                 self._finish_recording("Nothing recorded yet", discard=True)
                 return
             self.message.emit("Saving the video...")
-            threading.Thread(target=rec.send_event, args=(Gst.Event.new_eos(),), daemon=True).start()
+            end_of_stream(rec)
             QTimer.singleShot(10000, lambda: self._recorder is rec and
                               self._finish_recording("The video took too long to save; it may be incomplete"))
 
@@ -826,7 +845,10 @@ def main():
             return "{:d}:{:02d}".format(s // 60, s % 60)
 
         def _finish_recording(self, note, discard=False):
-            self._recorder.set_state(Gst.State.NULL)
+            # stopped on a thread: a pipeline stuck on a camera without frames blocked set_state, and with it the window
+            rec = self._recorder
+            threading.Thread(target=lambda: (rec.set_state(Gst.State.NULL), self._recordingClosed.emit(True)),
+                             daemon=True).start()
             self._recorder = None
             self._recording_since = None
             self._stopping = False
@@ -838,7 +860,9 @@ def main():
             self.message.emit(note)
             self.changed.emit()
             self._last_frame = time.monotonic() + 3      # the preview gets its time again before the watchdog judges it
-            if self._preview is None:
+
+        def _recording_closed(self, _closed):
+            if self._preview is None and self._recorder is None:
                 QTimer.singleShot(500, self.retry)       # it had stopped during the recording: start it again
 
         def _watch_frames(self):
@@ -848,7 +872,7 @@ def main():
             if self._recorder is not None:
                 return      # a recording owns the camera now; the preview is looked after again once it ends
             if self._preview is None or now - self._last_frame < STALL_SECONDS:
-                if self._preview is not None and self._last_frame <= now:
+                if self._preview is not None and self._got_frame:
                     self._stalls = 0                         # frames come: a later stall starts counting again
                 return
             self._stalls += 1
@@ -904,12 +928,18 @@ def main():
             rec = self._recorder
             if rec is not None:
                 if self._frames and not self._stopping:
-                    threading.Thread(target=rec.send_event, args=(Gst.Event.new_eos(),), daemon=True).start()
+                    end_of_stream(rec)
                 if self._frames:
                     rec.get_bus().timed_pop_filtered(5 * Gst.SECOND, Gst.MessageType.EOS | Gst.MessageType.ERROR)
-                    self._finish_recording("")
-                else:
-                    self._finish_recording("", discard=True)
+                closer = threading.Thread(target=rec.set_state, args=(Gst.State.NULL,), daemon=True)
+                closer.start()
+                closer.join(3)                           # stuck: the process ends anyway, the fragments already written
+                self._recorder = None
+                if not self._frames:
+                    try:
+                        os.remove(self._recorded)
+                    except OSError:
+                        pass
             self._stop_preview()
             if self._burst is not None:
                 self._pause_tnr(False)
