@@ -1,0 +1,132 @@
+From: Surface Overdrive <noreply@surface-overdrive>
+Subject: [PATCH] ipu3: the motion map in 8x8 blocks from 2000 pixels wide
+
+The motion map of the software temporal denoiser worked on 4x4 blocks at every size: at 2560x1920 that is
+307,000 blocks, about 10 ms a frame on the Surface Go. From 2000 pixels wide the blocks are 8x8, the same detail
+of motion as 4x4 at half the size: motion map 8.4 -> 2.9 ms and block sums 2.1 -> 1.1 ms (the filter 20 -> 12.5
+ms a frame in good light). The grain is a little lower too (still flicker 0.87 -> 0.75, 1.62 -> 1.45 in the
+dark: noise fools the larger blocks less), no trail seen on the recordings of a moving person.
+---
+diff --git a/src/libcamera/pipeline/ipu3/ipu3.cpp b/src/libcamera/pipeline/ipu3/ipu3.cpp
+index 348ce0c..eeb692d 100644
+--- a/src/libcamera/pipeline/ipu3/ipu3.cpp
++++ b/src/libcamera/pipeline/ipu3/ipu3.cpp
+@@ -1699,14 +1699,22 @@ void tnrWeightsPlain(const int16_t *a, const int16_t *b, int16_t *w, unsigned in
+ 		w[x] = static_cast<int16_t>((a[x] * (256 - f) + b[x] * f + 128) >> 8);
+ }
+ 
+-/* Adds |cur - prev| of every group of 4 pixels of a row to sums[]. */
++/* Adds |cur - prev| of every group of 4 (or 8) pixels of a row to sums[]. */
+ __attribute__((optimize("O3"))) void tnrRowSad(const uint8_t *__restrict cur, const uint8_t *__restrict prev,
+-						 unsigned int width, int *__restrict sums, uint8_t *__restrict absd)
++						 unsigned int width, int *__restrict sums, uint8_t *__restrict absd,
++						 unsigned int block)
+ {
+ 	for (unsigned int x = 0; x < width; x++) {
+ 		const int d = static_cast<int>(cur[x]) - static_cast<int>(prev[x]);
+ 		absd[x] = static_cast<uint8_t>(d < 0 ? -d : d);
+ 	}
++	if (block == 8) {
++		for (unsigned int b = 0; b < width / 8; b++) {
++			const uint8_t *a = absd + 8 * b;
++			sums[b] += a[0] + a[1] + a[2] + a[3] + a[4] + a[5] + a[6] + a[7];
++		}
++		return;
++	}
+ 	for (unsigned int b = 0; b < width / 4; b++)
+ 		sums[b] += absd[4 * b] + absd[4 * b + 1] + absd[4 * b + 2] + absd[4 * b + 3];
+ }
+@@ -1720,9 +1728,26 @@ __attribute__((optimize("O3"))) void tnrRowH(const uint8_t *__restrict src, int1
+ 	dst[width - 1] = static_cast<int16_t>(src[width - 2] + src[width - 1] * 2);
+ }
+ 
+-/* Block weights (0..256) of a block row to pixel weights (0..128), linear between block centres (4b + 1.5). */
+-void tnrExpand(const int *weights, unsigned int blocks, int16_t *w, unsigned int width)
++/* Block weights (0..256) of a block row to pixel weights (0..128), linear between block centres (4b + 1.5, 8b + 3.5). */
++void tnrExpand(const int *weights, unsigned int blocks, int16_t *w, unsigned int width, unsigned int block)
+ {
++	if (block == 8) {
++		for (unsigned int b = 0; b < blocks; b++) {
++			const int l = weights[b ? b - 1 : b], m = weights[b], r = weights[b + 1 < blocks ? b + 1 : b];
++			int16_t *o = w + 8 * b;
++			o[0] = static_cast<int16_t>((l * 7 + m * 9 + 16) >> 5);
++			o[1] = static_cast<int16_t>((l * 5 + m * 11 + 16) >> 5);
++			o[2] = static_cast<int16_t>((l * 3 + m * 13 + 16) >> 5);
++			o[3] = static_cast<int16_t>((l + m * 15 + 16) >> 5);
++			o[4] = static_cast<int16_t>((r + m * 15 + 16) >> 5);
++			o[5] = static_cast<int16_t>((r * 3 + m * 13 + 16) >> 5);
++			o[6] = static_cast<int16_t>((r * 5 + m * 11 + 16) >> 5);
++			o[7] = static_cast<int16_t>((r * 7 + m * 9 + 16) >> 5);
++		}
++		for (unsigned int x = 8 * blocks; x < width; x++)
++			w[x] = w[8 * blocks - 1];
++		return;
++	}
+ 	for (unsigned int b = 0; b < blocks; b++) {
+ 		const int l = weights[b ? b - 1 : b], m = weights[b], r = weights[b + 1 < blocks ? b + 1 : b];
+ 		w[4 * b + 0] = static_cast<int16_t>((l * 3 + m * 5 + 8) >> 4);
+@@ -2011,7 +2036,11 @@ void IPU3CameraData::temporalDenoise(const Stream *stream, FrameBuffer *buffer)
+ 	 * per-pixel filter, grain 0.49 against 0.79 on moving areas and 0.32 against 0.35 on still ones; 3.8 ms a frame on
+ 	 * one core of the Surface Go against 3.2.
+ 	 */
+-	constexpr unsigned int kBlock = 4;
++	/*
++	 * Blocks of 4x4 pixels, 8x8 from 2000 pixels wide: the same detail of motion as 4x4 at half the size, and a quarter
++	 * of the work in the motion map (2560x1920 on the Surface Go: about 10 ms a frame with 4x4, 2026-11-05).
++	 */
++	const unsigned int kBlock = width >= 2000 ? 8 : 4;
+ 	/*
+ 	 * How much of the filter the scene needs, from how dark it is (exposure time x gain of the latest frame): none of
+ 	 * the spatial part and a light temporal average in good light, everything in a dim room. The full strength
+@@ -2163,9 +2192,13 @@ void IPU3CameraData::temporalDenoise(const Stream *stream, FrameBuffer *buffer)
+ 		hist.fill(0);
+ 		for (unsigned int br = first; br < last; br++) {
+ 			int *rowSums = sums.data() + static_cast<size_t>(br) * blockCols;
+-			for (unsigned int r = br * kBlock; r < br * kBlock + kBlock; r += 2)
++			/* two rows of every block (8 pixels each for 4x4; 16 for 8x8, halved: the same scale) */
++			for (unsigned int r = br * kBlock; r < br * kBlock + kBlock; r += kBlock / 2)
+ 				tnrRowSad(y + static_cast<size_t>(r) * stride, py + static_cast<size_t>(r) * stride, width,
+-					  rowSums, absd.data());
++					  rowSums, absd.data(), kBlock);
++			if (kBlock == 8)
++				for (unsigned int bc = 0; bc < blockCols; bc++)
++					rowSums[bc] = (rowSums[bc] + 1) >> 1;
+ 			for (unsigned int bc = 0; bc < blockCols; bc++)
+ 				hist[rowSums[bc]]++;
+ 		}
+@@ -2261,7 +2294,8 @@ void IPU3CameraData::temporalDenoise(const Stream *stream, FrameBuffer *buffer)
+ 		const uint8_t *line = y + static_cast<size_t>(br * kBlock + 1) * stride;
+ 		for (unsigned int bc = 0; bc < blockCols; bc++) {
+ 			const size_t i = static_cast<size_t>(br) * blockCols + bc;
+-			const unsigned int level = (line[4 * bc] + line[4 * bc + 1] + line[4 * bc + 2] + line[4 * bc + 3]) >> 7;
++			const uint8_t *px = line + kBlock * bc;
++			const unsigned int level = (px[0] + px[1] + px[2] + px[3]) >> 7;
+ 			levelOf[i] = static_cast<uint8_t>(level);
+ 			const int v = std::min(sums[i], 8 * 255);
+ 			if (levelHist[level][v] < 65535)
+@@ -2368,7 +2402,7 @@ void IPU3CameraData::temporalDenoise(const Stream *stream, FrameBuffer *buffer)
+ 					return expanded[i].data();
+ 			/* replace the one that is not the other block row in use */
+ 			const int i = expandedRow[0] == ~0U ? 0 : expandedRow[1] == ~0U ? 1 : expandedRow[0] < expandedRow[1] ? 0 : 1;
+-			tnrExpand(weights.data() + static_cast<size_t>(br) * blockCols, blockCols, expanded[i].data(), width);
++			tnrExpand(weights.data() + static_cast<size_t>(br) * blockCols, blockCols, expanded[i].data(), width, kBlock);
+ 			expandedRow[i] = br;
+ 			return expanded[i].data();
+ 		};
+@@ -2391,11 +2425,12 @@ void IPU3CameraData::temporalDenoise(const Stream *stream, FrameBuffer *buffer)
+ 			if (next != r && spatial)
+ 				tnrRowH(y + static_cast<size_t>(next) * stride, h[next % 3].data(), width);	/* still original */
+ 
+-			/* between the centres (4b + 1.5) of the block rows b0 and b0 + 1 */
+-			const int pos = static_cast<int>(r) * 2 - 3;
+-			const unsigned int b0 = std::min<unsigned int>(pos < 0 ? 0 : pos / 8, blockRows - 1);
++			/* between the centres (4b + 1.5, or 8b + 3.5) of the block rows b0 and b0 + 1, in half pixels */
++			const int pos = static_cast<int>(r) * 2 - static_cast<int>(kBlock - 1);
++			const int span = 2 * static_cast<int>(kBlock);
++			const unsigned int b0 = std::min<unsigned int>(pos < 0 ? 0 : pos / span, blockRows - 1);
+ 			const unsigned int b1 = std::min(b0 + 1, blockRows - 1);
+-			const int fy = pos < 0 ? 0 : (pos % 8) * 32;
++			const int fy = pos < 0 ? 0 : (pos % span) * 256 / span;
+ 			const bool any = moving[b0] || moving[b1];
+ 
+ 			uint8_t *out = y + static_cast<size_t>(r) * stride;
