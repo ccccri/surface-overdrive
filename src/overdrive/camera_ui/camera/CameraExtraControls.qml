@@ -55,7 +55,7 @@ Rectangle {
             // Surface Overdrive: the screen as the flash of front photos (auto: in the dark)
             QQC2.ToolButton {
                 visible: backend.key === "front" && root.photoMode
-                icon.name: "flash"
+                icon.source: Qt.resolvedUrl("../icons/flash.svg")
                 icon.color: backend.flashMode === "off" ? "white" : Kirigami.Theme.highlightColor
                 text: backend.flashMode === "auto" ? qsTr("Flash: auto") : backend.flashMode === "on" ? qsTr("Flash: on") : qsTr("Flash: off")
                 display: QQC2.ToolButton.TextBesideIcon
@@ -83,15 +83,24 @@ Rectangle {
                 QQC2.ToolTip.text: text
             }
 
+            // Surface Overdrive: the photo presets (in place of the exposure strip) and the page where they are made
             QQC2.ToolButton {
-                id: exposureControlsButton
-                icon.name: 'lighttable' // TODO: find better icon
-                icon.color: "white"
-                text: qsTr("Exposure")
+                id: presetButton
+                icon.name: "color-management"
+                icon.color: presetSelectStrip.shown ? Kirigami.Theme.highlightColor : "white"
+                text: qsTr("Photo preset")
                 display: QQC2.ToolButton.IconOnly
                 visible: root.exposureValueEnabled
-                onClicked: exposureSelectStrip.shown = !exposureSelectStrip.shown
-
+                onClicked: presetSelectStrip.shown = !presetSelectStrip.shown
+                QQC2.ToolTip.visible: down
+                QQC2.ToolTip.text: text
+            }
+            QQC2.ToolButton {
+                icon.name: "configure"
+                icon.color: "white"
+                text: qsTr("Embedded Cameras settings")
+                display: QQC2.ToolButton.IconOnly
+                onClicked: backend.openCameraSettings()
                 QQC2.ToolTip.visible: down
                 QQC2.ToolTip.text: text
             }
@@ -99,12 +108,10 @@ Rectangle {
             Item { Layout.fillWidth: true }
         }
 
-        ExposureSelectStrip {
-            id: exposureSelectStrip
+        PresetSelectStrip {
+            id: presetSelectStrip
             visible: root.exposureValueEnabled
-            shown: false // Set by exposureControlsButton
-
-            onExposureValueRequested: (value) => root.exposureValueRequested(value)
+            shown: false // Set by presetButton
             Layout.fillWidth: true
         }
     }

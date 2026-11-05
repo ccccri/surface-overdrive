@@ -408,10 +408,70 @@ def main():
 
         def _size_applied(self):
             self._applying_size = False
+            self.presetsChanged.emit()
             self._error = ""
             self._tries = 0
             self.settingsChanged.emit()
             self.start()
+
+        # -- the photo presets of the Embedded Cameras page (whole profiles saved under a name)
+        presetsChanged = Signal()
+
+        def _get_presets(self):
+            from overdrive import camera as cs
+            if self._key not in cs.SENSORS:
+                return "[]"
+            try:
+                return json.dumps(cs.list_presets(self._key))
+            except (OSError, ValueError):
+                return "[]"
+
+        presets = Property(str, _get_presets, notify=presetsChanged)
+
+        @Slot()
+        def refreshPresets(self):
+            self.presetsChanged.emit()
+
+        @Slot(str)
+        def applyPreset(self, pid):
+            """A preset as the current profile ("" for the tuning defaults, the size kept). A preset with another picture
+            size restarts the camera service: done on a thread, the preview starts again afterwards."""
+            from overdrive import camera as cs
+            if self._key not in cs.SENSORS or self._recorder is not None or self._applying_size:
+                return
+            cam = self._key
+            if not pid:
+                cs.reset_all(cam, keep_size=True)
+                self.presetsChanged.emit()
+                self.settingsChanged.emit()
+                return
+            try:
+                size_changes = cs._preset_profile(cam, pid).get("min_width") != cs.read_profile(cam).get("min_width")
+            except (ValueError, OSError):
+                return
+            if not size_changes:
+                cs.apply_preset(cam, pid)
+                self.presetsChanged.emit()
+                self.settingsChanged.emit()
+                return
+            self._applying_size = True
+            self._stop_preview()
+            self._error = "Changing the picture size..."
+            self.changed.emit()
+
+            def work():
+                try:
+                    cs.apply_preset(cam, pid)
+                except (OSError, ValueError, subprocess.SubprocessError) as exc:
+                    self.message.emit("The preset could not be applied: {}".format(exc))
+                self._sizeApplied.emit()
+            threading.Thread(target=work, daemon=True).start()
+
+        @Slot()
+        def openCameraSettings(self):
+            """The Embedded Cameras page of System Settings, where presets are made."""
+            subprocess.Popen(["systemsettings", "kcm_overdrive_cameras"], stdout=subprocess.DEVNULL,
+                             stderr=subprocess.DEVNULL, start_new_session=True)
 
         @Slot()
         def resetSettings(self):
