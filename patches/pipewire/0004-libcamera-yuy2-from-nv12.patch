@@ -1,0 +1,190 @@
+From: Surface Overdrive <noreply@surface-overdrive>
+Subject: [PATCH] spa: libcamera: YUY2 converted from NV12 for the applications that take it
+
+OBS reads only the first plane of a planar format from PipeWire cameras (it sets the line size of plane 0
+alone): NV12, all the IPU3 gives, came out green or black there. When the camera offers NV12 and no YUYV, the
+node offers YUY2 too, after its own formats; an application that takes it gets buffers of our own (memfd)
+with every frame converted, while the camera keeps running NV12.
+---
+diff --git a/spa/plugins/libcamera/libcamera-source.cpp b/spa/plugins/libcamera/libcamera-source.cpp
+index f5f29c2..f91d977 100644
+--- a/spa/plugins/libcamera/libcamera-source.cpp
++++ b/spa/plugins/libcamera/libcamera-source.cpp
+@@ -14,6 +14,7 @@
+ #include <utility>
+ 
+ #include <sys/mman.h>
++#include <unistd.h>
+ 
+ #include <spa/support/plugin.h>
+ #include <spa/support/log.h>
+@@ -75,6 +76,20 @@ struct port {
+ 
+ 	uint32_t buffers_blocks = 1;
+ 
++	/*
++	 * Surface Overdrive: YUY2 made from NV12 for the applications that take it. OBS reads only the first plane of a
++	 * planar format from PipeWire cameras (it sets the line size of plane 0 alone): NV12, all the IPU3 gives, came out
++	 * green or black there. The camera keeps running NV12; the frames are converted into buffers of our own.
++	 */
++	bool convert = false;
++	uint32_t out_stride = 0;
++	uint32_t out_size = 0;
++	int conv_fd[MAX_BUFFERS] = {};
++	uint8_t *conv_map[MAX_BUFFERS] = {};
++	const uint8_t *src_map[MAX_BUFFERS] = {};
++	size_t src_len[MAX_BUFFERS] = {};
++	size_t uv_offset = 0;
++
+ 	struct buffer buffers[MAX_BUFFERS];
+ 	uint32_t n_buffers = 0;
+ 	struct spa_list queue;
+@@ -373,6 +388,19 @@ err:
+ 
+ int spa_libcamera_clear_buffers(struct port *port)
+ {
++	for (std::size_t i = 0; i < MAX_BUFFERS; i++) {
++		if (port->conv_map[i])
++			munmap(port->conv_map[i], port->out_size);
++		if (port->conv_fd[i] > 0)
++			close(port->conv_fd[i]);
++		if (port->src_map[i])
++			munmap(const_cast<uint8_t *>(port->src_map[i]), port->src_len[i]);
++		port->conv_map[i] = nullptr;
++		port->conv_fd[i] = 0;
++		port->src_map[i] = nullptr;
++		port->src_len[i] = 0;
++	}
++
+ 	for (std::size_t i = 0; i < port->n_buffers; i++) {
+ 		buffer *b = &port->buffers[i];
+ 		spa_buffer *sb = b->outbuf;
+@@ -575,13 +603,17 @@ next:
+ 	result.index = result.next++;
+ 
+ next_fmt:
+-	if (port->fmt_index >= pixel_formats.size())
++	/* Surface Overdrive: one more format after the camera's own, YUY2 converted from NV12 (see port::convert) */
++	const bool can_convert = std::find(pixel_formats.begin(), pixel_formats.end(), formats::NV12) != pixel_formats.end() &&
++				 std::find(pixel_formats.begin(), pixel_formats.end(), formats::YUYV) == pixel_formats.end();
++	if (port->fmt_index > pixel_formats.size() || (port->fmt_index == pixel_formats.size() && !can_convert))
+ 		return 0;
+ 
+-	auto format = pixel_formats[port->fmt_index];
++	const bool converted = port->fmt_index == pixel_formats.size();
++	auto format = converted ? formats::NV12 : pixel_formats[port->fmt_index];
+ 	spa_log_debug(impl->log, "format: %s", format.toString().c_str());
+ 
+-	const auto *info = video_format_to_info(format);
++	const auto *info = video_format_to_info(converted ? formats::YUYV : format);
+ 	if (info == nullptr) {
+ 		spa_log_debug(impl->log, "unknown format");
+ 		port->fmt_index++;
+@@ -738,7 +770,13 @@ int spa_libcamera_set_format(struct impl *impl, struct port *port,
+ 	}
+ 	StreamConfiguration& streamConfig = impl->config->at(0);
+ 
+-	streamConfig.pixelFormat = info->pix;
++	{
++		const auto &pixs = streamConfig.formats().pixelformats();
++		port->convert = info->pix == formats::YUYV &&
++				std::find(pixs.begin(), pixs.end(), formats::YUYV) == pixs.end() &&
++				std::find(pixs.begin(), pixs.end(), formats::NV12) != pixs.end();
++	}
++	streamConfig.pixelFormat = port->convert ? formats::NV12 : info->pix;
+ 	streamConfig.size.width = size->width;
+ 	streamConfig.size.height = size->height;
+ 	streamConfig.bufferCount = 8;
+@@ -758,6 +796,8 @@ int spa_libcamera_set_format(struct impl *impl, struct port *port,
+ 		goto error;
+ 
+ 	port->streamConfig = impl->config->at(0);
++	port->out_stride = port->streamConfig.size.width * 2;
++	port->out_size = port->out_stride * port->streamConfig.size.height;
+ 
+ 	if ((res = allocBuffers(impl, port, port->streamConfig.bufferCount)) < 0)
+ 		goto error;
+@@ -1101,6 +1141,26 @@ void handle_completed_request(struct impl *impl, libcamera::Request *request)
+ 
+ 	const FrameMetadata &fmd = buffer->metadata();
+ 
++	if (port->convert && fmd.status == libcamera::FrameMetadata::Status::FrameSuccess &&
++	    port->src_map[b->id] && port->conv_map[b->id]) {
++		/* NV12 -> YUY2: Y0 U Y1 V for every two pixels, the chroma of a 2x2 block on both of its rows */
++		const unsigned int w = port->streamConfig.size.width, h = port->streamConfig.size.height;
++		const unsigned int stride = port->streamConfig.stride;
++		const uint8_t *src = port->src_map[b->id];
++		uint8_t *dst = port->conv_map[b->id];
++		for (unsigned int y = 0; y < h; y++) {
++			const uint8_t *yr = src + static_cast<size_t>(y) * stride;
++			const uint8_t *uv = src + port->uv_offset + static_cast<size_t>(y / 2) * stride;
++			uint8_t *o = dst + static_cast<size_t>(y) * port->out_stride;
++			for (unsigned int x = 0; x + 1 < w; x += 2) {
++				o[2 * x] = yr[x];
++				o[2 * x + 1] = uv[x];
++				o[2 * x + 2] = yr[x + 1];
++				o[2 * x + 3] = uv[x + 1];
++			}
++		}
++	}
++
+ 	/*
+ 	 * A frame the camera marked as broken (the IPU3 pipeline of Surface Overdrive does so with the garbage the ImgU puts
+ 	 * out after a change of size, seen as a purple flash): give the buffer back to the camera instead of showing it.
+@@ -1298,6 +1358,43 @@ spa_libcamera_alloc_buffers(struct impl *impl, struct port *port,
+ 		const auto& planes = bufs[i]->planes();
+ 		spa_data *d = buffers[i]->datas;
+ 
++		if (port->convert) {
++			/* the camera's NV12 frame, read only, and a memfd of our own for the YUY2 the application gets */
++			const auto &last = planes.back();
++			port->src_len[i] = last.offset + last.length;
++			void *src = mmap(nullptr, port->src_len[i], PROT_READ, MAP_SHARED, planes[0].fd.get(), 0);
++			int fd = memfd_create("libcamera-yuy2", MFD_CLOEXEC);
++			if (src == MAP_FAILED || fd < 0 || ftruncate(fd, port->out_size) < 0) {
++				spa_log_error(impl->log, "cannot set up the YUY2 conversion buffers");
++				if (src != MAP_FAILED)
++					munmap(src, port->src_len[i]);
++				if (fd >= 0)
++					close(fd);
++				return -ENOMEM;
++			}
++			void *dst = mmap(nullptr, port->out_size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
++			if (dst == MAP_FAILED) {
++				munmap(src, port->src_len[i]);
++				close(fd);
++				return -ENOMEM;
++			}
++			port->src_map[i] = static_cast<const uint8_t *>(src);
++			port->uv_offset = planes.size() > 1 ? planes[1].offset : port->streamConfig.stride * port->streamConfig.size.height;
++			port->conv_fd[i] = fd;
++			port->conv_map[i] = static_cast<uint8_t *>(dst);
++			d[0].type = SPA_DATA_MemFd;
++			d[0].flags = SPA_DATA_FLAG_READABLE | SPA_DATA_FLAG_MAPPABLE;
++			d[0].fd = fd;
++			d[0].mapoffset = 0;
++			d[0].maxsize = port->out_size;
++			d[0].data = nullptr;
++			d[0].chunk->offset = 0;
++			d[0].chunk->size = port->out_size;
++			d[0].chunk->stride = port->out_stride;
++			d[0].chunk->flags = 0;
++			continue;
++		}
++
+ 		for(uint32_t j = 0; j < buffers[i]->n_datas; ++j) {
+ 			const auto memtype = choose_memtype(d[j].type);
+ 			if (memtype == SPA_DATA_Invalid) {
+@@ -1811,9 +1908,9 @@ next:
+ 		param = (struct spa_pod*)spa_pod_builder_add_object(&b,
+ 			SPA_TYPE_OBJECT_ParamBuffers, id,
+ 			SPA_PARAM_BUFFERS_buffers, SPA_POD_CHOICE_RANGE_Int(n_buffers, n_buffers, n_buffers),
+-			SPA_PARAM_BUFFERS_blocks,  SPA_POD_Int(port->buffers_blocks),
+-			SPA_PARAM_BUFFERS_size,    SPA_POD_Int(port->streamConfig.frameSize),
+-			SPA_PARAM_BUFFERS_stride,  SPA_POD_Int(port->streamConfig.stride));
++			SPA_PARAM_BUFFERS_blocks,  SPA_POD_Int(port->convert ? 1 : port->buffers_blocks),
++			SPA_PARAM_BUFFERS_size,    SPA_POD_Int(port->convert ? port->out_size : port->streamConfig.frameSize),
++			SPA_PARAM_BUFFERS_stride,  SPA_POD_Int(port->convert ? port->out_stride : port->streamConfig.stride));
+ 		break;
+ 	}
+ 	case SPA_PARAM_Meta:

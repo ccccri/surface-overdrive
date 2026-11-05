@@ -21,9 +21,10 @@ class Flatpaks(unittest.TestCase):
                 state.write_text(done)
             calls = []
             with mock.patch.object(flatpaks, "REMOVE_LIST", remove), mock.patch.object(flatpaks, "DONE", state), \
+                    mock.patch.object(flatpaks, "OVERRIDDEN", Path(tmp, "state", "overridden")), \
                     mock.patch.object(flatpaks, "installed", return_value=set(present)), \
                     mock.patch.object(flatpaks, "flatpak", side_effect=lambda *a: calls.append(a) or 0):
-                flatpaks.main()
+                flatpaks.main([])
             return calls, state.read_text().split()
 
     def test_removes_each_app_once_then_preinstalls(self):
@@ -36,6 +37,26 @@ class Flatpaks(unittest.TestCase):
     def test_an_app_installed_again_by_hand_stays(self):
         calls, _ = self.run_main({"org.kde.kmines"}, done="org.kde.elisa\norg.kde.kmines\n")
         self.assertFalse([c for c in calls if c[0] == "uninstall" and c[-1] == "org.kde.kmines"])
+
+    def test_camera_apps_lose_raw_devices_once(self):
+        calls, _ = self.run_main(set())
+        self.assertIn(("override", "--system", "--nodevice=all", "--device=dri", "--device=input",
+                       "com.obsproject.Studio"), calls)
+        with TemporaryDirectory() as tmp:
+            state = Path(tmp, "overridden")
+            state.write_text("".join(a + "\n" for a in flatpaks.CAMERA_APPS))
+            calls = []
+            with mock.patch.object(flatpaks, "OVERRIDDEN", state), \
+                    mock.patch.object(flatpaks, "flatpak", side_effect=lambda *a: calls.append(a) or 0):
+                flatpaks.camera_overrides()
+            self.assertEqual(calls, [])
+
+    def test_feature_joins_the_last_enable_features_line(self):
+        self.assertEqual(flatpaks.with_feature(""), "--enable-features=WebRtcPipeWireCamera\n")
+        self.assertEqual(flatpaks.with_feature("--ozone-platform=wayland\n--enable-features=Foo\n"),
+                         "--ozone-platform=wayland\n--enable-features=Foo,WebRtcPipeWireCamera\n")
+        once = "--enable-features=WebRtcPipeWireCamera\n"
+        self.assertEqual(flatpaks.with_feature(once), once)
 
 
 if __name__ == "__main__":

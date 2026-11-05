@@ -1,0 +1,11 @@
+[Unit]
+Description=Surface Overdrive: PipeWire camera on in Chromium-based Flatpaks
+After=graphical-session.target
+PartOf=graphical-session.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/overdrive/flatpaks --user
+
+[Install]
+WantedBy=graphical-session.target

@@ -4,7 +4,12 @@ The image declares the apps it wants in /usr/share/flatpak/preinstall.d (install
 app alone once the user has removed it) and the apps it does not want in REMOVE_LIST: those were put there by Kinoite's
 installer, and each is uninstalled once only, so that installing it again by hand sticks. Runs at boot (no network: it tries
 again at the next one).
+
+Camera apps get two more things, once each (a user's later change sticks): no raw device nodes, so that the camera reaches
+them through PipeWire (with all devices, Chromium and OBS see the fourteen raw IPU3 nodes of the image processor and none
+works), and, per user, Chromium's PipeWire camera turned on in its flags file.
 """
+import os
 import shutil
 import subprocess
 import sys
@@ -12,6 +17,25 @@ from pathlib import Path
 
 REMOVE_LIST = Path("/usr/share/surface-overdrive/flatpak-remove.list")
 DONE = Path("/var/lib/surface-overdrive/flatpaks-removed")
+OVERRIDDEN = Path("/var/lib/surface-overdrive/flatpaks-camera-overridden")
+
+# apps that open cameras: they keep the GPU and input devices (game pads), not the raw video nodes
+CAMERA_APPS = [
+    "io.github.ungoogled_software.ungoogled_chromium",
+    "org.chromium.Chromium",
+    "com.google.Chrome",
+    "com.brave.Browser",
+    "com.obsproject.Studio",
+]
+# Chromium-based apps and the flags file their Flatpak wrapper reads (in ~/.var/app/<app>/config)
+CHROMIUM_FLAGS = {
+    "io.github.ungoogled_software.ungoogled_chromium": "chromium-flags.conf",
+    "org.chromium.Chromium": "chromium-flags.conf",
+    "com.google.Chrome": "chrome-flags.conf",
+    "com.brave.Browser": "brave-flags.conf",
+}
+FEATURE = "WebRtcPipeWireCamera"
+FLAGS_DONE = "flatpak-chromium-flags"
 
 
 def wanted_gone(text):
@@ -33,7 +57,52 @@ def flatpak(*args):
     return subprocess.run(prefix + ["flatpak", *args], check=False).returncode
 
 
-def main():
+def camera_overrides():
+    """No raw device nodes for the camera apps, once each (the override applies before an app is installed, too)."""
+    done = set(OVERRIDDEN.read_text().split()) if OVERRIDDEN.exists() else set()
+    for app in CAMERA_APPS:
+        if app not in done and flatpak("override", "--system", "--nodevice=all", "--device=dri", "--device=input",
+                                       app) == 0:
+            done.add(app)
+    OVERRIDDEN.parent.mkdir(parents=True, exist_ok=True)
+    OVERRIDDEN.write_text("".join(app + "\n" for app in sorted(done)))
+
+
+def with_feature(text):
+    """The flags file with FEATURE enabled: added to its --enable-features line (Chromium reads only the last one)."""
+    lines = text.splitlines()
+    for i in range(len(lines) - 1, -1, -1):
+        if lines[i].strip().startswith("--enable-features="):
+            if FEATURE not in lines[i].split("=", 1)[1].split(","):
+                lines[i] = lines[i].rstrip() + "," + FEATURE
+            return "".join(line + "\n" for line in lines)
+    return "".join(line + "\n" for line in lines) + "--enable-features=" + FEATURE + "\n"
+
+
+def user_main(home=None):
+    """Per user, at login: Chromium's PipeWire camera on, once per app (its own flags file, left alone afterwards)."""
+    from . import userconfig
+    home = Path(home or os.path.expanduser("~"))
+    state = Path(userconfig.CONFIG, FLAGS_DONE)
+    done = set(state.read_text().split()) if state.exists() else set()
+    out = subprocess.run(["flatpak", "list", "--app", "--columns=application"], capture_output=True, text=True,
+                         check=False).stdout.split()
+    for app, name in CHROMIUM_FLAGS.items():
+        if app in done or app not in out:
+            continue
+        path = home / ".var" / "app" / app / "config" / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(with_feature(path.read_text() if path.exists() else ""))
+        done.add(app)
+    userconfig.write_atomic(str(state), "".join(app + "\n" for app in sorted(done)))
+    return 0
+
+
+def main(argv=None):
+    argv = sys.argv[1:] if argv is None else argv
+    if "--user" in argv:
+        return user_main()
+    camera_overrides()
     done = set(DONE.read_text().split()) if DONE.exists() else set()
     if REMOVE_LIST.exists():
         present = installed()
