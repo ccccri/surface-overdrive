@@ -131,7 +131,7 @@ def main():
     gi.require_version("GstApp", "1.0")
     gi.require_version("GstVideo", "1.0")
     from gi.repository import Gst, GstVideo
-    from PySide6.QtCore import QEvent, Property, QObject, QStandardPaths, QTimer, QUrl, Signal, Slot
+    from PySide6.QtCore import QEvent, QFileSystemWatcher, Property, QObject, Qt, QStandardPaths, QTimer, QUrl, Signal, Slot
     from PySide6.QtDBus import QDBusConnection, QDBusMessage
     from PySide6.QtGui import QDesktopServices, QGuiApplication, QIcon
     from PySide6.QtQml import QQmlApplicationEngine
@@ -165,6 +165,7 @@ def main():
         message = Signal(str)
         settingsChanged = Signal()
         capturesChanged = Signal()
+        refreshed = Signal()                # back in the app: the gallery may have changed meanwhile
         penButton = Signal()                # the top button of the Surface Pen: a press of the shutter
         _sizeApplied = Signal()             # from the thread that restarted the camera service
         _darkSeen = Signal(bool)            # from GStreamer's thread: the frames say dark / not dark
@@ -236,6 +237,9 @@ def main():
             return self._key == "front"
 
         def _get_last(self):
+            if self._last_capture and not os.path.exists(self._last_capture):   # deleted or moved meanwhile
+                rest = self._get_captures()
+                self._last_capture = rest[0] if rest else ""
             return QUrl.fromLocalFile(self._last_capture).toString() if self._last_capture else ""
 
         def _get_last_is_video(self):
@@ -479,8 +483,9 @@ def main():
 
         @Slot()
         def openCameraSettings(self):
-            """The Embedded Cameras page of System Settings, where presets are made."""
-            subprocess.Popen(["systemsettings", "kcm_overdrive_cameras"], stdout=subprocess.DEVNULL,
+            """The Embedded Cameras page of System Settings, where presets are made, on the camera in use."""
+            subprocess.Popen(["systemsettings", "kcm_overdrive_cameras", "--args",
+                              "front" if self._key == "front" else "rear"], stdout=subprocess.DEVNULL,
                              stderr=subprocess.DEVNULL, start_new_session=True)
 
         @Slot()
@@ -521,6 +526,15 @@ def main():
                     self._last_capture = rest[0] if rest else ""
                     self.changed.emit()
                 self.capturesChanged.emit()
+
+        @Slot()
+        def refreshCaptures(self):
+            """Back in the app: photos and videos may have been deleted or moved elsewhere meanwhile."""
+            last = self._last_capture
+            self._get_last()
+            if self._last_capture != last:
+                self.changed.emit()
+                self.refreshed.emit()
 
         @Slot(str)
         def openExternally(self, path):
@@ -571,6 +585,9 @@ def main():
             self._stop_preview()
             self._key = key
             self._error = ""
+            if key != "front" and self._light:       # the screen lights the face only: off for the rear camera
+                self._light = False
+                self._boost(False)
             cam = self._cameras[key]
             try:
                 self._preview = Gst.parse_launch(preview_description(cam["node"], *cam["size"]))
@@ -937,6 +954,12 @@ def main():
             return False
     pen_keys = PenKeys()
     app.installEventFilter(pen_keys)
+    app.applicationStateChanged.connect(
+        lambda state: camera.refreshCaptures() if state == Qt.ApplicationState.ApplicationActive else None)
+    # and while it is open: a photo or video deleted or moved by another app
+    watcher = QFileSystemWatcher([folder(QStandardPaths.StandardLocation.PicturesLocation, "Camera"),
+                                  folder(QStandardPaths.StandardLocation.MoviesLocation, "")])
+    watcher.directoryChanged.connect(lambda _: camera.refreshCaptures())
     # the camera starts once the window has drawn its first frame: qml6glsink shares the window's OpenGL context, and
     # started before there was one it stopped after a few frames (the preview froze and the watchdog restarted it)
     window = engine.rootObjects()[0]

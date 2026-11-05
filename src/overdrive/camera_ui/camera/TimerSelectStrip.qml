@@ -60,14 +60,25 @@ Item {
         id: delegateComponent
 
         Item {
+            id: timerDelegate
+            required property int index
+            required property var modelData
             width: Kirigami.Units.gridUnit * 2
             opacity: 1 - Math.abs(QQC2.Tumbler.displacement) / (QQC2.Tumbler.tumbler.visibleItemCount / 2.5)
+
+            // Surface Overdrive: a tap picks a duration too, not only a swipe
+            TapHandler {
+                onTapped: {
+                    timerTumbler.currentIndex = timerDelegate.index;
+                    root.timerDurationRequested(timerDelegate.modelData);
+                }
+            }
 
             QQC2.Label {
                 anchors.centerIn: parent
                 rotation: 90
                 color: "white"
-                text: root.formatText(QQC2.Tumbler.tumbler.count, modelData)
+                text: root.formatText(QQC2.Tumbler.tumbler.count, timerDelegate.modelData)
                 font.pixelSize: fontMetrics.font.pixelSize * 1.25
             }
         }

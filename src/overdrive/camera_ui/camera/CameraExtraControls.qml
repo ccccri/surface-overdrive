@@ -44,6 +44,7 @@ Rectangle {
             Item { Layout.fillWidth: true }
             // Surface Overdrive: the screen as a light round the picture
             QQC2.ToolButton {
+                visible: backend.key === "front"
                 icon.name: backend.light ? "flashlight-on" : "flashlight-off"
                 icon.color: backend.light ? Kirigami.Theme.highlightColor : "white"
                 text: backend.light ? qsTr("Screen light is on") : qsTr("Screen light is off")

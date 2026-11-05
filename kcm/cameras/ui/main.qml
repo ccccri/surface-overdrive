@@ -12,7 +12,7 @@ Kirigami.Page {
     title: kcm.name
     padding: 0
 
-    property string cam: "rear"
+    property string cam: kcm.startTab === "front" ? "front" : "rear"   // the Camera app opens the page on the camera in use
     Bars { target: root }
     property var d: ({ settings: {}, controls: [], presets: [], focus: {}, sizes: [], node: "" })
     property real peak: 1

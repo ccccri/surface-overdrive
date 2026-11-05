@@ -71,16 +71,26 @@ Rectangle {
 
                     Component.onCompleted: {
                         root.captureSession.imageSaved.connect(updatePreview)
-                        // Surface Overdrive: start with the last photo or video taken
-                        if (backend.lastCapture !== "") {
-                            if (backend.lastIsVideo) {
-                                videoRecorder.actualLocation = backend.lastCapture;
-                                previewArea.setVideoPreview();
-                                previewArea.createVideoThumbnail();
-                            } else {
-                                previewArea.imageUrl = backend.lastCapture;
-                            }
+                        showLast()
+                    }
+                    // Surface Overdrive: the last photo or video taken, at the start and whenever the app comes back
+                    // (it may have been deleted meanwhile)
+                    function showLast() {
+                        if (backend.lastCapture === "") {
+                            previewArea.imageUrl = "";
+                            previewArea.setPhotoPreview();
+                        } else if (backend.lastIsVideo) {
+                            videoRecorder.actualLocation = backend.lastCapture;
+                            previewArea.setVideoPreview();
+                            previewArea.createVideoThumbnail();
+                        } else {
+                            previewArea.imageUrl = backend.lastCapture;
+                            previewArea.setPhotoPreview();
                         }
+                    }
+                    Connections {
+                        target: backend
+                        function onRefreshed() { previewArea.showLast(); }
                     }
                     function updatePreview(_, fileName: string) {
                         previewArea.imageUrl = "file://" + fileName;
