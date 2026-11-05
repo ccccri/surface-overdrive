@@ -1,0 +1,49 @@
+{
+  "manifest_version": 2,
+  "name": "Google Voice Search",
+  "description": "A microphone beside the address bar: opens Google and starts its own voice search (Surface Overdrive).",
+  "version": "1.0",
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "voice-search@surfaceoverdrive.org",
+      "strict_min_version": "115.0"
+    }
+  },
+  "permissions": [
+    "tabs",
+    "https://www.google.com/*"
+  ],
+  "background": {
+    "scripts": [
+      "background.js"
+    ]
+  },
+  "browser_action": {
+    "default_title": "Google Voice Search",
+    "default_area": "navbar",
+    "default_icon": "mic-dark.svg",
+    "theme_icons": [
+      {
+        "light": "mic-light.svg",
+        "dark": "mic-dark.svg",
+        "size": 16
+      },
+      {
+        "light": "mic-light.svg",
+        "dark": "mic-dark.svg",
+        "size": 32
+      }
+    ]
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://www.google.com/*"
+      ],
+      "js": [
+        "press-mic.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ]
+}
