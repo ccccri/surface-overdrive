@@ -1,0 +1,79 @@
+From: Surface Overdrive <noreply@surface-overdrive>
+Subject: [PATCH] ipu3: the black level follows the analogue gain
+
+The sensor's pedestal rises with the gain. The tuning file can give the black level at a high gain
+(blackHighGain at blackHighGainAt); between gain 1 and that gain the level follows the gain linearly. Front
+camera, lens covered, gain 7.94: black came out at a luma of 30-37 (brighter towards the corners, where the
+lens shading multiplies most) and reddish; with the measured pedestal it is 16.6-17.0 and neutral.
+---
+diff --git a/src/ipa/ipu3/algorithms/blc.cpp b/src/ipa/ipu3/algorithms/blc.cpp
+index e0a8390..fcc40cb 100644
+--- a/src/ipa/ipu3/algorithms/blc.cpp
++++ b/src/ipa/ipu3/algorithms/blc.cpp
+@@ -56,6 +56,12 @@ BlackLevelCorrection::BlackLevelCorrection()
+  * The optional "black" list gives the black level of the Gr, R, B and Gb channels. The sensor adds a pedestal of its own
+  * to the data, different for every module (and per channel); subtracting more than that crushes the shadows.
+  *
++ * The optional "blackHighGain" list gives the black level at the analogue gain "blackHighGainAt" (8 when not given):
++ * the pedestal rises with the gain. Between gain 1 ("black") and that gain the level follows the gain linearly. On the
++ * front camera (OV5693, lens covered, gain 7.94, 2026-11-05) the raw black was 17-18 codes in every channel against the
++ * 10-14 of "black": what was left over was multiplied by the white balance and the lens shading gains, and in the dark
++ * black came out at a luma of 30 instead of 16, brighter towards the corners and reddish.
++ *
+  * The optional "blackBinned" list gives the same for the binned sensor modes (2x2, the whole field of view at a quarter of
+  * the pixels), whose pedestal is not the one of the full resolution modes.
+  *
+@@ -86,6 +92,16 @@ int BlackLevelCorrection::init([[maybe_unused]] IPAContext &context, const Value
+ 	for (unsigned int i = 0; i < 4; i++)
+ 		black_[i] = std::min<unsigned int>((*black)[i], 255);
+ 
++	if (tuningData.contains("blackHighGain")) {
++		const auto high = tuningData["blackHighGain"].get<std::vector<unsigned int>>();
++		if (!high || high->size() != 4)
++			return -EINVAL;
++		for (unsigned int i = 0; i < 4; i++)
++			blackHighGain_[i] = std::min<unsigned int>((*high)[i], 255);
++		highGainAt_ = std::max(tuningData["blackHighGainAt"].get<double>(8.0), 1.5);
++		hasBlackHighGain_ = true;
++	}
++
+ 	if (tuningData.contains("blackBinned")) {
+ 		const auto binned = tuningData["blackBinned"].get<std::vector<unsigned int>>();
+ 		if (!binned || binned->size() != 4)
+@@ -110,7 +126,7 @@ int BlackLevelCorrection::configure([[maybe_unused]] IPAContext &context, const
+ 	return 0;
+ }
+ 
+-void BlackLevelCorrection::prepare([[maybe_unused]] IPAContext &context,
++void BlackLevelCorrection::prepare(IPAContext &context,
+ 				   [[maybe_unused]] const uint32_t frame,
+ 				   [[maybe_unused]] IPAFrameContext &frameContext,
+ 				   ipu3_uapi_params *params)
+@@ -118,6 +134,12 @@ void BlackLevelCorrection::prepare([[maybe_unused]] IPAContext &context,
+ 	/* The Optical Black Level correction values: from the tuning data ("black"), 64 otherwise. */
+ 	/* The live profile ("black" and "bnr" keys) overrides the tuning data. */
+ 	std::array<uint16_t, 4> black = binned_ && hasBlackBinned_ ? blackBinned_ : black_;
++	if (hasBlackHighGain_ && !binned_) {
++		/* the gain this frame is asked for: the pedestal follows it */
++		const double t = std::clamp((context.activeState.agc.gain - 1.0) / (highGainAt_ - 1.0), 0.0, 1.0);
++		for (unsigned int i = 0; i < 4; i++)
++			black[i] = static_cast<uint16_t>(std::lround(black_[i] + t * (blackHighGain_[i] - black_[i])));
++	}
+ 	std::array<unsigned int, 6> bnr = bnr_;
+ 	bool hasBnr = hasBnr_;
+ 	if (profile_) {
+diff --git a/src/ipa/ipu3/algorithms/blc.h b/src/ipa/ipu3/algorithms/blc.h
+index 8f33a3b..30110c5 100644
+--- a/src/ipa/ipu3/algorithms/blc.h
++++ b/src/ipa/ipu3/algorithms/blc.h
+@@ -35,6 +35,10 @@ private:
+ 	/* The same for the binned sensor modes, when the tuning data has them ("blackBinned"). */
+ 	std::array<uint16_t, 4> blackBinned_{ 64, 64, 64, 64 };
+ 	bool hasBlackBinned_ = false;
++	/* The black level at a high analogue gain ("blackHighGain" at "blackHighGainAt"), when the tuning data has it. */
++	std::array<uint16_t, 4> blackHighGain_{ 64, 64, 64, 64 };
++	double highGainAt_ = 8.0;
++	bool hasBlackHighGain_ = false;
+ 	bool binned_ = false;
+ 	std::array<unsigned int, 6> bnr_{};
+ 	bool hasBnr_ = false;

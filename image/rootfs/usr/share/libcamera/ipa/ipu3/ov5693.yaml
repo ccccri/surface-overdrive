@@ -64,6 +64,11 @@ algorithms:
       # Black level of Gr, R, B, Gb in the units of the ImgU's optical black (about twice the sensor's codes); blackBinned
       # for the 2x2 binned mode (patch 0022). Set so that black cloth comes out neutral in both modes.
       black: [ 19, 27, 23, 19 ]
+      # At the highest analogue gain the pedestal is higher: lens covered at gain 7.94 (2026-11-05) the raw black was
+      # 17.2 18.3 16.4 18.3 codes (Gr R B Gb). With these the covered picture has a luma of 16.6-16.9 from the centre to
+      # the corners and neutral colour (it was 30-37 and reddish); between gain 1 and 7.94 the level follows the gain.
+      blackHighGain: [ 34, 37, 36, 37 ]
+      blackHighGainAt: 7.94
       blackBinned: [ 26, 31, 29, 26 ]
       # Bayer noise reduction [cf, cg, alpha, beta, gamma, max_inf] (patch 0003), as in the previous project's front preset.
       bnr: [ 1700, 24, 4, 8, 8, 10 ]
