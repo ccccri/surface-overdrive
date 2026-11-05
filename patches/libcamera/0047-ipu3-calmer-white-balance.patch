@@ -1,0 +1,25 @@
+From: Surface Overdrive <noreply@surface-overdrive>
+Subject: [PATCH] ipu3: white balance that does not follow a hand
+
+After the start of a session the white balance moved a quarter of the way to each new grey-world estimate a frame:
+a hand or a face close to the front camera, read as a colour cast, changed the colour of the whole picture within a
+few frames. Now 0.06 a frame, about half a second at 30 fps.
+---
+diff --git a/src/ipa/ipu3/algorithms/awb.cpp b/src/ipa/ipu3/algorithms/awb.cpp
+index be8aa1a..a362d52 100644
+--- a/src/ipa/ipu3/algorithms/awb.cpp
++++ b/src/ipa/ipu3/algorithms/awb.cpp
+@@ -590,9 +590,11 @@ void Awb::calculateWBGains(const ipu3_uapi_stats_3a *stats)
+ 		awbGreyWorld();
+ 		/*
+ 		 * Move towards the new estimate instead of jumping to it: a jump is seen as the picture changing colour at once, and
+-		 * the exposure, which weighs the channels by these gains, jumps with it. Quicker at the start of a session.
++		 * the exposure, which weighs the channels by these gains, jumps with it. Quicker at the start of a session. After
++		 * it 0.06 a frame (about half a second at 30 fps, against 0.25): grey world reads a hand or a face close to the
++		 * camera as a colour cast, and the whole picture changed colour while a hand moved (2026-11-05).
+ 		 */
+-		const double speed = estimates_ < 10 ? 0.5 : 0.25;
++		const double speed = estimates_ < 10 ? 0.5 : 0.06;
+ 		estimates_++;
+ 		asyncResults_.redGain = std::exp(std::log(red) + speed * (std::log(asyncResults_.redGain) - std::log(red)));
+ 		asyncResults_.blueGain = std::exp(std::log(blue) + speed * (std::log(asyncResults_.blueGain) - std::log(blue)));
