@@ -195,6 +195,7 @@ def main():
             # the screen as a light: a warm frame the window draws round the picture, with the backlight at its brightest
             self._light = False
             self._flash_mode = "auto"     # front photos in the dark: the frame lights the face for the shot
+            self._audio = True            # videos with sound
             self._boosts = 0              # light and flash both want the backlight up: up while either does
             self._brightness_before = None
             # always the best: the owner wants no quality choice (2026-11-03)
@@ -254,6 +255,17 @@ def main():
         progress = Property(float, _get_progress, notify=changed)
         busy = Property(str, _get_busy, notify=changed)
         light = Property(bool, _get_light, notify=changed)
+
+        def _get_audio(self):
+            return self._audio
+
+        audio = Property(bool, _get_audio, notify=changed)
+
+        @Slot(bool)
+        def setAudio(self, on):
+            if self._recorder is None and on != self._audio:
+                self._audio = bool(on)
+                self.changed.emit()
         flashMode = Property(str, _get_flash_mode, notify=changed)
 
         @Slot()
@@ -685,7 +697,8 @@ def main():
                 return
             path = output_path(folder(QStandardPaths.StandardLocation.MoviesLocation, ""), "video")
             try:
-                rec = Gst.parse_launch(record_description(cam["node"], *cam["size"], path, quality=self._video_quality))
+                rec = Gst.parse_launch(record_description(cam["node"], *cam["size"], path, audio=self._audio,
+                                                          quality=self._video_quality))
             except Exception as exc:          # noqa: BLE001
                 self.message.emit("Cannot record: {}".format(exc))
                 return
@@ -830,7 +843,12 @@ def main():
         camera._last_capture = previous[0]
     engine = QQmlApplicationEngine()
     engine.rootContext().setContextProperty("camera", camera)
-    engine.load(QUrl.fromLocalFile(os.path.join(os.path.dirname(os.path.abspath(__file__)), "cameraapp.qml")))
+    engine.rootContext().setContextProperty("backend", camera)   # the name camera_ui uses (its own "camera" is another)
+    # the window is Plasma Camera's (camera_ui/, its QML on stand-ins for its C++ backend), in KDE's style
+    from PySide6.QtQuickControls2 import QQuickStyle
+    if not QQuickStyle.name():
+        QQuickStyle.setStyle("org.kde.desktop")
+    engine.load(QUrl.fromLocalFile(os.path.join(os.path.dirname(os.path.abspath(__file__)), "camera_ui", "main.qml")))
     if not engine.rootObjects():
         return 1
     app.aboutToQuit.connect(camera.shutdown)
