@@ -1,0 +1,113 @@
+From: Surface Overdrive <noreply@surface-overdrive>
+Subject: [PATCH] ipu3: auto exposure that does not pulse with a moving hand
+
+The hold band of 0040 made changes under 8% with the ImgU's digital gain. The digital gain acts on the frame it is
+set for, the sensor's exposure and gain two frames later; when a hand moving in front of the front camera pushed
+the request over the band, the picture jumped by 15% back and forth for seconds. Now changes under 4% (a little over
+half a gain step, enough against the alternation of 0040) leave exposure and gain alone, and nothing goes to the
+digital gain. The exposure filter of libipa follows the scene in about a third of a second at 30 fps (0.1 a frame,
+0.15 close to the target, against 0.2 and 0.45): no reversals on a +1 EV step, where the steps were 15%.
+---
+diff --git a/src/ipa/ipu3/algorithms/agc.cpp b/src/ipa/ipu3/algorithms/agc.cpp
+index 4efbefb..cdbc5e6 100644
+--- a/src/ipa/ipu3/algorithms/agc.cpp
++++ b/src/ipa/ipu3/algorithms/agc.cpp
+@@ -184,7 +184,6 @@ int Agc::configure(IPAContext &context,
+ 	haveValidFrame_ = false;
+ 	stableFrames_ = 0;
+ 	heldAnalogueGain_ = 0.0;
+-	heldResidual_ = 1.0;
+ 
+ 	/* Start from what the previous session settled on, within the limits of this sensor mode. */
+ 	/* The first session after a reboot starts from where the last one before it settled. */
+@@ -375,29 +374,25 @@ void Agc::process(IPAContext &context, const uint32_t frame,
+ 	}
+ 
+ 	/*
+-	 * Small changes are made with the digital gain, the exposure time and analogue gain stay. The analogue gain moves
+-	 * in steps of 1/16 (6%): asked for 1.02, the sensor alternated between 1.0 and 1.0625, and in a dim room the
+-	 * picture pulsed by 4% every few frames (129 -> 134 of luma for one frame in five, 2026-11-04), which also made
+-	 * the temporal denoiser see the whole picture "moving" on those frames and let the grain through. Up to 8% (a
+-	 * step and a bit) the ImgU's digital gain makes up the difference, smoothly and with no steps; the statistics are
+-	 * taken before it, so the request stays the same and nothing hunts.
++	 * Hysteresis: changes under 4% leave the exposure time and analogue gain as they are. The analogue gain moves in
++	 * steps of 1/16 (6% at gain 1): asked for 1.02, the sensor alternated between 1.0 and 1.0625 and in a dim room the
++	 * picture pulsed by 4% every few frames (2026-11-04), which also let the grain through the temporal denoiser. A band
++	 * a little over half a step stops that. It used to be 8% with the difference made up by the ImgU's digital gain:
++	 * the digital gain acts on the frame it is set for, the sensor's two frames later, and when a moving hand pushed the
++	 * request over the band the picture jumped by 15% back and forth for seconds (video of 2026-11-05).
+ 	 */
+ 	{
+-		constexpr double kHoldBand = 0.08;
++		constexpr double kHoldBand = 0.04;
+ 		const double wantedEv = newExposureTime.get<std::micro>() * aGain;
+-		double residual = 1.0;
+ 		if (heldAnalogueGain_ > 0.0) {
+ 			const double heldEv = heldExposureTime_.get<std::micro>() * heldAnalogueGain_;
+-			const double ratio = wantedEv / heldEv;
+-			if (std::abs(ratio - 1.0) < kHoldBand) {
++			if (std::abs(wantedEv / heldEv - 1.0) < kHoldBand) {
+ 				newExposureTime = heldExposureTime_;
+ 				aGain = heldAnalogueGain_;
+-				residual = ratio;
+ 			}
+ 		}
+ 		heldExposureTime_ = newExposureTime;
+ 		heldAnalogueGain_ = aGain;
+-		heldResidual_ = residual;
+ 	}
+ 
+ 	LOG(IPU3Agc, Debug)
+@@ -409,7 +404,7 @@ void Agc::process(IPAContext &context, const uint32_t frame,
+ 	activeState.agc.exposure = newExposureTime / context.configuration.sensor.lineDuration;
+ 	activeState.agc.gain = aGain;
+ 	/* smoothed, so that the picture does not pump when the auto exposure moves between exposure and digital gain */
+-	const double wanted = std::clamp(dGain * qGain * heldResidual_, 1.0, maxDigitalGain_);
++	const double wanted = std::clamp(dGain * qGain, 1.0, maxDigitalGain_);
+ 	activeState.agc.digitalGain += (wanted - activeState.agc.digitalGain) * 0.25;
+ 	if (activeState.agc.vblank) {
+ 		/* the frame just long enough for the exposure, never shorter than a frame of 30 fps */
+diff --git a/src/ipa/ipu3/algorithms/agc.h b/src/ipa/ipu3/algorithms/agc.h
+index cee120c..869ff4f 100644
+--- a/src/ipa/ipu3/algorithms/agc.h
++++ b/src/ipa/ipu3/algorithms/agc.h
+@@ -77,8 +77,6 @@ private:
+ 	/* The exposure time and analogue gain last asked of the sensor, kept for small changes (see process()). */
+ 	utils::Duration heldExposureTime_;
+ 	double heldAnalogueGain_ = 0.0;
+-	/* The part of a small change made with the digital gain instead. */
+-	double heldResidual_ = 1.0;
+ 	/* the most digital gain the dark may get (tuning "maxDigitalGain", 1 to 3) */
+ 	double maxDigitalGain_ = 3.0;
+ };
+diff --git a/src/ipa/libipa/agc_mean_luminance.cpp b/src/ipa/libipa/agc_mean_luminance.cpp
+index 2d3bc70..268b212 100644
+--- a/src/ipa/libipa/agc_mean_luminance.cpp
++++ b/src/ipa/libipa/agc_mean_luminance.cpp
+@@ -633,7 +633,12 @@ double AgcMeanLuminance::effectiveYTarget() const
+  */
+ utils::Duration AgcMeanLuminance::filterExposure(utils::Duration exposureValue)
+ {
+-	double speed = 0.2;
++	/*
++	 * Surface Overdrive: about a third of a second to follow a change of the scene at 30 fps (0.1 a frame; 0.15 close
++	 * to the target, against 0.2 and 0.45): with 0.45 a hand passing in front of the front camera moved the exposure in
++	 * two or three frames, and the still background pulsed by 15% for as long as the hand moved (2026-11-05).
++	 */
++	double speed = 0.1;
+ 
+ 	/* Adapt instantly if we are in startup phase. */
+ 	if (frameCount_ < kNumStartupFrames)
+@@ -644,9 +649,9 @@ utils::Duration AgcMeanLuminance::filterExposure(utils::Duration exposureValue)
+ 	 * multiple micro-adjustments.
+ 	 * \todo Make this customisable?
+ 	 */
+-	if (filteredExposure_ < 1.2 * exposureValue &&
+-	    filteredExposure_ > 0.8 * exposureValue)
+-		speed = sqrt(speed);
++	else if (filteredExposure_ < 1.2 * exposureValue &&
++		 filteredExposure_ > 0.8 * exposureValue)
++		speed = 0.15;
+ 
+ 	filteredExposure_ = speed * exposureValue +
+ 			    filteredExposure_ * (1.0 - speed);
