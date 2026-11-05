@@ -231,7 +231,7 @@ def main():
         def _get_last_is_video(self):
             return self._last_capture.lower().endswith((".mp4", ".mkv", ".webm", ".mov"))
 
-        # -- night mode, Screen Light, flash
+        # -- night mode, the light, flash
         def _get_dark(self):
             return self._dark
 
