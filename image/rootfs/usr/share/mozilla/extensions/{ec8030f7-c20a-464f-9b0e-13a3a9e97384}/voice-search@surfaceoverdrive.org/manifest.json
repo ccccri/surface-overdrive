@@ -2,7 +2,7 @@
   "manifest_version": 2,
   "name": "Voice Search for Google",
   "description": "A microphone beside the address bar: Google's own voice search, straight to listening. Your words show as you speak, then Google's results.",
-  "version": "4.1",
+  "version": "4.4",
   "author": "ccccri",
   "homepage_url": "https://github.com/ccccri/surface-overdrive",
   "icons": { "48": "icon.svg", "96": "icon.svg" },

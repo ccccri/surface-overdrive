@@ -78,11 +78,18 @@
   };
   const failed = /non ho capito|riprova|controlla il microfono|didn.t get|try again|check your microphone|microfono|microphone|permesso|permission/i;
   const label = /voice|vocale|voz|vocal|sprach|голос/i;
+  // the visible one: once loaded, Google's page also has a hidden copy of the button
   const findMic = () => [...document.querySelectorAll("[aria-label][role=button], button[aria-label]")]
-    .find((el) => label.test(el.getAttribute("aria-label")));
+    .find((el) => label.test(el.getAttribute("aria-label")) && el.offsetParent !== null && el.getClientRects().length > 0);
   // the big line of Google's listening page: "Speak now" first, then the words as Google hears them
   const findLine = () => [...document.body.querySelectorAll("*")].find((el) =>
     el.childElementCount === 0 && el.getClientRects().length > 0 && isState((el.textContent || "").trim()));
+
+  // the chimes (played by background.js): rising once Google listens, falling when it stops, by results or by error
+  const listening = /^(parla ora|in ascolto|speak now|listening)/i;
+  let heard = false, ended = false;
+  const chime = (rising) => browser.runtime.sendMessage({ type: "chime", rising }).catch(() => {});
+  const end = () => { if (heard && !ended) { ended = true; chime(false); } };
 
   let line = null, last = "";
   const watch = () => {
@@ -91,8 +98,9 @@
     const text = (line.textContent || "").trim();
     if (text === last) return;
     last = text;
+    if (listening.test(text) && !heard) { heard = true; ended = false; chime(true); }
     if (isState(text)) say(text, true, true);
-    else if (failed.test(text)) say(text, true, false);
+    else if (failed.test(text)) { say(text, true, false); end(); }
     else if (text) say(text, false, true);
   };
 
@@ -120,7 +128,7 @@
   // the microphone again: Google's listening page closed, its microphone pressed anew
   button.addEventListener("click", () => {
     document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
-    line = null; last = "";
+    line = null; last = ""; heard = false;
     say("…", true, true);
     setTimeout(() => { pressed = false; press(); }, 300);
   });
