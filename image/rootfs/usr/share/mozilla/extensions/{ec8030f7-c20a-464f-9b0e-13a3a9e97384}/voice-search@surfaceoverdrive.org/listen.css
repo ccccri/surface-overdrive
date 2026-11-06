@@ -1,0 +1,13 @@
+:root { color-scheme: light dark; --bg: #fff; --fg: #202124; --dim: #70757a; --mic: #ea4335; }
+@media (prefers-color-scheme: dark) { :root { --bg: #1c1b22; --fg: #fbfbfe; --dim: #9e9ea6; } }
+html, body { height: 100%; margin: 0; background: var(--bg); color: var(--fg); font-family: system-ui, sans-serif; }
+main { height: 100%; max-width: 900px; margin: 0 auto; padding: 0 32px; box-sizing: border-box;
+       display: flex; align-items: center; justify-content: space-between; gap: 32px; }
+.words { margin: 0; font-size: clamp(24px, 4vw, 34px); line-height: 1.3; flex: 1; }
+.words.status { color: var(--dim); }
+.mic { flex: none; width: 112px; height: 112px; border-radius: 50%; border: none; background: var(--mic); cursor: pointer;
+       display: grid; place-items: center; }
+.mic img { width: 44px; height: 44px; }
+.mic.live { animation: pulse 1.3s ease-in-out infinite; }
+@keyframes pulse { 0%, 100% { box-shadow: 0 0 0 0 #ea433555; } 50% { box-shadow: 0 0 0 22px #ea433500; } }
+@media (max-width: 560px) { main { flex-direction: column-reverse; justify-content: center; text-align: center; } }

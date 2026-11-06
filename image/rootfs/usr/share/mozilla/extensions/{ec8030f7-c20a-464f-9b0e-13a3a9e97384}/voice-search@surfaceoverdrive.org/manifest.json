@@ -1,8 +1,8 @@
 {
   "manifest_version": 2,
   "name": "Google Voice Search",
-  "description": "A microphone beside the address bar: opens Google and starts its own voice search (Surface Overdrive).",
-  "version": "1.1",
+  "description": "A microphone beside the address bar: Google's own voice search on a page of its own, the words shown as you speak, then Google's results (Surface Overdrive).",
+  "version": "2.1",
   "browser_specific_settings": {
     "gecko": {
       "id": "voice-search@surfaceoverdrive.org",
