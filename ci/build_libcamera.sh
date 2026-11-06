@@ -50,6 +50,13 @@ assert n == 1, "could not find Fedora's Patch line in the spec"
 s, n = re.subn(r"^(Release:\s*\S+?)(%\{\?dist\})", r"\1\2.overdrive1", s, count=1, flags=re.M)
 assert n == 1, "could not find the Release line"
 s = s.replace("-Dtest=true", "-Dtest=false")
+# Fedora re-signs the IPA modules after stripping, but at %{_libdir}/libcamera/ipa_*.so, where libcamera 0.7 no longer puts
+# them (they are in .../libcamera/ipa/): the stripped modules kept the signatures of the unstripped ones, libcamera took them
+# for untrusted and ran them isolated, in a process of their own at normal priority. Starved by a busy processor (an app
+# drawing the preview, a second one using the camera), the IPA fell behind and the camera stalled after a few frames.
+# Signed for real, the IPA runs inside the camera service, at its priority and without the IPC (2026-11-06).
+s = s.replace("%{buildroot}/%{_libdir}/libcamera/ipa_*.so",
+              "$(ls %{buildroot}/%{_libdir}/libcamera/ipa_*.so %{buildroot}/%{_libdir}/libcamera/ipa/ipa_*.so 2>/dev/null)")
 open(spec, "w").write(s)
 EOF
 
