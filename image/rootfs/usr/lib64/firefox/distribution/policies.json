@@ -16,6 +16,38 @@
       "browser.newtabpage.pinned": {
         "Value": "[]",
         "Status": "default"
+      },
+      "browser.newtabpage.activity-stream.default.sites": {
+        "Value": "",
+        "Status": "default"
+      },
+      "browser.ipProtection.enabled": {
+        "Value": false,
+        "Status": "locked"
+      },
+      "datareporting.policy.firstRunURL": {
+        "Value": "",
+        "Status": "default"
+      },
+      "browser.topsites.useRemoteSetting": {
+        "Value": false,
+        "Status": "default"
+      },
+      "browser.newtabpage.activity-stream.system.showWeatherOptIn": {
+        "Value": false,
+        "Status": "default"
+      },
+      "browser.newtabpage.activity-stream.widgets.weatherForecast.enabled": {
+        "Value": false,
+        "Status": "default"
+      },
+      "browser.newtabpage.activity-stream.widgets.system.weatherForecast.enabled": {
+        "Value": false,
+        "Status": "default"
+      },
+      "browser.bookmarks.addedImportButton": {
+        "Value": true,
+        "Status": "default"
       }
     },
     "Permissions": {
@@ -29,6 +61,41 @@
       "voice-search@surfaceoverdrive.org": {
         "private_browsing": true
       }
-    }
+    },
+    "FirefoxHome": {
+      "Search": true,
+      "TopSites": true,
+      "SponsoredTopSites": false,
+      "Highlights": false,
+      "Pocket": false,
+      "Stories": false,
+      "SponsoredPocket": false,
+      "SponsoredStories": false,
+      "Snippets": false,
+      "Weather": false,
+      "Widgets": {
+        "Enabled": false
+      },
+      "Locked": false
+    },
+    "UserMessaging": {
+      "ExtensionRecommendations": false,
+      "FeatureRecommendations": false,
+      "UrlbarInterventions": false,
+      "SkipOnboarding": true,
+      "MoreFromMozilla": false,
+      "FirefoxLabs": false,
+      "WhatsNew": false,
+      "Locked": false
+    },
+    "FirefoxSuggest": {
+      "SponsoredSuggestions": false,
+      "ImproveSuggest": false,
+      "WebSuggestions": true,
+      "Locked": false
+    },
+    "DisableFirefoxStudies": true,
+    "OverrideFirstRunPage": "",
+    "OverridePostUpdatePage": ""
   }
 }
