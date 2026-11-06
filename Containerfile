@@ -177,8 +177,6 @@ RUN set -eux; \
     else dnf5 -y --enablerepo=fedora-cisco-openh264 install openh264; fi; \
     rpm -q openh264; ! rpm -q noopenh264; \
     dnf5 clean all
-# The camera app's night photos align and merge a burst of frames with numpy (src/overdrive/nightmerge.py).
-RUN dnf5 -y install --setopt=install_weak_deps=False python3-numpy && dnf5 clean all && python3 -c "import numpy"
 # Tailscale, so that the PC at home reaches the tablet wherever it is (ssh over the tailnet). tailscaled runs from boot;
 # signing in is the user's own step (`sudo tailscale up`).
 RUN curl -fsSL https://pkgs.tailscale.com/stable/fedora/tailscale.repo -o /etc/yum.repos.d/tailscale.repo && \

@@ -191,20 +191,4 @@ Kirigami.Page {
             duration: root.captureSession.recorder.duration
         }
     }
-
-    // Surface Overdrive: night mode collecting its frames, then merging them
-    Rectangle {
-        anchors.centerIn: parent
-        visible: backend.busy !== ""
-        radius: height / 2
-        color: Qt.rgba(0, 0, 0, 0.6)
-        width: busyLabel.implicitWidth + Kirigami.Units.gridUnit * 2
-        height: busyLabel.implicitHeight + Kirigami.Units.gridUnit
-        QQC2.Label {
-            id: busyLabel
-            anchors.centerIn: parent
-            color: "white"
-            text: backend.busy === "Hold still" ? qsTr("Hold still") : qsTr("Processing...")
-        }
-    }
 }

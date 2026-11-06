@@ -9,7 +9,7 @@ QtObject {
     id: root
 
     readonly property bool available: backend.key !== "" && backend.error === ""
-    readonly property bool busy: backend.busy !== "" || backend.applyingSize
+    readonly property bool busy: backend.applyingSize
     readonly property var cameraDeviceIds: backend.keys
     readonly property var cameraDeviceNames: backend.labels
     readonly property string cameraDevice: backend.key

@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 //
 // Stands in for Plasma Camera's PlasmaCameraManager (C++): photos, videos and their files, on the Surface Overdrive
-// backend (cameraapp.py). Photos keep the backend's night mode (a burst merged in the dark) and the screen flash of the
-// front camera: the light frame of CameraPage is lit for a moment ("flashing") before the shot.
+// backend (cameraapp.py). Photos keep the screen flash of the front camera: the light frame of CameraPage is lit for a
+// moment ("flashing") before the shot.
 import QtQuick
 
 QtObject {
@@ -13,7 +13,7 @@ QtObject {
     property var videoSink
     property var recorder: RecorderShim {}
 
-    readonly property bool readyForCapture: backend.key !== "" && backend.busy === "" && !root.flashing
+    readonly property bool readyForCapture: backend.key !== "" && !root.flashing
     readonly property bool isRecordingVideo: backend.recording
     property bool isSavingVideo: false
     property bool audioRecordingEnabled: backend.audio
@@ -47,13 +47,13 @@ QtObject {
         }
     }
 
-    // a moment for the exposure to take in the light, then the photo; a night photo takes its frames in it too
+    // a moment for the exposure to take in the light, then the photo
     property Timer flashTimer: Timer {
         interval: 600
         onTriggered: { backend.takePhoto(); flashEnd.restart(); }
     }
     property Timer flashEnd: Timer {
-        interval: backend.night ? 1600 : 250
+        interval: 250
         onTriggered: { root.flashing = false; backend.flashOff(); }
     }
 
@@ -73,7 +73,7 @@ QtObject {
             }
         }
         function onChanged() {
-            if (!backend.recording && root.isSavingVideo && backend.busy === "")
+            if (!backend.recording && root.isSavingVideo)
                 Qt.callLater(() => { if (!backend.recording) root.isSavingVideo = false; });
         }
     }

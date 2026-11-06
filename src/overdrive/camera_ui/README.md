@@ -10,8 +10,8 @@ What changed, each marked "Surface Overdrive" in the files:
 - camera/PlasmaCamera.qml, camera/PlasmaCameraManager.qml, camera/RecorderShim.qml: stand-ins for Plasma Camera's C++
   types (PlasmaCamera, PlasmaCameraManager, QtMultimedia's MediaRecorder), on the context property "backend".
 - camera/Viewfinder.qml: GStreamer's qml6glsink item instead of VideoOutput.
-- camera/CameraExtraControls.qml: buttons for the screen light, the front flash and night mode.
-- camera/CameraPage.qml: the screen light frame; night mode's "hold still".
+- camera/CameraExtraControls.qml: buttons for the screen light and the front flash.
+- camera/CameraPage.qml: the screen light frame.
 - camera/CameraControls.qml: the last picture at start; no settings dialog.
 - main.qml: without Plasma Camera's settings (CameraSettings, SettingsDialog).
 - i18n() calls became qsTr().

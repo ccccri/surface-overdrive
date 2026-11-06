@@ -15,7 +15,7 @@ Rectangle {
     required property bool audioRecordingEnabled
     required property bool audioRecordingEnabledShown
     required property bool exposureValueEnabled
-    // Surface Overdrive: photo mode (the flash and night mode are for photos)
+    // Surface Overdrive: photo mode (the flash is for photos)
     property bool photoMode: true
     signal audioEnabledChangeRequested(enabled: bool)
     signal exposureValueRequested(value: real)
@@ -61,15 +61,6 @@ Rectangle {
                 text: backend.flashMode === "auto" ? qsTr("Flash: auto") : backend.flashMode === "on" ? qsTr("Flash: on") : qsTr("Flash: off")
                 display: QQC2.ToolButton.TextBesideIcon
                 onClicked: backend.cycleFlash()
-            }
-            // Surface Overdrive: night mode, on by itself in the dark; a tap turns it off for now
-            QQC2.ToolButton {
-                visible: backend.dark && root.photoMode
-                icon.name: "weather-clear-night"
-                icon.color: backend.night ? Kirigami.Theme.highlightColor : "white"
-                text: backend.night ? qsTr("Night mode") : qsTr("Night mode off")
-                display: QQC2.ToolButton.TextBesideIcon
-                onClicked: backend.toggleNight()
             }
             QQC2.ToolButton {
                 id: audioRecordingButton

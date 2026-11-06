@@ -39,7 +39,7 @@ Kirigami.ApplicationWindow {
         }
     }
 
-    // Surface Overdrive: the backend's messages (video saved, night photo failed...)
+    // Surface Overdrive: the backend's messages (video saved, a photo that failed...)
     Connections {
         target: backend
         function onMessage(text) {
