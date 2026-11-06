@@ -239,6 +239,12 @@ COPY image/rootfs/ /
 COPY src/ /usr/lib/overdrive/python/
 # our two icons live in the fallback icon theme: its cache has to learn about them
 RUN gtk-update-icon-cache -f /usr/share/icons/hicolor 2>/dev/null || true
+# Firefox's own default permissions plus the microphone for google.com (the voice search button; read through
+# permissions.manager.defaultsUrl, see browser/defaults/preferences/surface-overdrive.js). Default permissions also hold
+# in private windows. unzip warns about omni.ja's layout and exits 1, but reads it.
+RUN set -eu; f=/usr/lib64/firefox/browser/defaults/surface-overdrive-permissions; \
+    unzip -p /usr/lib64/firefox/browser/omni.ja defaults/permissions > "$f" || true; grep -q uitour "$f"; \
+    printf '\n# Surface Overdrive: Google voice search\norigin\tmicrophone\t1\thttps://www.google.com\n' >> "$f"
 ARG BASE_DIGEST=unknown
 ARG SOURCE_SHA=unknown
 LABEL org.opencontainers.image.title="Surface Overdrive" \

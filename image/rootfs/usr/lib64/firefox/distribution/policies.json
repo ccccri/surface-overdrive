@@ -9,8 +9,26 @@
       }
     ],
     "Preferences": {
-      "browser.startup.homepage": { "Value": "about:home", "Status": "default" },
-      "browser.newtabpage.pinned": { "Value": "[]", "Status": "default" }
+      "browser.startup.homepage": {
+        "Value": "about:home",
+        "Status": "default"
+      },
+      "browser.newtabpage.pinned": {
+        "Value": "[]",
+        "Status": "default"
+      }
+    },
+    "Permissions": {
+      "Microphone": {
+        "Allow": [
+          "https://www.google.com"
+        ]
+      }
+    },
+    "ExtensionSettings": {
+      "voice-search@surfaceoverdrive.org": {
+        "private_browsing": true
+      }
     }
   }
 }
