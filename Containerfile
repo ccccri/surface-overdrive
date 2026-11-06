@@ -179,6 +179,11 @@ RUN set -eux; \
     dnf5 clean all
 # The camera app's night photos align and merge a burst of frames with numpy (src/overdrive/nightmerge.py).
 RUN dnf5 -y install --setopt=install_weak_deps=False python3-numpy && dnf5 clean all && python3 -c "import numpy"
+# Tailscale, so that the PC at home reaches the tablet wherever it is (ssh over the tailnet). tailscaled runs from boot;
+# signing in is the user's own step (`sudo tailscale up`).
+RUN curl -fsSL https://pkgs.tailscale.com/stable/fedora/tailscale.repo -o /etc/yum.repos.d/tailscale.repo && \
+    dnf5 -y install --setopt=install_weak_deps=False tailscale && dnf5 clean all && \
+    systemctl enable tailscaled && rpm -q tailscale
 COPY ci/patch_acp_mic.py /tmp/patch_acp_mic.py
 RUN python3 /tmp/patch_acp_mic.py && rm /tmp/patch_acp_mic.py
 # The login screen with the PIN and pattern pad, when ci/build_login.sh could make it
