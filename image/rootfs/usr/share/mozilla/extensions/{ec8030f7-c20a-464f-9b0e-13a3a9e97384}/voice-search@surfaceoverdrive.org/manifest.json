@@ -2,7 +2,7 @@
   "manifest_version": 2,
   "name": "Google Voice Search",
   "description": "A microphone beside the address bar: opens Google and starts its own voice search (Surface Overdrive).",
-  "version": "1.0",
+  "version": "1.1",
   "browser_specific_settings": {
     "gecko": {
       "id": "voice-search@surfaceoverdrive.org",
@@ -43,7 +43,7 @@
       "js": [
         "press-mic.js"
       ],
-      "run_at": "document_idle"
+      "run_at": "document_start"
     }
   ]
 }

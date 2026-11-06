@@ -1,0 +1,16 @@
+{
+  "policies": {
+    "NoDefaultBookmarks": true,
+    "Bookmarks": [
+      {
+        "Title": "Surface Overdrive",
+        "URL": "https://github.com/ccccri/surface-overdrive",
+        "Placement": "toolbar"
+      }
+    ],
+    "Preferences": {
+      "browser.startup.homepage": { "Value": "about:home", "Status": "default" },
+      "browser.newtabpage.pinned": { "Value": "[]", "Status": "default" }
+    }
+  }
+}
