@@ -108,9 +108,14 @@
       watcher.observe(document.body, { childList: true, subtree: true, characterData: true });
     }
   };
-  new MutationObserver(press).observe(document.documentElement, { childList: true, subtree: true });
-  document.addEventListener("DOMContentLoaded", press);
-  press();
+  // pressed once Google's page has loaded completely, as a hand would: pressed earlier, as soon as the button existed,
+  // Google listened before it had set up its language, and recognized Italian worse
+  const whenLoaded = () => {
+    let tries = 0;
+    const timer = setInterval(() => { press(); if (pressed || ++tries > 20) clearInterval(timer); }, 250);
+  };
+  if (document.readyState === "complete") whenLoaded();
+  else window.addEventListener("load", whenLoaded, { once: true });
 
   // the microphone again: Google's listening page closed, its microphone pressed anew
   button.addEventListener("click", () => {
