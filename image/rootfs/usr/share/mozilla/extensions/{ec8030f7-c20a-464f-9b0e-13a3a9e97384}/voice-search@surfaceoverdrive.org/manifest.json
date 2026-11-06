@@ -1,49 +1,30 @@
 {
   "manifest_version": 2,
-  "name": "Google Voice Search",
-  "description": "A microphone beside the address bar: Google's own voice search behind a listening screen, the words shown as you speak, then Google's results (Surface Overdrive).",
-  "version": "3.3",
+  "name": "Voice Search for Google",
+  "description": "A microphone beside the address bar: Google's own voice search, straight to listening. Your words show as you speak, then Google's results.",
+  "version": "4.0",
+  "author": "ccccri",
+  "homepage_url": "https://github.com/ccccri/surface-overdrive",
+  "icons": { "48": "icon.svg", "96": "icon.svg" },
   "browser_specific_settings": {
     "gecko": {
       "id": "voice-search@surfaceoverdrive.org",
-      "strict_min_version": "115.0"
+      "strict_min_version": "142.0",
+      "data_collection_permissions": { "required": ["none"] }
     }
   },
-  "permissions": [
-    "tabs",
-    "https://www.google.com/*"
-  ],
-  "background": {
-    "scripts": [
-      "background.js"
-    ]
-  },
+  "permissions": ["tabs"],
+  "background": { "scripts": ["background.js"] },
   "browser_action": {
-    "default_title": "Google Voice Search",
+    "default_title": "Voice Search for Google",
     "default_area": "navbar",
     "default_icon": "mic-dark.svg",
     "theme_icons": [
-      {
-        "light": "mic-light.svg",
-        "dark": "mic-dark.svg",
-        "size": 16
-      },
-      {
-        "light": "mic-light.svg",
-        "dark": "mic-dark.svg",
-        "size": 32
-      }
+      { "light": "mic-light.svg", "dark": "mic-dark.svg", "size": 16 },
+      { "light": "mic-light.svg", "dark": "mic-dark.svg", "size": 32 }
     ]
   },
   "content_scripts": [
-    {
-      "matches": [
-        "https://www.google.com/*"
-      ],
-      "js": [
-        "press-mic.js"
-      ],
-      "run_at": "document_start"
-    }
+    { "matches": ["https://www.google.com/*"], "js": ["press-mic.js"], "run_at": "document_start" }
   ]
 }

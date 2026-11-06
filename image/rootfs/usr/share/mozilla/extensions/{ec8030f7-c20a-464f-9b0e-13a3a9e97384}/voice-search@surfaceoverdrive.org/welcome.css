@@ -1,0 +1,12 @@
+:root { color-scheme: light dark; --bg: #fff; --fg: #202124; --dim: #5f6368; --card: #f1f3f4; }
+@media (prefers-color-scheme: dark) { :root { --bg: #1c1b22; --fg: #fbfbfe; --dim: #a8a8b0; --card: #2b2a33; } }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 17px/1.5 system-ui, sans-serif; }
+main { max-width: 640px; margin: 0 auto; padding: 48px 20px; }
+h1 { font-size: 28px; margin: 12px 0 24px; }
+ol { padding: 0; list-style: none; counter-reset: step; }
+li { counter-increment: step; background: var(--card); border-radius: 12px; padding: 14px 16px 14px 56px; margin: 0 0 12px;
+     position: relative; }
+li::before { content: counter(step); position: absolute; left: 16px; top: 14px; width: 26px; height: 26px; border-radius: 50%;
+             background: #ea4335; color: #fff; font-weight: 600; display: grid; place-items: center; font-size: 15px; }
+b { font-weight: 600; }
+.note { color: var(--dim); font-size: 15px; }

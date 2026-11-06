@@ -1,7 +1,8 @@
-// On the page the toolbar button opened: Google's page is covered from the first moment by a listening screen (the
-// microphone and the words as Google hears them), Google's own microphone is pressed beneath it, and when Google
-// searches, its results show. A Google page opened by hand is left alone.
-(() => {
+// On the page the toolbar button opened: Google's own microphone is pressed, and when Google searches, its results show.
+// Once the microphone is allowed for Google, the page is covered from the first moment by a listening screen (the
+// microphone and the words as Google hears them); before that, Google's page and Firefox's permission prompt stay in
+// sight, so the prompt can be answered. A Google page opened by hand is left alone.
+(async () => {
   const params = new URLSearchParams(location.search);
   if (params.has("overdrive_voice")) {
     sessionStorage.setItem("overdrive_voice", "1");
@@ -11,6 +12,13 @@
   if (location.pathname !== "/") {                     // Google has searched: these are the results
     sessionStorage.removeItem("overdrive_voice");
     return;
+  }
+
+  let allowed = false;
+  try {
+    allowed = (await navigator.permissions.query({ name: "microphone" })).state === "granted";
+  } catch (e) {
+    allowed = false;                                   // unknown: better Google's own page than a hidden prompt
   }
 
   // the listening screen, in a shadow root on <html> (Google's styles do not reach it; Google's page stays hidden)
@@ -46,8 +54,9 @@
     dialog:modal { background: transparent !important; border: 0 !important; box-shadow: none !important; }
     dialog:modal > :not(overdrive-voice) { opacity: 0 !important; }
     dialog::backdrop { background: transparent !important; }`;
-  document.documentElement.append(hide, host);
+  if (allowed) document.documentElement.append(hide, host);
   const follow = () => {
+    if (!allowed) return;
     const dialog = document.querySelector("dialog:modal");
     const home = dialog || document.documentElement;
     if (host.parentNode !== home) home.append(host);
@@ -101,6 +110,7 @@
   };
   new MutationObserver(press).observe(document.documentElement, { childList: true, subtree: true });
   document.addEventListener("DOMContentLoaded", press);
+  press();
 
   // the microphone again: Google's listening page closed, its microphone pressed anew
   button.addEventListener("click", () => {
