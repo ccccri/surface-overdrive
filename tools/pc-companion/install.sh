@@ -4,7 +4,7 @@
 # to "Desktop", and clears what a session may have left behind before every stream (global prep). Run as the user.
 set -euo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
-for f in surface-screen-start surface-screen-stop surface-screen-restore surface-screen-map surface-screen-osk surface-screen-where surface-screen-is-surface \
+for f in surface-av surface-screen-start surface-screen-stop surface-screen-restore surface-screen-map surface-screen-osk surface-screen-where surface-screen-is-surface \
          surface-desktop-start surface-desktop-stop; do
     install -Dm755 "$here/$f" "$HOME/.local/bin/$f"
 done
