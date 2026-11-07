@@ -62,7 +62,8 @@ Rectangle {
                 id: galleryButton
                 implicitWidth: Kirigami.Units.gridUnit * 2.5
                 implicitHeight: implicitWidth
-                icon.name: "folder-pictures"
+                icon.name: "folder-pictures-symbolic"
+                icon.color: "white"
                 icon.width: Kirigami.Units.gridUnit * 1.6
                 icon.height: Kirigami.Units.gridUnit * 1.6
                 display: QQC2.ToolButton.IconOnly
