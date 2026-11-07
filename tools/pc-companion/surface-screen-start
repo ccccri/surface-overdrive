@@ -88,7 +88,15 @@ apply() {  # <width> <height>
     [ "$MODE" = extend ] && pos=$(kscreen-doctor --json | jq -r --arg o "$OUT" --argjson w "$1" '
         [.outputs[] | select(.enabled and .name != $o)] | (map(select(.priority == 1)) + .)[0]
         | "\((.pos.x + (.size.width / .scale - $w) / 2) | round | if . < 0 then 0 else . end),\((.pos.y + .size.height / .scale) | ceil)"')
-    kscreen-doctor ${m:+"output.$OUT.mode.$m"} "output.$OUT.scale.1" "output.$OUT.position.${pos:-0,0}" >/dev/null 2>&1
+    # extend: the PC's monitor stays the primary screen (desktop icons, its panel, its wallpaper): KWin remembers the
+    # virtual screen as primary from a Desktop session, where it was the only one
+    local prio=()
+    if [ "$MODE" = extend ]; then
+        local main
+        main=$(kscreen-doctor --json | jq -r --arg o "$OUT" '[.outputs[] | select(.enabled and .name != $o)] | sort_by(.priority) | .[0].name // empty')
+        [ -n "$main" ] && prio=("output.$main.priority.1" "output.$OUT.priority.2")
+    fi
+    kscreen-doctor ${m:+"output.$OUT.mode.$m"} "output.$OUT.scale.1" "output.$OUT.position.${pos:-0,0}" "${prio[@]}" >/dev/null 2>&1
 }
 apply "$VW" "$VH"
 
