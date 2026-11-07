@@ -1,72 +1,296 @@
-#!/bin/bash
-# surface-av start [front|rear] | stop | status: the Surface's camera and microphone as the PC's own, for calls (Discord,
-# browsers, OBS).
-# - camera: the Surface's camera (PipeWire's libcamera node) encoded in H.264 on its graphics chip, sent through ssh,
-#   decoded on the PC's and written to the v4l2loopback device ("OBS Virtual Camera", /dev/video0 on Bazzite);
-#   a gst watchdog ends it when no frame comes for 3 s (the camera taken by another app), and the unit starts it again;
-# - microphone: a PulseAudio tunnel (PipeWire's pulse-tunnel) to the Surface's microphone, a source "Surface Microphone"
-#   (48 kHz mono). The tunnel matches the two machines' clocks; a raw pipe through ssh did not. The Surface listens for it
-#   only on its Tailscale address, and only to the PC's (module-native-protocol-tcp, loaded for the session).
-# The camera runs as a user unit (surface-camera) until "stop", through the existing ssh host "surface". The camera
-# light is on while it runs.
-set -u
-RUN=${XDG_RUNTIME_DIR:-/tmp}
-VIDEO=${SURFACE_AV_VIDEO:-}
-SSH=(ssh -T -o BatchMode=yes -o ConnectTimeout=5 -o ServerAliveInterval=5 -o ServerAliveCountMax=3 surface)
+#!/usr/bin/python3
+"""surface-av: the Surface's camera and microphone as the PC's own while the Surface is connected, used only on demand.
 
-loopback() {  # the v4l2loopback device
-    local d
-    for d in /sys/devices/virtual/video4linux/video*; do
-        [ -e "$d" ] && grep -qi "loopback\|virtual" "$d/name" 2>/dev/null && { echo "/dev/${d##*/}"; return; }
-    done
-}
+surface-screen-start runs it for a session from the Surface (Extended Display or Desktop) and surface-screen-stop ends it
+(SIGTERM: everything is taken down, on both machines).
 
-start() {
-    local which=${1:-front} lnk
-    case "$which" in front) lnk=LNK1 ;; rear) lnk=LNK0 ;; *) echo "front or rear" >&2; exit 2 ;; esac
-    stop >/dev/null 2>&1
-    sleep 2   # the Surface releases the camera
-    VIDEO=${VIDEO:-$(loopback)}
-    if [ -z "$VIDEO" ]; then
-        echo "no v4l2loopback device (OBS's virtual camera module): camera not started" >&2
-    else
-        # 1280x960 (4:3, the sensor's shape), 30 fps, 4 Mbit/s; the PC writes YUY2, which every app takes
-        systemd-run --user --quiet --unit=surface-camera --collect -p RestartSec=3 \
-            -p Restart=always \
-            bash -c "$(printf '%q ' "${SSH[@]}") 'exec gst-launch-1.0 -q pipewiresrc target-object=libcamera_input.__SB_.PCI0.$lnk do-timestamp=true \
-                ! watchdog timeout=3000 ! vapostproc ! \"video/x-raw(memory:VAMemory),format=NV12,width=1280,height=960\" \
-                ! vah264enc rate-control=cbr bitrate=4000 key-int-max=30 ! h264parse config-interval=-1 ! mpegtsmux ! fdsink fd=1' \
-                | gst-launch-1.0 -q fdsrc fd=0 ! watchdog timeout=5000 ! tsdemux ! h264parse ! vah264dec ! videoconvert ! video/x-raw,format=YUY2 \
-                ! v4l2sink device=$VIDEO sync=false"
-        echo "camera ($which) -> $VIDEO"
-    fi
-    local sip pip src
-    sip=$(tailscale status --json 2>/dev/null | jq -r '[.Peer[] | select(.HostName | test("^surface$"; "i")) | .TailscaleIPs[0]][0] // empty')
-    pip=$(tailscale ip -4 2>/dev/null | head -1)
-    if [ -z "$sip" ] || [ -z "$pip" ]; then
-        echo "Tailscale does not see the Surface: microphone not started" >&2; return
-    fi
-    src=$("${SSH[@]}" "pactl list short modules | awk '/module-native-protocol-tcp/ && /port=4713/ {print \$1}' | xargs -r -n1 pactl unload-module
-        pactl load-module module-native-protocol-tcp listen=$sip port=4713 auth-ip-acl=$pip auth-anonymous=false >/dev/null
-        pactl get-default-source")
-    pactl load-module module-tunnel-source server="tcp:$sip:4713" source="$src" source_name=surface_mic channels=1 rate=48000 \
-        format=s16le source_properties=device.description=Surface\\sMicrophone >/dev/null
-    echo "microphone -> Surface Microphone"
-}
+Camera: the v4l2loopback device ("OBS Virtual Camera" on Bazzite, /dev/video0) always gets frames, so that apps list it:
+black while no app has it open, the Surface's front camera while one has (opens and closes of the device are counted with
+inotify, which needs no permissions and sees apps in Flatpaks). The Surface's camera, and its light, are on only then:
+PipeWire's libcamera node there, H.264 on its graphics chip, through ssh to the host "surface", decoded on the PC's.
 
-stop() {
-    systemctl --user stop surface-camera 2>/dev/null
-    pactl list short modules | awk '/module-(tunnel|pipe)-source/ && /surface_mic/ {print $1}' | xargs -r -n1 pactl unload-module
-    # the Surface side: the camera ends with its ssh session (anything left goes too), the microphone's listener goes
-    "${SSH[@]}" 'pkill -f "gst-launch-1.0 -q pipewiresrc target-object=libcamera_input"
-        pactl list short modules | awk "/module-native-protocol-tcp/ && /port=4713/ {print \$1}" | xargs -r -n1 pactl unload-module' 2>/dev/null
-    echo stopped
-}
+Microphone: a virtual source "Surface Microphone" (pw-loopback) always exists. While an app records from it, a PulseAudio
+tunnel to the Surface's microphone feeds it (the tunnel follows the two machines' clocks); the Surface listens for the
+tunnel only on its Tailscale address and only to the PC's, and only while it is needed.
+"""
+import ctypes
+import json
+import os
+import signal
+import struct
+import subprocess
+import sys
+import time
 
-case "${1:-}" in
-start) start "${2:-front}" ;;
-stop) stop ;;
-status) echo "camera: $(systemctl --user is-active surface-camera)"
-        pactl list short sources | grep -q surface_mic && echo "microphone: on" || echo "microphone: off" ;;
-*) echo "usage: surface-av start [front|rear] | stop | status" >&2; exit 2 ;;
-esac
+import gi
+
+gi.require_version("Gst", "1.0")
+from gi.repository import GLib, Gst  # noqa: E402
+
+W, H, FPS = 1280, 960, 30
+SSH = ["ssh", "-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "-o", "ServerAliveInterval=5",
+       "-o", "ServerAliveCountMax=3", "surface"]
+CAMERA = "libcamera_input.__SB_.PCI0.LNK1"   # the front camera (LNK0 is the rear one)
+MIC = "surface_mic"                          # the virtual source apps see
+TUNNEL = "surface_mic_tunnel"                # the tunnel feeding it
+PORT = 4713
+LOG = os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/tmp"), "surface-screen.log")
+
+
+def log(msg):
+    with open(LOG, "a") as f:
+        f.write(time.strftime("%H:%M:%S") + " av: " + msg + "\n")
+
+
+def run(*args):
+    return subprocess.run(args, capture_output=True, text=True, check=False)
+
+
+def loopback_device():
+    base = "/sys/devices/virtual/video4linux"
+    for name in sorted(os.listdir(base)) if os.path.isdir(base) else []:
+        try:
+            label = open(os.path.join(base, name, "name")).read().lower()
+        except OSError:
+            continue
+        if "loopback" in label or "virtual" in label:
+            return "/dev/" + name
+    return None
+
+
+class Openers:
+    """How many times the device is open, from inotify's IN_OPEN and IN_CLOSE_* (any process, Flatpaks too)."""
+    IN_OPEN, IN_CLOSE_WRITE, IN_CLOSE_NOWRITE = 0x20, 0x08, 0x10
+
+    def __init__(self, path):
+        libc = ctypes.CDLL(None, use_errno=True)
+        self.fd = libc.inotify_init1(os.O_NONBLOCK | os.O_CLOEXEC)
+        libc.inotify_add_watch(self.fd, path.encode(), self.IN_OPEN | self.IN_CLOSE_WRITE | self.IN_CLOSE_NOWRITE)
+        self.count = 0
+
+    def poll(self):
+        try:
+            data = os.read(self.fd, 65536)
+        except BlockingIOError:
+            return self.count
+        i = 0
+        while i + 16 <= len(data):
+            _wd, mask, _cookie, length = struct.unpack_from("iIII", data, i)
+            if mask & self.IN_OPEN:
+                self.count += 1
+            if mask & (self.IN_CLOSE_WRITE | self.IN_CLOSE_NOWRITE):
+                self.count = max(0, self.count - 1)
+            i += 16 + length
+        return self.count
+
+
+class Camera:
+    def __init__(self, device):
+        self.device = device
+        self.latest = None
+        self.latest_at = 0.0
+        self.started = 0.0
+        self.proc = None
+        self.pipe = None
+        self.black = Gst.Buffer.new_wrapped(b"\x10\x80\x10\x80" * (W * H // 2))   # YUY2 black
+        caps = f"video/x-raw,format=YUY2,width={W},height={H},framerate={FPS}/1,pixel-aspect-ratio=1/1"
+        # videoconvert in between: without it v4l2loopback refused the caps (not-negotiated)
+        self.out = Gst.parse_launch(f"appsrc name=src is-live=true format=time caps={caps} ! videoconvert"
+                                    f" ! video/x-raw,format=YUY2 ! v4l2sink device={device} sync=false")
+        self.src = self.out.get_by_name("src")
+        self.out.set_state(Gst.State.PLAYING)
+        self.frame = 0
+        GLib.timeout_add(1000 // FPS, self.push)
+
+    def push(self):
+        fresh = self.latest is not None and time.monotonic() - self.latest_at < 1.0
+        buf = (self.latest if fresh else self.black).copy()
+        buf.pts = self.frame * Gst.SECOND // FPS
+        buf.duration = Gst.SECOND // FPS
+        self.frame += 1
+        self.src.emit("push-buffer", buf)
+        return True
+
+    @property
+    def on(self):
+        return self.proc is not None
+
+    def start(self):
+        remote = (f"exec gst-launch-1.0 -q pipewiresrc target-object={CAMERA} do-timestamp=true ! watchdog timeout=3000"
+                  f" ! vapostproc ! 'video/x-raw(memory:VAMemory),format=NV12,width={W},height={H}'"
+                  " ! vah264enc rate-control=cbr bitrate=4000 key-int-max=30 ! h264parse config-interval=-1 ! mpegtsmux"
+                  " ! fdsink fd=1")
+        self.proc = subprocess.Popen(SSH + [remote], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+        self.pipe = Gst.parse_launch(
+            f"fdsrc fd={self.proc.stdout.fileno()} ! tsdemux ! h264parse ! vah264dec ! videoconvert ! videoscale"
+            f" ! video/x-raw,format=YUY2,width={W},height={H}"
+            " ! appsink name=sink emit-signals=true max-buffers=1 drop=true sync=false")
+        self.pipe.get_by_name("sink").connect("new-sample", self.sample)
+        self.pipe.set_state(Gst.State.PLAYING)
+        self.started = time.monotonic()
+        log("camera on")
+
+    def sample(self, sink):
+        s = sink.emit("pull-sample")
+        if s:
+            self.latest = s.get_buffer()
+            self.latest_at = time.monotonic()
+        return Gst.FlowReturn.OK
+
+    def stop(self):
+        if self.pipe:
+            self.pipe.set_state(Gst.State.NULL)
+            self.pipe = None
+        if self.proc:
+            self.proc.terminate()
+            try:
+                self.proc.wait(5)
+            except subprocess.TimeoutExpired:
+                self.proc.kill()
+            self.proc = None
+            log("camera off")
+        self.latest = None
+
+    def stalled(self):
+        """On, and no frame for 6 s (the camera taken by another app on the Surface, the network): to be started again."""
+        return self.on and (self.proc.poll() is not None or time.monotonic() - max(self.latest_at, self.started) > 6)
+
+    def close(self):
+        self.stop()
+        self.out.set_state(Gst.State.NULL)
+
+
+class Microphone:
+    def __init__(self):
+        # the source apps see; its input follows the tunnel when there is one (silence otherwise)
+        self.loop = subprocess.Popen(
+            ["pw-loopback",
+             "--capture-props", f"node.name={MIC}_in node.passive=true target.object={TUNNEL} audio.channels=1",
+             "--playback-props", f"media.class=Audio/Source node.name={MIC} node.description=\"Surface Microphone\""
+             " audio.channels=1"],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        self.module = None
+        self.addr = None
+
+    def users(self):
+        """Streams recording from the virtual source, not counting level meters (Plasma's volume applet)."""
+        try:
+            index = next(s["index"] for s in json.loads(run("pactl", "-f", "json", "list", "sources").stdout)
+                         if s.get("name") == MIC)
+            outputs = json.loads(run("pactl", "-f", "json", "list", "source-outputs").stdout)
+        except (ValueError, StopIteration):
+            return 0
+        n = 0
+        for o in outputs:
+            props = o.get("properties", {})
+            if o.get("source") != index:
+                continue
+            if "peak" in (props.get("media.name", "") + " " + props.get("application.name", "")).lower():
+                continue
+            n += 1
+        return n
+
+    @property
+    def on(self):
+        return self.module is not None
+
+    def start(self):
+        status = json.loads(run("tailscale", "status", "--json").stdout or "{}")
+        surface = next((p["TailscaleIPs"][0] for p in (status.get("Peer") or {}).values()
+                        if p.get("HostName", "").lower() == "surface"), None)
+        pc = (run("tailscale", "ip", "-4").stdout.split() or [None])[0]
+        if not surface or not pc:
+            log("microphone: Tailscale does not see the Surface")
+            return
+        remote = run(*SSH, f"pactl load-module module-native-protocol-tcp listen={surface} port={PORT} auth-ip-acl={pc}"
+                     " auth-anonymous=false >/dev/null; pactl get-default-source").stdout.split()
+        if not remote:
+            log("microphone: the Surface did not answer")
+            return
+        self.addr = surface
+        res = run("pactl", "load-module", "module-tunnel-source", f"server=tcp:{surface}:{PORT}", f"source={remote[-1]}",
+                  f"source_name={TUNNEL}", "channels=1", "rate=48000", "format=s16le",
+                  "source_properties=device.description=Surface\\sMicrophone\\s(tunnel)")
+        self.module = res.stdout.strip() or None
+        log("microphone on" if self.module else "microphone: tunnel failed")
+
+    def stop(self):
+        if self.module:
+            run("pactl", "unload-module", self.module)
+            self.module = None
+            log("microphone off")
+        if self.addr:
+            # the Surface's listener goes, found by its port (no pkill there: its pattern would match its own shell)
+            run(*SSH, f"pactl list short modules | awk '/module-native-protocol-tcp/ && /port={PORT}/ {{print $1}}'"
+                " | xargs -r -n1 pactl unload-module")
+            self.addr = None
+
+    def close(self):
+        self.stop()
+        self.loop.terminate()
+
+
+def main():
+    Gst.init(None)
+    device = loopback_device()
+    camera = Camera(device) if device else None
+    openers = Openers(device) if device else None
+    mic = Microphone()
+    log(f"ready (camera {device or 'none: no v4l2loopback'})")
+    baseline = None
+    since = {}
+
+    def held(key, want, now):
+        """Seconds the wish has held (want or not), counted from its last change."""
+        if since.get(key) != want:
+            since[key] = want
+            since[key + "@"] = now
+        return now - since[key + "@"]
+
+    def tick():
+        nonlocal baseline
+        now = time.monotonic()
+        if camera:
+            count = openers.poll()
+            if baseline is None:
+                baseline = count            # our own writer
+            want = count > baseline
+            t = held("camera", want, now)
+            if want and not camera.on and t >= 1.0:           # apps probing a device open and close it at once
+                camera.start()
+            elif not want and camera.on and t >= 5.0:
+                camera.stop()
+            elif camera.stalled():
+                log("camera: no frames, starting again")
+                camera.stop()
+                camera.start()
+        want = mic.users() > 0
+        t = held("mic", want, now)
+        if want and not mic.on and t >= 0.5:
+            mic.start()
+        elif not want and mic.on and t >= 10.0:
+            mic.stop()
+        return True
+
+    loop = GLib.MainLoop()
+    try:
+        gi.require_version("GLibUnix", "2.0")
+        from gi.repository import GLibUnix
+        signal_add = GLibUnix.signal_add
+    except (ValueError, ImportError):
+        signal_add = GLib.unix_signal_add
+    for sig in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
+        signal_add(GLib.PRIORITY_HIGH, sig, lambda *_: (loop.quit(), False)[1])
+    GLib.timeout_add(1000, tick)
+    try:
+        loop.run()
+    finally:
+        if camera:
+            camera.close()
+        mic.close()
+        log("stopped")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

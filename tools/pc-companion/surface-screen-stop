@@ -10,4 +10,8 @@ PIDFILE=${XDG_RUNTIME_DIR:-/tmp}/surface-screen.pid
 rm -f "$PIDFILE"
 pkill -f "bash [^ ]*/surface-screen-(map|start)( |$)" 2>/dev/null
 pkill -f "krfb-virtualmonitor .*--name surface( |\$)" 2>/dev/null
+# the Surface's camera and microphone: surface-av takes them down on both machines when told to stop
+if pkill -TERM -f "^/usr/bin/python3 [^ ]*/surface-av$" 2>/dev/null; then
+    for _ in $(seq 25); do pgrep -f "^/usr/bin/python3 [^ ]*/surface-av$" >/dev/null || break; sleep 0.2; done
+fi
 exit 0   # a prep "do" that fails stops the stream

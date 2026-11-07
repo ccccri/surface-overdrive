@@ -51,10 +51,16 @@ stream ends cleanly, the app keeps running on the PC): from there, the tile resu
 
 ## Camera and microphone
 
-`surface-av start [front|rear]` makes the Surface's camera the PC's v4l2loopback camera ("OBS Virtual Camera" on Bazzite)
-and its microphone a PipeWire source "Surface Microphone"; `surface-av stop` ends both (the camera light is on while it
-runs). The camera is encoded in H.264 on the Surface's graphics chip (1280x960, 30 fps, 4 Mbit/s), sent through ssh to the
-host "surface" and decoded on the PC's; it starts again by itself when frames stop (the camera taken by another app). The
-microphone is a PulseAudio tunnel, which follows the two clocks: the Surface listens for it on its Tailscale address,
-for the PC's address only, while it runs. In Discord/Vesktop: camera "OBS Virtual Camera",
-input "Surface Microphone".
+During a session from the Surface (Extended Display or Desktop) the PC has the Surface's front camera and microphone,
+used only on demand (surface-av, started and ended with the session):
+- camera: the v4l2loopback device ("OBS Virtual Camera" on Bazzite) always shows something, so that apps list it: black
+  while no app has it open, the Surface's camera from a second after one opens it until 5 s after it closes it (opens are
+  counted with inotify on the device, which sees Flatpak apps and needs no permissions). Only then is the Surface's camera,
+  and its light, on: H.264 on its graphics chip (1280x960, 30 fps, 4 Mbit/s), through ssh to the host "surface", decoded
+  on the PC's; started again when frames stop (the camera taken by another app on the Surface).
+- microphone: a source "Surface Microphone" (pw-loopback) always there; while an app records from it (level meters do not
+  count), a PulseAudio tunnel to the Surface's microphone feeds it, gone 10 s after the last one stops. The Surface listens
+  for the tunnel on its Tailscale address, for the PC's only, only then.
+
+In Discord/Vesktop: camera "OBS Virtual Camera", input "Surface Microphone". What it does goes to
+`$XDG_RUNTIME_DIR/surface-screen.log` ("av:" lines).

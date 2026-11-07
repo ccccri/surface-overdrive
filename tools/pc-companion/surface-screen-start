@@ -142,3 +142,9 @@ done
 
 # Sunshine's touch screen, pen tablet and absolute mouse on this screen (they went to the PC's own monitor otherwise)
 "$here/surface-screen-map" "$OUT"
+
+# the Surface's camera and microphone as the PC's, on demand, for the session (surface-av)
+if "$here/surface-screen-is-surface"; then
+    pkill -TERM -f "^/usr/bin/python3 [^ ]*/surface-av$" 2>/dev/null
+    setsid "$here/surface-av" >/dev/null 2>&1 < /dev/null &
+fi

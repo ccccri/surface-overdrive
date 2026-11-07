@@ -24,6 +24,14 @@ What was added, what broke, and what fixed it. Newest first. "Verified" means tr
   Moonlight, closing the older one cleanly, and removes the Moonlight desktop 3 s after the last window (a quick remove
   and add had once taken the user's last desktop). Verified from the tablet: the away dialog, Desktop at 125% filling
   the screen, a live scale change, two Moonlights in a row with no error.
+- Taps became drags on the PC after a three-finger swipe on the Surface: KWin cancels the touch points of the window it
+  takes the gesture from, SDL3 reports it, and the Flatpak's sdl2-compat drops the event (SDL2 has none), so Moonlight
+  never lifted the fingers on the PC. src/moonlight-touch, preloaded into Moonlight, turns a canceled finger into a lifted
+  one (installed per user by overdrive-flatpaks).
+- The Surface's camera and microphone on the PC during a session from the Surface, on demand only (surface-av): the
+  camera and its light come on while an app has the PC's virtual camera open, the microphone while an app records from
+  "Surface Microphone". Verified with a reader on the PC: black, then the Surface's camera in 3 s, off 5 s after; the
+  microphone on and off, the Surface's listener gone.
 
 ## 2026-11-03
 
