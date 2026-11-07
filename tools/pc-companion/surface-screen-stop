@@ -1,8 +1,15 @@
 #!/bin/bash
-# surface-screen-stop: Sunshine runs it (prep "undo") when the Surface disconnects: the virtual screen goes, Sunshine back to
-# capturing the PC's own monitor.
+# surface-screen-stop: Sunshine runs it (prep "undo") when the Surface disconnects: the PC's monitors back on (if an away
+# session turned them off), the virtual screen gone, Sunshine back to capturing the PC's own monitor.
 CONF=$HOME/.var/app/dev.lizardbyte.app.Sunshine/config/sunshine/sunshine.conf
 PIDFILE=${XDG_RUNTIME_DIR:-/tmp}/surface-screen.pid
+OFFFILE=${XDG_RUNTIME_DIR:-/tmp}/surface-screen.off
+# the monitors an away session turned off come back first, so that windows return to them
+if [ -s "$OFFFILE" ]; then
+    args=(); while read -r o; do args+=("output.$o.enable"); done < "$OFFFILE"
+    kscreen-doctor "${args[@]}" >/dev/null 2>&1
+fi
+rm -f "$OFFFILE"
 [ -f "$PIDFILE" ] && kill "$(cat "$PIDFILE")" 2>/dev/null
 rm -f "$PIDFILE"
 pkill -f "krfb-virtualmonitor .*--name surface( |\$)" 2>/dev/null

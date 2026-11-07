@@ -5,6 +5,7 @@ set -euo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
 install -Dm755 "$here/surface-screen-start" "$HOME/.local/bin/surface-screen-start"
 install -Dm755 "$here/surface-screen-stop" "$HOME/.local/bin/surface-screen-stop"
+install -Dm755 "$here/surface-screen-where" "$HOME/.local/bin/surface-screen-where"
 dir=$HOME/.var/app/dev.lizardbyte.app.Sunshine/config/sunshine
 conf=$dir/sunshine.conf apps=$dir/apps.json
 [ -f "$apps" ] || { echo "Sunshine is not set up (ujust setup-sunshine enable-flatpak)" >&2; exit 1; }
