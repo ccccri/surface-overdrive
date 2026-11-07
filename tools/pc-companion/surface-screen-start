@@ -1,0 +1,29 @@
+#!/bin/bash
+# surface-screen-start: Sunshine runs it (prep "do" of the "Surface Screen" app) when the Surface connects. A virtual screen of
+# the size the client asks for, at the right of the PC's monitors (they stay on), at the Surface's own 150%, and Sunshine told
+# to capture it. Bazzite's sunshine-start-vmon does the same for game streaming but turns every other monitor off.
+set -u
+W=${SUNSHINE_CLIENT_WIDTH:-1800}
+H=${SUNSHINE_CLIENT_HEIGHT:-1200}
+FPS=${SUNSHINE_CLIENT_FPS:-60}; FPS=${FPS%.*}
+NAME=surface
+OUT=Virtual-$NAME
+CONF=$HOME/.var/app/dev.lizardbyte.app.Sunshine/config/sunshine/sunshine.conf
+PIDFILE=${XDG_RUNTIME_DIR:-/tmp}/surface-screen.pid
+
+# krfb-virtualmonitor makes the KWin output (its VNC server is not used: a random password keeps it closed)
+krfb-virtualmonitor --resolution "${W}x${H}" --name "$NAME" --password "$(head -c 18 /dev/urandom | base64)" --port 5906 \
+    >/dev/null 2>&1 &
+echo $! > "$PIDFILE"
+for _ in $(seq 50); do
+    kscreen-doctor --json 2>/dev/null | jq -e --arg o "$OUT" '.outputs[] | select(.name == $o)' >/dev/null && break
+    sleep 0.2
+done
+kscreen-doctor "output.$OUT.addCustomMode.$W.$H.$((FPS * 1000)).full" >/dev/null 2>&1
+# right of the rightmost monitor, in logical pixels
+X=$(kscreen-doctor --json | jq --arg o "$OUT" \
+    '[.outputs[] | select(.enabled and .name != $o) | .pos.x + (.size.width / .scale)] | max | floor')
+kscreen-doctor "output.$OUT.scale.1.5" "output.$OUT.position.${X:-0},0" >/dev/null 2>&1
+
+sed -i '/^output_name/d' "$CONF"
+echo "output_name = $OUT" >> "$CONF"

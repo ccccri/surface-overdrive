@@ -26,3 +26,7 @@ Branch=stable
 
 [Flatpak Preinstall org.kde.skanpage]
 Branch=stable
+
+# The Surface as a screen of the PC at home, and games streamed from it (Sunshine on the PC)
+[Flatpak Preinstall com.moonlight_stream.Moonlight]
+Branch=stable

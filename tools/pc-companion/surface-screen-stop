@@ -1,0 +1,8 @@
+#!/bin/bash
+# surface-screen-stop: Sunshine runs it (prep "undo") when the Surface disconnects: the virtual screen goes, Sunshine back to
+# capturing the PC's own monitor.
+CONF=$HOME/.var/app/dev.lizardbyte.app.Sunshine/config/sunshine/sunshine.conf
+PIDFILE=${XDG_RUNTIME_DIR:-/tmp}/surface-screen.pid
+[ -f "$PIDFILE" ] && kill "$(cat "$PIDFILE")" 2>/dev/null
+rm -f "$PIDFILE"
+sed -i '/^output_name/d' "$CONF"
