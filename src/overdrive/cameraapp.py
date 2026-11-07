@@ -697,7 +697,8 @@ def main():
             cam = self._cameras.get(self._key)
             if cam is None:
                 return
-            path = output_path(folder(QStandardPaths.StandardLocation.MoviesLocation, ""), "video")
+            # next to the photos, one folder for everything taken with the app (the gallery button opens it)
+            path = output_path(folder(QStandardPaths.StandardLocation.PicturesLocation, "Camera"), "video")
             try:
                 rec = Gst.parse_launch(record_description(cam["node"], *cam["size"], path, audio=self._audio,
                                                           quality=self._video_quality))

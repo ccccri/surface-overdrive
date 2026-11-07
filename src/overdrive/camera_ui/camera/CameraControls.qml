@@ -56,65 +56,27 @@ Rectangle {
                 Layout.fillWidth: true
             }
 
-            // Captured photo/video preview
-            Item {
-                id: capturedPreview
-                implicitWidth: 40
-                implicitHeight: 40
+            // Surface Overdrive: the folder of the photos and videos taken with the app (the file manager opens it), in
+            // place of Plasma Camera's thumbnail of the last one, which opened that single picture
+            QQC2.ToolButton {
+                id: galleryButton
+                implicitWidth: Kirigami.Units.gridUnit * 2.5
+                implicitHeight: implicitWidth
+                icon.name: "folder-pictures"
+                icon.width: Kirigami.Units.gridUnit * 1.6
+                icon.height: Kirigami.Units.gridUnit * 1.6
+                display: QQC2.ToolButton.IconOnly
+                text: qsTr("Open the folder of photos and videos")
+                enabled: !root.captureSession.isSavingVideo
+                onClicked: backend.openFolder()
+                QQC2.ToolTip.visible: hovered
+                QQC2.ToolTip.text: text
 
-                PreviewArea {
-                    id: previewArea
-                    anchors.fill: parent
-
-                    videoRecorder: root.captureSession.recorder
-                    isSavingVideo: root.captureSession.isSavingVideo
-
-                    Component.onCompleted: {
-                        root.captureSession.imageSaved.connect(updatePreview)
-                        showLast()
-                    }
-                    // Surface Overdrive: the last photo or video taken, at the start and whenever the app comes back
-                    // (it may have been deleted meanwhile)
-                    function showLast() {
-                        if (backend.lastCapture === "") {
-                            previewArea.imageUrl = "";
-                            previewArea.setPhotoPreview();
-                        } else if (backend.lastIsVideo) {
-                            videoRecorder.actualLocation = backend.lastCapture;
-                            previewArea.setVideoPreview();
-                            previewArea.createVideoThumbnail();
-                        } else {
-                            previewArea.imageUrl = backend.lastCapture;
-                            previewArea.setPhotoPreview();
-                        }
-                    }
-                    Connections {
-                        target: backend
-                        function onRefreshed() { previewArea.showLast(); }
-                    }
-                    function updatePreview(_, fileName: string) {
-                        previewArea.imageUrl = "file://" + fileName;
-                    }
-
-                    // Listen for photo capture and video capture events
-                    Connections {
-                        target: root.captureController
-
-                        function onPhotoCaptured() {
-                            previewArea.setPhotoPreview();
-                        }
-                        function onVideoCaptured() {
-                            previewArea.setVideoPreview();
-                        }
-                    }
-                }
-
-                Kirigami.Icon {
-                    visible: !previewArea.visible
+                // a video still being written
+                QQC2.BusyIndicator {
                     anchors.centerIn: parent
-                    source: "photo"
-                    color: "white"
-                    height: Kirigami.Units.gridUnit * 1.3
+                    running: root.captureSession.isSavingVideo
+                    visible: running
                 }
             }
 

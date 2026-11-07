@@ -12,6 +12,6 @@ What changed, each marked "Surface Overdrive" in the files:
 - camera/Viewfinder.qml: GStreamer's qml6glsink item instead of VideoOutput.
 - camera/CameraExtraControls.qml: buttons for the screen light and the front flash.
 - camera/CameraPage.qml: the screen light frame.
-- camera/CameraControls.qml: the last picture at start; no settings dialog.
+- camera/CameraControls.qml: the button at the bottom left opens the folder of photos and videos (in place of the thumbnail of the last one); no settings dialog.
 - main.qml: without Plasma Camera's settings (CameraSettings, SettingsDialog).
 - i18n() calls became qsTr().
