@@ -53,6 +53,8 @@ stream ends cleanly, the app keeps running on the PC): from there, the tile resu
 
 `surface-av start [front|rear]` makes the Surface's camera the PC's v4l2loopback camera ("OBS Virtual Camera" on Bazzite)
 and its microphone a PipeWire source "Surface Microphone"; `surface-av stop` ends both (the camera light is on while it
-runs). The camera is encoded in H.264 on the Surface's graphics chip (1280x960, 30 fps, 4 Mbit/s) and decoded on the PC's;
-both go through ssh to the host "surface", so nothing new is opened. In Discord/Vesktop: camera "OBS Virtual Camera",
+runs). The camera is encoded in H.264 on the Surface's graphics chip (1280x960, 30 fps, 4 Mbit/s), sent through ssh to the
+host "surface" and decoded on the PC's; it starts again by itself when frames stop (the camera taken by another app). The
+microphone is a PulseAudio tunnel, which follows the two clocks: the Surface listens for it on its Tailscale address,
+for the PC's address only, while it runs. In Discord/Vesktop: camera "OBS Virtual Camera",
 input "Surface Microphone".

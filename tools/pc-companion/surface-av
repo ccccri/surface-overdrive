@@ -3,13 +3,14 @@
 # browsers, OBS).
 # - camera: the Surface's camera (PipeWire's libcamera node) encoded in H.264 on its graphics chip, sent through ssh,
 #   decoded on the PC's and written to the v4l2loopback device ("OBS Virtual Camera", /dev/video0 on Bazzite);
-# - microphone: the Surface's microphone, raw 48 kHz mono through ssh, into a PipeWire source "Surface Microphone"
-#   (module-pipe-source).
-# Both run as user units (surface-camera, surface-mic) until "stop"; ssh is the existing "surface" host (home network or
-# Tailscale), so nothing new is opened on either side. The camera light is on while it runs.
+#   a gst watchdog ends it when no frame comes for 3 s (the camera taken by another app), and the unit starts it again;
+# - microphone: a PulseAudio tunnel (PipeWire's pulse-tunnel) to the Surface's microphone, a source "Surface Microphone"
+#   (48 kHz mono). The tunnel matches the two machines' clocks; a raw pipe through ssh did not. The Surface listens for it
+#   only on its Tailscale address, and only to the PC's (module-native-protocol-tcp, loaded for the session).
+# The camera runs as a user unit (surface-camera) until "stop", through the existing ssh host "surface". The camera
+# light is on while it runs.
 set -u
 RUN=${XDG_RUNTIME_DIR:-/tmp}
-FIFO=$RUN/surface-mic.fifo
 VIDEO=${SURFACE_AV_VIDEO:-}
 SSH=(ssh -T -o BatchMode=yes -o ConnectTimeout=5 -o ServerAliveInterval=5 -o ServerAliveCountMax=3 surface)
 
@@ -24,40 +25,48 @@ start() {
     local which=${1:-front} lnk
     case "$which" in front) lnk=LNK1 ;; rear) lnk=LNK0 ;; *) echo "front or rear" >&2; exit 2 ;; esac
     stop >/dev/null 2>&1
+    sleep 2   # the Surface releases the camera
     VIDEO=${VIDEO:-$(loopback)}
     if [ -z "$VIDEO" ]; then
         echo "no v4l2loopback device (OBS's virtual camera module): camera not started" >&2
     else
         # 1280x960 (4:3, the sensor's shape), 30 fps, 4 Mbit/s; the PC writes YUY2, which every app takes
-        systemd-run --user --quiet --unit=surface-camera --collect -p Restart=on-failure -p RestartSec=3 \
+        systemd-run --user --quiet --unit=surface-camera --collect -p RestartSec=3 \
+            -p Restart=always \
             bash -c "$(printf '%q ' "${SSH[@]}") 'exec gst-launch-1.0 -q pipewiresrc target-object=libcamera_input.__SB_.PCI0.$lnk do-timestamp=true \
-                ! vapostproc ! \"video/x-raw(memory:VAMemory),format=NV12,width=1280,height=960\" \
+                ! watchdog timeout=3000 ! vapostproc ! \"video/x-raw(memory:VAMemory),format=NV12,width=1280,height=960\" \
                 ! vah264enc rate-control=cbr bitrate=4000 key-int-max=30 ! h264parse config-interval=-1 ! mpegtsmux ! fdsink fd=1' \
-                | gst-launch-1.0 -q fdsrc fd=0 ! tsdemux ! h264parse ! vah264dec ! videoconvert ! video/x-raw,format=YUY2 \
+                | gst-launch-1.0 -q fdsrc fd=0 ! watchdog timeout=5000 ! tsdemux ! h264parse ! vah264dec ! videoconvert ! video/x-raw,format=YUY2 \
                 ! v4l2sink device=$VIDEO sync=false"
         echo "camera ($which) -> $VIDEO"
     fi
-    rm -f "$FIFO"; mkfifo "$FIFO"
-    pactl load-module module-pipe-source source_name=surface_mic file="$FIFO" format=s16le rate=48000 channels=1 \
-        source_properties=device.description=Surface\\sMicrophone >/dev/null
-    systemd-run --user --quiet --unit=surface-mic --collect -p Restart=on-failure -p RestartSec=3 \
-        bash -c "$(printf '%q ' "${SSH[@]}") 'exec parec --raw --format=s16le --rate=48000 --channels=1 --latency-msec=20 \
-            -d \$(pactl get-default-source)' > $FIFO"
+    local sip pip src
+    sip=$(tailscale status --json 2>/dev/null | jq -r '[.Peer[] | select(.HostName | test("^surface$"; "i")) | .TailscaleIPs[0]][0] // empty')
+    pip=$(tailscale ip -4 2>/dev/null | head -1)
+    if [ -z "$sip" ] || [ -z "$pip" ]; then
+        echo "Tailscale does not see the Surface: microphone not started" >&2; return
+    fi
+    src=$("${SSH[@]}" "pactl list short modules | awk '/module-native-protocol-tcp/ && /port=4713/ {print \$1}' | xargs -r -n1 pactl unload-module
+        pactl load-module module-native-protocol-tcp listen=$sip port=4713 auth-ip-acl=$pip auth-anonymous=false >/dev/null
+        pactl get-default-source")
+    pactl load-module module-tunnel-source server="tcp:$sip:4713" source="$src" source_name=surface_mic channels=1 rate=48000 \
+        format=s16le source_properties=device.description=Surface\\sMicrophone >/dev/null
     echo "microphone -> Surface Microphone"
 }
 
 stop() {
-    systemctl --user stop surface-camera surface-mic 2>/dev/null
-    pactl list short modules | awk '/module-pipe-source/ && /surface_mic/ {print $1}' | xargs -r -n1 pactl unload-module
-    rm -f "$FIFO"
-    # the Surface side ends with its ssh session; anything left goes too
-    "${SSH[@]}" 'pkill -f "gst-launch-1.0 -q pipewiresrc target-object=libcamera_input" ; pkill -f "parec --raw --format=s16le --rate=48000 --channels=1 --latency-msec=20"' 2>/dev/null
+    systemctl --user stop surface-camera 2>/dev/null
+    pactl list short modules | awk '/module-(tunnel|pipe)-source/ && /surface_mic/ {print $1}' | xargs -r -n1 pactl unload-module
+    # the Surface side: the camera ends with its ssh session (anything left goes too), the microphone's listener goes
+    "${SSH[@]}" 'pkill -f "gst-launch-1.0 -q pipewiresrc target-object=libcamera_input"
+        pactl list short modules | awk "/module-native-protocol-tcp/ && /port=4713/ {print \$1}" | xargs -r -n1 pactl unload-module' 2>/dev/null
     echo stopped
 }
 
 case "${1:-}" in
 start) start "${2:-front}" ;;
 stop) stop ;;
-status) systemctl --user --no-pager status surface-camera surface-mic 2>/dev/null | grep -E "●|Active:" ;;
+status) echo "camera: $(systemctl --user is-active surface-camera)"
+        pactl list short sources | grep -q surface_mic && echo "microphone: on" || echo "microphone: off" ;;
 *) echo "usage: surface-av start [front|rear] | stop | status" >&2; exit 2 ;;
 esac
