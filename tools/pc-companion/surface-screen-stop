@@ -5,4 +5,5 @@ CONF=$HOME/.var/app/dev.lizardbyte.app.Sunshine/config/sunshine/sunshine.conf
 PIDFILE=${XDG_RUNTIME_DIR:-/tmp}/surface-screen.pid
 [ -f "$PIDFILE" ] && kill "$(cat "$PIDFILE")" 2>/dev/null
 rm -f "$PIDFILE"
+pkill -f "krfb-virtualmonitor .*--name surface( |\$)" 2>/dev/null
 sed -i '/^output_name/d' "$CONF"

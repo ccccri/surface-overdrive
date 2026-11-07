@@ -1,29 +1,64 @@
 #!/bin/bash
 # surface-screen-start: Sunshine runs it (prep "do" of the "Surface Screen" app) when the Surface connects. A virtual screen of
-# the size the client asks for, at the right of the PC's monitors (they stay on), at the Surface's own 150%, and Sunshine told
-# to capture it. Bazzite's sunshine-start-vmon does the same for game streaming but turns every other monitor off.
+# the size the client asks for, at the right of the PC's monitors (they stay on), at 100%, with Sunshine's touch screen and
+# pen tablet mapped to it, and Sunshine told to capture it. Bazzite's sunshine-start-vmon does the same for game streaming but turns every other monitor off.
 set -u
 W=${SUNSHINE_CLIENT_WIDTH:-1800}
 H=${SUNSHINE_CLIENT_HEIGHT:-1200}
-FPS=${SUNSHINE_CLIENT_FPS:-60}; FPS=${FPS%.*}
+echo "$(date +%T) client ${SUNSHINE_CLIENT_WIDTH:-?}x${SUNSHINE_CLIENT_HEIGHT:-?}@${SUNSHINE_CLIENT_FPS:-?}" >> "${XDG_RUNTIME_DIR:-/tmp}/surface-screen.log"
 NAME=surface
 OUT=Virtual-$NAME
 CONF=$HOME/.var/app/dev.lizardbyte.app.Sunshine/config/sunshine/sunshine.conf
 PIDFILE=${XDG_RUNTIME_DIR:-/tmp}/surface-screen.pid
 
+# a screen left by an earlier session (a client that went away without quitting the app) goes first: two would be made
+[ -f "$PIDFILE" ] && kill "$(cat "$PIDFILE")" 2>/dev/null
+pkill -f "krfb-virtualmonitor .*--name $NAME( |\$)" 2>/dev/null
+for _ in $(seq 25); do
+    kscreen-doctor --json 2>/dev/null | jq -e --arg o "$OUT" '.outputs[] | select(.name == $o)' >/dev/null || break
+    sleep 0.2
+done
+
 # krfb-virtualmonitor makes the KWin output (its VNC server is not used: a random password keeps it closed)
-krfb-virtualmonitor --resolution "${W}x${H}" --name "$NAME" --password "$(head -c 18 /dev/urandom | base64)" --port 5906 \
-    >/dev/null 2>&1 &
+krfb-virtualmonitor --resolution "${W}x${H}" --scale 1 --name "$NAME" \
+    --password "$(head -c 18 /dev/urandom | base64)" --port 5906 >/dev/null 2>&1 &
 echo $! > "$PIDFILE"
 for _ in $(seq 50); do
     kscreen-doctor --json 2>/dev/null | jq -e --arg o "$OUT" '.outputs[] | select(.name == $o)' >/dev/null && break
     sleep 0.2
 done
-kscreen-doctor "output.$OUT.addCustomMode.$W.$H.$((FPS * 1000)).full" >/dev/null 2>&1
-# right of the rightmost monitor, in logical pixels
+# The mode KWin gives it depends on the scale it remembers for that name (800x533 or 1200x800 came out): the pixel size the
+# Surface asked for is chosen by hand, added once if it is not there, at 100% (the portal captures a screen at its logical
+# size: at 150% it cut out the top left two thirds) and at the right of the rightmost monitor.
+mode() {
+    kscreen-doctor --json | jq -r --arg o "$OUT" --argjson w "$W" --argjson h "$H" \
+        '.outputs[] | select(.name == $o) | [.modes[] | select(.size.width == $w and .size.height == $h)] | last | .id // empty'
+}
+M=$(mode)
+if [ -z "$M" ]; then
+    kscreen-doctor "output.$OUT.addCustomMode.$W.$H.60000.full" >/dev/null 2>&1
+    M=$(mode)
+fi
 X=$(kscreen-doctor --json | jq --arg o "$OUT" \
     '[.outputs[] | select(.enabled and .name != $o) | .pos.x + (.size.width / .scale)] | max | floor')
-kscreen-doctor "output.$OUT.scale.1.5" "output.$OUT.position.${X:-0},0" >/dev/null 2>&1
+kscreen-doctor ${M:+"output.$OUT.mode.$M"} "output.$OUT.scale.1" "output.$OUT.position.${X:-0},0" >/dev/null 2>&1
 
 sed -i '/^output_name/d' "$CONF"
 echo "output_name = $OUT" >> "$CONF"
+
+# Sunshine's touch screen and pen tablet on this screen: KWin maps them to the first monitor otherwise, and a touch on the
+# Surface landed on the PC's own monitor. KWin keeps the mapping by the screen's id, new at every session, so it is set
+# again each time, as soon as the devices are there (they may come a moment after this script): for up to 30 s.
+(
+for _ in $(seq 60); do
+    mapped=0
+    for dev in $(busctl --user tree org.kde.KWin --list 2>/dev/null | grep '/org/kde/KWin/InputDevice/event'); do
+        case "$(busctl --user get-property org.kde.KWin "$dev" org.kde.KWin.InputDevice name 2>/dev/null)" in
+        *"libvirtualhid Touchscreen"* | *"libvirtualhid Pen Tablet"*)
+            busctl --user set-property org.kde.KWin "$dev" org.kde.KWin.InputDevice outputName s "$OUT" && mapped=$((mapped + 1)) ;;
+        esac
+    done
+    [ "$mapped" -ge 2 ] && exit 0
+    sleep 0.5
+done
+) >/dev/null 2>&1 &
