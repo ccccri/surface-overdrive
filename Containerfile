@@ -109,6 +109,11 @@ RUN dnf5 -y install --setopt=install_weak_deps=False gcc rnnoise-devel ladspa-de
 COPY ladspa /src/ladspa
 RUN mkdir -p /out/usr/lib64/ladspa \
     && gcc -O2 -Wall -Wextra -Werror -fPIC -shared -o /out/usr/lib64/ladspa/overdrive_denoise.so /src/ladspa/overdrive_denoise.c -lrnnoise
+# Moonlight's lifted fingers when KWin takes a gesture (src/moonlight-touch): preloaded into the Flatpak by overdrive-flatpaks
+COPY src/moonlight-touch /src/moonlight-touch
+RUN mkdir -p /out/usr/lib64/surface-overdrive \
+    && gcc -O2 -Wall -Wextra -Werror -fPIC -shared -o /out/usr/lib64/surface-overdrive/moonlight-touch-cancel.so \
+        /src/moonlight-touch/touch-cancel.c -ldl
 
 # ---- The screen rotation animation: KWin's effect with two fixes (kwin-effect/rotation), built against the KWin of the base
 # image (KWin effects have no stable binary interface)

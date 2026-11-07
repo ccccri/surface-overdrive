@@ -61,3 +61,26 @@ class Flatpaks(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class MoonlightTouch(unittest.TestCase):
+    def test_library_copied_refreshed_and_preloaded_once(self):
+        with TemporaryDirectory() as d:
+            lib = Path(d, "moonlight-touch-cancel.so")
+            lib.write_bytes(b"one")
+            state = Path(d, "done")
+            with mock.patch.object(flatpaks.subprocess, "run") as run:
+                run.return_value.returncode = 0
+                flatpaks.moonlight_touch(Path(d, "home"), state, lib)
+                dest = Path(d, "home", ".var", "app", flatpaks.MOONLIGHT, "lib", lib.name)
+                self.assertEqual(dest.read_bytes(), b"one")
+                self.assertIn("--env=LD_PRELOAD=" + str(dest), run.call_args[0][0])
+                lib.write_bytes(b"two")
+                flatpaks.moonlight_touch(Path(d, "home"), state, lib)
+                self.assertEqual(dest.read_bytes(), b"two")
+                self.assertEqual(run.call_count, 1)
+
+    def test_nothing_without_the_library(self):
+        with TemporaryDirectory() as d, mock.patch.object(flatpaks.subprocess, "run") as run:
+            flatpaks.moonlight_touch(Path(d), Path(d, "done"), Path(d, "missing.so"))
+            run.assert_not_called()

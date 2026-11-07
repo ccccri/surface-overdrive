@@ -8,6 +8,11 @@ again at the next one).
 Camera apps get two more things, once each (a user's later change sticks): no raw device nodes, so that the camera reaches
 them through PipeWire (with all devices, Chromium and OBS see the fourteen raw IPU3 nodes of the image processor and none
 works), and, per user, Chromium's PipeWire camera turned on in its flags file.
+
+Moonlight gets, per user, the image's touch-cancel library preloaded (src/moonlight-touch): when KWin takes a three-finger
+gesture its fingers are canceled, which the Flatpak's sdl2-compat drops, and the PC kept them pressed. The library is
+copied into the app's own directory (the sandbox does not see /usr) at every login, so a new image brings a new one; the
+override is set once.
 """
 import os
 import shutil
@@ -36,6 +41,9 @@ CHROMIUM_FLAGS = {
 }
 FEATURE = "WebRtcPipeWireCamera"
 FLAGS_DONE = "flatpak-chromium-flags"
+MOONLIGHT = "com.moonlight_stream.Moonlight"
+TOUCH_LIB = Path("/usr/lib64/surface-overdrive/moonlight-touch-cancel.so")
+TOUCH_DONE = "flatpak-moonlight-touch"
 
 
 def wanted_gone(text):
@@ -95,7 +103,25 @@ def user_main(home=None):
         path.write_text(with_feature(path.read_text() if path.exists() else ""))
         done.add(app)
     userconfig.write_atomic(str(state), "".join(app + "\n" for app in sorted(done)))
+    if MOONLIGHT in out:
+        moonlight_touch(home, Path(userconfig.CONFIG, TOUCH_DONE))
     return 0
+
+
+def moonlight_touch(home, state, lib=TOUCH_LIB):
+    """The touch-cancel library in Moonlight's directory (refreshed when it differs) and preloaded (once)."""
+    if not lib.exists():
+        return
+    dest = Path(home) / ".var" / "app" / MOONLIGHT / "lib" / lib.name
+    data = lib.read_bytes()
+    if not dest.exists() or dest.read_bytes() != data:
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        tmp = dest.with_suffix(".tmp")
+        tmp.write_bytes(data)
+        os.replace(tmp, dest)
+    if not state.exists() and subprocess.run(["flatpak", "override", "--user", "--env=LD_PRELOAD=" + str(dest), MOONLIGHT],
+                                             check=False).returncode == 0:
+        state.write_text("1\n")
 
 
 def main(argv=None):
