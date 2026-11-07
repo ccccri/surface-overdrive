@@ -12,6 +12,7 @@ OUT=Virtual-$NAME
 CONF=$HOME/.var/app/dev.lizardbyte.app.Sunshine/config/sunshine/sunshine.conf
 PIDFILE=${XDG_RUNTIME_DIR:-/tmp}/surface-screen.pid
 OFFFILE=${XDG_RUNTIME_DIR:-/tmp}/surface-screen.off      # monitors turned off for an away session
+TABLETFILE=${XDG_RUNTIME_DIR:-/tmp}/surface-screen.tablet # Plasma's tablet mode setting before an away session
 LOG=$HOME/.var/app/dev.lizardbyte.app.Sunshine/config/sunshine/sunshine.log
 WHERE=$("$(dirname "$0")/surface-screen-where")
 echo "$(date +%T) $WHERE" >> "${XDG_RUNTIME_DIR:-/tmp}/surface-screen.log"
@@ -56,6 +57,11 @@ if [ "$WHERE" = away ]; then
     kscreen-doctor --json | jq -r --arg o "$OUT" '.outputs[] | select(.enabled and .name != $o) | .name' > "$OFFFILE"
     args=(); while read -r o; do args+=("output.$o.disable"); done < "$OFFFILE"
     [ ${#args[@]} -gt 0 ] && kscreen-doctor "${args[@]}" >/dev/null 2>&1
+    # Plasma's tablet mode for the session (bigger targets, the on-screen keyboard on text fields): the Surface has no
+    # keyboard. The setting it had is kept to be put back.
+    printf '%s\n' "$(kreadconfig6 --file kwinrc --group Input --key TabletMode)" > "$TABLETFILE"
+    kwriteconfig6 --notify --file kwinrc --group Input --key TabletMode on
+    "$(dirname "$0")/surface-screen-osk"
     # and they come back by themselves when the Surface went away without quitting (no client for 2 minutes): back home,
     # the PC's own monitor is not left dark
     (
@@ -65,9 +71,7 @@ if [ "$WHERE" = away ]; then
         case "$last" in *DISCONNECTED*) ;; *) continue ;; esac
         when=$(date -d "$(printf '%s' "$last" | sed -E 's/^\[([^]]+)\].*/\1/')" +%s 2>/dev/null) || continue
         [ $(( $(date +%s) - when )) -ge 120 ] || continue
-        args=(); while read -r o; do args+=("output.$o.enable"); done < "$OFFFILE"
-        [ ${#args[@]} -gt 0 ] && kscreen-doctor "${args[@]}" >/dev/null 2>&1
-        rm -f "$OFFFILE"
+        "$(dirname "$0")/surface-screen-restore"
     done
     ) >/dev/null 2>&1 &
 fi
@@ -75,19 +79,5 @@ fi
 sed -i '/^output_name/d' "$CONF"
 echo "output_name = $OUT" >> "$CONF"
 
-# Sunshine's touch screen and pen tablet on this screen: KWin maps them to the first monitor otherwise, and a touch on the
-# Surface landed on the PC's own monitor. KWin keeps the mapping by the screen's id, new at every session, so it is set
-# again each time, as soon as the devices are there (they may come a moment after this script): for up to 30 s.
-(
-for _ in $(seq 60); do
-    mapped=0
-    for dev in $(busctl --user tree org.kde.KWin --list 2>/dev/null | grep '/org/kde/KWin/InputDevice/event'); do
-        case "$(busctl --user get-property org.kde.KWin "$dev" org.kde.KWin.InputDevice name 2>/dev/null)" in
-        *"libvirtualhid Touchscreen"* | *"libvirtualhid Pen Tablet"*)
-            busctl --user set-property org.kde.KWin "$dev" org.kde.KWin.InputDevice outputName s "$OUT" && mapped=$((mapped + 1)) ;;
-        esac
-    done
-    [ "$mapped" -ge 2 ] && exit 0
-    sleep 0.5
-done
-) >/dev/null 2>&1 &
+# Sunshine's touch screen and pen tablet on this screen (they went to the PC's own monitor otherwise)
+"$(dirname "$0")/surface-screen-map" "$OUT"

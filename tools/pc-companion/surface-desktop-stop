@@ -1,0 +1,7 @@
+#!/bin/bash
+# surface-desktop-stop: Sunshine runs it (prep "undo" of the "Desktop" app): what surface-screen-stop does, when the client
+# was the Surface.
+MARK=${XDG_RUNTIME_DIR:-/tmp}/surface-desktop.surface
+[ -f "$MARK" ] || exit 0
+rm -f "$MARK"
+exec "$(dirname "$0")/surface-screen-stop"

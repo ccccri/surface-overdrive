@@ -22,3 +22,8 @@ PC, once:
 
 Surface: Moonlight, add the PC (found by itself at home; elsewhere by its Tailscale name `dsktp`), pair, open "Surface Screen".
 In Moonlight's settings: resolution 1800x1200 (native), 60 fps.
+
+"Desktop" from the Surface does the same as "Surface Screen" (surface-desktop-start tells the Surface by its Tailscale
+address); from another client (a phone) it is the PC's main monitor, with touch and pen mapped to it. Away sessions also turn
+on Plasma's tablet mode (bigger targets, the on-screen keyboard on text fields) and start the on-screen keyboard again so it
+fits the Surface's width; all of it comes back at the end, also when Sunshine itself stops (ExecStopPost drop-in).
