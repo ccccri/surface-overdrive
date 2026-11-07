@@ -28,6 +28,14 @@ class PowerdevilTest(unittest.TestCase):
             self.assertFalse(mod.patch(d))
             self.assertEqual(path.read_text(), "contentItem: Something {}\n")
 
+    def test_left_alone_once_plasma_fixes_it(self):
+        # Plasma's own fix next to the lines we look for: adding ours too would set contentWidth twice (a QML error)
+        fixed = "head\n" + mod.CHANGES[REL][0][0] + "        contentWidth: availableWidth\ntail\n"
+        with tempfile.TemporaryDirectory() as d:
+            path = self.tree(d, fixed)
+            self.assertFalse(mod.patch(d))
+            self.assertEqual(path.read_text(), fixed)
+
     def test_missing_file(self):
         with tempfile.TemporaryDirectory() as d:
             self.assertFalse(mod.patch(d))

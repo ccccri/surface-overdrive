@@ -6,7 +6,10 @@ popup: dragged with a finger, the whole page slid sideways too, cutting off labe
 popup's width (contentWidth: availableWidth), so a drag scrolls only vertically, as in the other popups of the panel. The QML
 is compiled into the plugin, so the change is made in the source tree and the package is rebuilt (ci/build_powerdevil.sh).
 
-When the file has a layout this was not written for, nothing is changed and the build goes on with Fedora's package.
+When the file has a layout this was not written for, nothing is changed and the build goes on with Fedora's package. The
+same when the scroll view already sets a contentWidth: that is Plasma's own fix (not there in 6.8.2 nor in master on
+2026-11-07), and a second one would be a QML error that breaks the build; Fedora's package is then used as it is, and
+this patch (with ci/build_powerdevil.sh and its stage in the Containerfile) can go.
 
 usage: patch_powerdevil.py <source tree>
 """
@@ -37,6 +40,9 @@ def patch(root):
             print("skipped: %s not found" % rel)
             return False
         text = path.read_text()
+        if "contentWidth" in text:
+            print("skipped: %s already sets contentWidth (fixed by Plasma, Fedora's package is fine)" % rel)
+            return False
         for old, new in pairs:
             if text.count(old) != 1:
                 print("skipped: %s has another layout" % rel)
