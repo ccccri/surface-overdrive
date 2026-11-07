@@ -1,6 +1,6 @@
 #!/bin/bash
 # surface-screen-start: Sunshine runs it (prep "do" of the "Surface Screen" app) when the Surface connects. A virtual screen of
-# the size the client asks for, at the right of the PC's monitors (they stay on), at 100%, with Sunshine's touch screen and
+# the size the client asks for, below the PC's main monitor and centred (it stays on), at 100%, with Sunshine's touch screen and
 # pen tablet mapped to it, and Sunshine told to capture it. Bazzite's sunshine-start-vmon does the same for game streaming but turns every other monitor off.
 set -u
 W=${SUNSHINE_CLIENT_WIDTH:-1800}
@@ -29,7 +29,7 @@ for _ in $(seq 50); do
 done
 # The mode KWin gives it depends on the scale it remembers for that name (800x533 or 1200x800 came out): the pixel size the
 # Surface asked for is chosen by hand, added once if it is not there, at 100% (the portal captures a screen at its logical
-# size: at 150% it cut out the top left two thirds) and at the right of the rightmost monitor.
+# size: at 150% it cut out the top left two thirds).
 mode() {
     kscreen-doctor --json | jq -r --arg o "$OUT" --argjson w "$W" --argjson h "$H" \
         '.outputs[] | select(.name == $o) | [.modes[] | select(.size.width == $w and .size.height == $h)] | last | .id // empty'
@@ -39,9 +39,11 @@ if [ -z "$M" ]; then
     kscreen-doctor "output.$OUT.addCustomMode.$W.$H.60000.full" >/dev/null 2>&1
     M=$(mode)
 fi
-X=$(kscreen-doctor --json | jq --arg o "$OUT" \
-    '[.outputs[] | select(.enabled and .name != $o) | .pos.x + (.size.width / .scale)] | max | floor')
-kscreen-doctor ${M:+"output.$OUT.mode.$M"} "output.$OUT.scale.1" "output.$OUT.position.${X:-0},0" >/dev/null 2>&1
+# below the PC's main monitor, centred (where the Surface stands when it is the second screen), in logical pixels
+POS=$(kscreen-doctor --json | jq -r --arg o "$OUT" --argjson w "$W" '
+    [.outputs[] | select(.enabled and .name != $o)] | (map(select(.priority == 1)) + .)[0]
+    | "\((.pos.x + (.size.width / .scale - $w) / 2) | round | if . < 0 then 0 else . end),\((.pos.y + .size.height / .scale) | ceil)"')
+kscreen-doctor ${M:+"output.$OUT.mode.$M"} "output.$OUT.scale.1" "output.$OUT.position.${POS:-0,0}" >/dev/null 2>&1
 
 sed -i '/^output_name/d' "$CONF"
 echo "output_name = $OUT" >> "$CONF"

@@ -2,7 +2,7 @@
 
 The PC (Bazzite) streams a virtual screen to the Surface with Sunshine; the Surface shows it with Moonlight (preinstalled by
 the image), touch and pen going back to the PC. The virtual screen is made when the Surface connects, at the size it asks for,
-at the right of the PC's monitors (they stay on), at 100%; it goes when the Surface disconnects. Sunshine's touch screen and
+below the PC's main monitor and centred (where the Surface stands as the second screen; the monitor stays on), at 100%; it goes when the Surface disconnects. Sunshine's touch screen and
 pen tablet are mapped to it at every session (KWin would put them on the first monitor).
 
 Capture is the XDG portal (`capture = portal`): KWin 6.8 never gives its own screencast to Flatpak apps, and the alternative,
