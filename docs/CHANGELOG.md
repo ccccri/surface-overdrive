@@ -10,6 +10,11 @@ What was added, what broke, and what fixed it. Newest first. "Verified" means tr
   The desktop goes when Moonlight closes. Verified on the tablet: the desktop is made and Moonlight moved there.
 - PC side (tools/pc-companion): touch, pen and absolute mouse stay mapped to the Surface's screen for the whole session;
   Moonlight's "Optimize mouse for remote desktop" makes the pen point where it touches.
+- Two apps instead of the home/away guess: "Extended Display" (the old "Surface Screen", always a second screen below
+  the monitor) and "Desktop" (from the Surface the only screen, in tablet mode; from a phone or another PC the monitor as
+  it is). The scale set during a session is kept for the next one of the same kind. Before every app, Sunshine's global
+  prep clears what a session of ours may have left (monitors off, the virtual screen), so phone and game streams start
+  clean. Verified from the tablet: both apps, and everything back after quitting.
 
 ## 2026-11-03
 

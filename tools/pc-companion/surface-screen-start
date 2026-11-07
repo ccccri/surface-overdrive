@@ -1,9 +1,14 @@
 #!/bin/bash
-# surface-screen-start: Sunshine runs it (prep "do" of the "Surface Screen" app) when the Surface connects. A virtual screen of
-# the size the client asks for, at 100%: at home below the PC's main monitor and centred (the monitor stays on, the Surface is a
-# second screen); away from home the only screen (the PC's monitors go off for the session, back on at its end), with Sunshine's touch screen and
-# pen tablet mapped to it, and Sunshine told to capture it. Bazzite's sunshine-start-vmon does the same for game streaming but turns every other monitor off.
+# surface-screen-start [extend|only]: Sunshine runs it (prep "do") when the Surface connects. A virtual screen of the size the
+# client asks for, with Sunshine's touch screen, pen tablet and absolute mouse mapped to it and Sunshine told to capture it.
+# - extend ("Extended Display"): a second screen below the PC's main monitor and centred, the monitor stays on;
+# - only ("Desktop" from the Surface, for remote use): the only screen, the PC's monitors off and Plasma's tablet mode for
+#   the session, all back at its end (or 2 minutes after the client went away without quitting).
+# The scale of the screen is the one it had at the end of the last session of the same kind (100% the first time).
+# Bazzite's sunshine-start-vmon does the same for game streaming but always turns every other monitor off.
 set -u
+MODE=${1:-extend}
+case "$MODE" in extend | only) ;; *) echo "usage: surface-screen-start [extend|only]" >&2; exit 2 ;; esac
 W=${SUNSHINE_CLIENT_WIDTH:-1800}
 H=${SUNSHINE_CLIENT_HEIGHT:-1200}
 echo "$(date +%T) client ${SUNSHINE_CLIENT_WIDTH:-?}x${SUNSHINE_CLIENT_HEIGHT:-?}@${SUNSHINE_CLIENT_FPS:-?}" >> "${XDG_RUNTIME_DIR:-/tmp}/surface-screen.log"
@@ -13,9 +18,12 @@ CONF=$HOME/.var/app/dev.lizardbyte.app.Sunshine/config/sunshine/sunshine.conf
 PIDFILE=${XDG_RUNTIME_DIR:-/tmp}/surface-screen.pid
 OFFFILE=${XDG_RUNTIME_DIR:-/tmp}/surface-screen.off      # monitors turned off for an away session
 TABLETFILE=${XDG_RUNTIME_DIR:-/tmp}/surface-screen.tablet # Plasma's tablet mode setting before an away session
+MODEFILE=${XDG_RUNTIME_DIR:-/tmp}/surface-screen.mode     # the kind of session, for surface-screen-stop
 LOG=$HOME/.var/app/dev.lizardbyte.app.Sunshine/config/sunshine/sunshine.log
-WHERE=$("$(dirname "$0")/surface-screen-where")
-echo "$(date +%T) $WHERE" >> "${XDG_RUNTIME_DIR:-/tmp}/surface-screen.log"
+SCALE=$(cat "$HOME/.local/state/surface-screen/scale-$MODE" 2>/dev/null)
+case "$SCALE" in '' | *[!0-9.]*) SCALE=1 ;; esac
+echo "$(date +%T) $MODE, scale $SCALE" >> "${XDG_RUNTIME_DIR:-/tmp}/surface-screen.log"
+echo "$MODE" > "$MODEFILE"
 
 # a screen left by an earlier session (a client that went away without quitting the app) goes first: two would be made
 [ -f "$PIDFILE" ] && kill "$(cat "$PIDFILE")" 2>/dev/null
@@ -34,8 +42,7 @@ for _ in $(seq 50); do
     sleep 0.2
 done
 # The mode KWin gives it depends on the scale it remembers for that name (800x533 or 1200x800 came out): the pixel size the
-# Surface asked for is chosen by hand, added once if it is not there, at 100% (the portal captures a screen at its logical
-# size: at 150% it cut out the top left two thirds).
+# Surface asked for is chosen by hand, added once if it is not there.
 mode() {
     kscreen-doctor --json | jq -r --arg o "$OUT" --argjson w "$W" --argjson h "$H" \
         '.outputs[] | select(.name == $o) | [.modes[] | select(.size.width == $w and .size.height == $h)] | last | .id // empty'
@@ -45,15 +52,16 @@ if [ -z "$M" ]; then
     kscreen-doctor "output.$OUT.addCustomMode.$W.$H.60000.full" >/dev/null 2>&1
     M=$(mode)
 fi
-# at home: below the PC's main monitor, centred (where the Surface stands as the second screen), in logical pixels
-POS=$(kscreen-doctor --json | jq -r --arg o "$OUT" --argjson w "$W" '
+# extend: below the PC's main monitor, centred (where the Surface stands as the second screen), in logical pixels
+LW=$(awk -v w="$W" -v s="$SCALE" 'BEGIN { printf "%d", w / s }')
+POS=$(kscreen-doctor --json | jq -r --arg o "$OUT" --argjson w "$LW" '
     [.outputs[] | select(.enabled and .name != $o)] | (map(select(.priority == 1)) + .)[0]
     | "\((.pos.x + (.size.width / .scale - $w) / 2) | round | if . < 0 then 0 else . end),\((.pos.y + .size.height / .scale) | ceil)"')
-[ "$WHERE" = away ] && POS=0,0
-kscreen-doctor ${M:+"output.$OUT.mode.$M"} "output.$OUT.scale.1" "output.$OUT.position.${POS:-0,0}" >/dev/null 2>&1
+[ "$MODE" = only ] && POS=0,0
+kscreen-doctor ${M:+"output.$OUT.mode.$M"} "output.$OUT.scale.$SCALE" "output.$OUT.position.${POS:-0,0}" >/dev/null 2>&1
 
-if [ "$WHERE" = away ]; then
-    # away: the Surface is the only screen, every window on it; the monitors that were on are noted to come back
+if [ "$MODE" = only ]; then
+    # only: the Surface is the only screen, every window on it; the monitors that were on are noted to come back
     kscreen-doctor --json | jq -r --arg o "$OUT" '.outputs[] | select(.enabled and .name != $o) | .name' > "$OFFFILE"
     args=(); while read -r o; do args+=("output.$o.disable"); done < "$OFFFILE"
     [ ${#args[@]} -gt 0 ] && kscreen-doctor "${args[@]}" >/dev/null 2>&1
@@ -62,8 +70,8 @@ if [ "$WHERE" = away ]; then
     printf '%s\n' "$(kreadconfig6 --file kwinrc --group Input --key TabletMode)" > "$TABLETFILE"
     kwriteconfig6 --notify --file kwinrc --group Input --key TabletMode on
     "$(dirname "$0")/surface-screen-osk"
-    # and they come back by themselves when the Surface went away without quitting (no client for 2 minutes): back home,
-    # the PC's own monitor is not left dark
+    # and they come back by themselves when the Surface went away without quitting (no client for 2 minutes): the PC's own
+    # monitor is not left dark
     (
     while [ -s "$OFFFILE" ]; do
         sleep 15
@@ -79,5 +87,5 @@ fi
 sed -i '/^output_name/d' "$CONF"
 echo "output_name = $OUT" >> "$CONF"
 
-# Sunshine's touch screen and pen tablet on this screen (they went to the PC's own monitor otherwise)
+# Sunshine's touch screen, pen tablet and absolute mouse on this screen (they went to the PC's own monitor otherwise)
 "$(dirname "$0")/surface-screen-map" "$OUT"

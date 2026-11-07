@@ -1,16 +1,20 @@
 #!/bin/bash
-# surface-desktop-start: Sunshine runs it (prep "do" of the "Desktop" app). From the Surface, "Desktop" is the same as "Surface
-# Screen" (a screen of its own size, a second screen at home, the only one away): the PC's 16:9 monitor squeezed into the
-# Surface's 3:2 screen was small and touch went astray. From any other client (a phone), the PC's main monitor as it is, with
-# Sunshine's touch screen and pen tablet mapped to it.
+# surface-desktop-start: Sunshine runs it (prep "do" of the "Desktop" app). From the Surface, the remote desktop: a screen of
+# the Surface's size as the PC's only screen, in tablet mode (surface-screen-start only). From any other client (a phone,
+# another PC, games), the PC's main monitor as it is, with Sunshine's touch screen and pen tablet mapped to it.
 here=$(dirname "$0")
 client=$(ss -Htn state established '( sport = :47984 or sport = :47989 or sport = :48010 )' 2>/dev/null |
     awk '{print $4}' | sed -E 's/^\[?([^]]*)\]?:[0-9]+$/\1/; s/^::ffff://' | tail -1)
-surface_ips=$(tailscale status --json 2>/dev/null | jq -r '.Peer[] | select(.HostName | test("^surface$"; "i")) | .TailscaleIPs[]')
+# The Surface: its Tailscale addresses, the address Tailscale reaches it at (Moonlight may also come straight over IPv6), or a
+# client asking for a 3:2 screen like the Surface's own (phones and PCs ask for 16:9 or narrower). Its Wi-Fi address is
+# random, so the home network alone does not tell it.
+surface_ips=$(tailscale status --json 2>/dev/null | jq -r '.Peer[] | select(.HostName | test("^surface$"; "i"))
+    | .TailscaleIPs[], (.CurAddr // "" | sub(":[0-9]+$"; "") | ltrimstr("[") | rtrimstr("]") | select(. != ""))')
+W=${SUNSHINE_CLIENT_WIDTH:-0} H=${SUNSHINE_CLIENT_HEIGHT:-0}
 MARK=${XDG_RUNTIME_DIR:-/tmp}/surface-desktop.surface
-if [ -n "$client" ] && printf '%s\n' $surface_ips | grep -qxF "$client"; then
+if { [ -n "$client" ] && printf '%s\n' $surface_ips | grep -qixF "$client"; } || [ $((W * 2)) -eq $((H * 3)) -a "$W" -gt 0 ]; then
     touch "$MARK"
-    exec "$here/surface-screen-start"
+    exec "$here/surface-screen-start" only
 fi
 rm -f "$MARK"
 main=$(kscreen-doctor --json | jq -r '[.outputs[] | select(.enabled)] | (map(select(.priority == 1)) + .)[0].name')

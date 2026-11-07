@@ -1,5 +1,5 @@
 #!/bin/bash
-# surface-screen-restore: what an away session changed, back as it was: the PC's monitors on, Plasma's tablet mode setting.
+# surface-screen-restore: what a "Desktop" session from the Surface changed, back as it was: the PC's monitors on, Plasma's tablet mode setting.
 # Run at the end of the session, or 2 minutes after a client went away without quitting.
 OFFFILE=${XDG_RUNTIME_DIR:-/tmp}/surface-screen.off
 TABLETFILE=${XDG_RUNTIME_DIR:-/tmp}/surface-screen.tablet
