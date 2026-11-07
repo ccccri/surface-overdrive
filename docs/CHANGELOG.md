@@ -15,6 +15,15 @@ What was added, what broke, and what fixed it. Newest first. "Verified" means tr
   it is). The scale set during a session is kept for the next one of the same kind. Before every app, Sunshine's global
   prep clears what a session of ours may have left (monitors off, the virtual screen), so phone and game streams start
   clean. Verified from the tablet: both apps, and everything back after quitting.
+- Fixes after the first real use: Extended Display showed the PC's 16:9 monitor (Sunshine reads output_name when a
+  stream starts, and keeps the display of a capture still running: now set once, by name); Desktop at 125% came out
+  shrunk in a corner (the portal gives a scaled screen at its logical size: the screen is now always at 100%, and a scale
+  set during a session becomes a smaller screen that the Surface enlarges, followed by Sunshine live); Extended Display
+  away from home asks on the Surface (Desktop instead, anyway, cancel). "Connection terminated -1" on quitting was a
+  second Moonlight opened from the menu while the first still streamed on its desktop: the KWin script keeps one
+  Moonlight, closing the older one cleanly, and removes the Moonlight desktop 3 s after the last window (a quick remove
+  and add had once taken the user's last desktop). Verified from the tablet: the away dialog, Desktop at 125% filling
+  the screen, a live scale change, two Moonlights in a row with no error.
 
 ## 2026-11-03
 
