@@ -1,8 +1,8 @@
 #!/bin/bash
-# surface-screen-map <output>: Sunshine's touch screen and pen tablet on that screen, in the background, for as long as that
-# screen exists (the pen tablet may come only when the pen is first used, and a change of scale or layout may drop the
-# mapping): checked every 2 s. KWin maps them to the first monitor otherwise, and keeps the mapping by the id of the screen,
-# which is new for every virtual screen.
+# surface-screen-map <output>: Sunshine's touch screen, pen tablet and absolute mouse (Moonlight sends the pen as an
+# absolute mouse) on that screen, in the background, for as long as that screen exists (a device may come only when first
+# used, and a change of scale or layout may drop the mapping): checked every 2 s. KWin maps them to the first
+# monitor otherwise, and keeps the mapping by the id of the screen, which is new for every virtual screen.
 out=${1:?usage: surface-screen-map <output>}
 exists() { kscreen-doctor --json 2>/dev/null | jq -e --arg o "$out" '.outputs[] | select(.name == $o)' >/dev/null; }
 (
@@ -10,7 +10,7 @@ sleep 1
 while exists; do
     for dev in $(busctl --user tree org.kde.KWin --list 2>/dev/null | grep '/org/kde/KWin/InputDevice/event'); do
         case "$(busctl --user get-property org.kde.KWin "$dev" org.kde.KWin.InputDevice name 2>/dev/null)" in
-        *"libvirtualhid Touchscreen"* | *"libvirtualhid Pen Tablet"*)
+        *"libvirtualhid Touchscreen"* | *"libvirtualhid Pen Tablet"* | *"libvirtualhid Mouse (Absolute)"*)
             [ "$(busctl --user get-property org.kde.KWin "$dev" org.kde.KWin.InputDevice outputName 2>/dev/null)" = "s \"$out\"" ] ||
                 busctl --user set-property org.kde.KWin "$dev" org.kde.KWin.InputDevice outputName s "$out" ;;
         esac

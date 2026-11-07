@@ -1,0 +1,12 @@
+{
+    "KPlugin": {
+        "Id": "overdrive_stream_desktop",
+        "Name": "Desktop for Streaming",
+        "Description": "Moonlight opens on a virtual desktop of its own, next to the current one, removed when Moonlight closes",
+        "License": "MIT",
+        "EnabledByDefault": true
+    },
+    "X-Plasma-API": "javascript",
+    "X-Plasma-MainScript": "code/main.js",
+    "KPackageStructure": "KWin/Script"
+}

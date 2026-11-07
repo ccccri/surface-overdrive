@@ -2,6 +2,15 @@
 
 What was added, what broke, and what fixed it. Newest first. "Verified" means tried on the Surface Go itself.
 
+## 2026-11-07
+
+**Streaming from the PC**
+- Moonlight opens on a virtual desktop of its own, next to the current one (KWin script `overdrive_stream_desktop`): a
+  three-finger swipe sideways on the touch screen goes back to the Surface's desktop while the stream keeps running.
+  The desktop goes when Moonlight closes. Verified on the tablet: the desktop is made and Moonlight moved there.
+- PC side (tools/pc-companion): touch, pen and absolute mouse stay mapped to the Surface's screen for the whole session;
+  Moonlight's "Optimize mouse for remote desktop" makes the pen point where it touches.
+
 ## 2026-11-03
 
 **Fedora 45 and Plasma 6.8** (the tablet now runs the :45 image)
