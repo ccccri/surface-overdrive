@@ -124,10 +124,25 @@ if [ "$MODE" = only ]; then
     ) >/dev/null 2>&1 &
 fi
 
+# Extended Display is at home, by the PC: its sound stays where it was (speakers, headphones). Sunshine makes its own
+# sink the default when a stream starts, which took the sound away to the Surface and over Bluetooth headphones; it is set
+# back. A sink the user picks during the session is kept. Desktop (remote) keeps Sunshine's: the sound goes to the Surface.
+home_sink=$(pactl get-default-sink 2>/dev/null)
+case "$home_sink" in sink-sunshine*)   # left by a session that ended badly: the first sink that is not Sunshine's
+    home_sink=$(pactl list short sinks 2>/dev/null | awk '$2 !~ /^sink-sunshine/ {print $2; exit}') ;;
+esac
+
 # a scale set in System Settings during the session becomes the zoom: back to 100% with a screen that much smaller
 (
 sleep 3
 while exists; do
+    if [ "$MODE" = extend ]; then
+        cur=$(pactl get-default-sink 2>/dev/null)
+        case "$cur" in
+        sink-sunshine*) [ -n "$home_sink" ] && pactl set-default-sink "$home_sink" && log "sound back to $home_sink" ;;
+        ?*) home_sink=$cur ;;
+        esac
+    fi
     s=$(kscreen-doctor --json 2>/dev/null | jq -r --arg o "$OUT" '.outputs[] | select(.name == $o) | .scale')
     if [ -n "$s" ] && [ "$s" != 1 ]; then
         ZOOM=$(awk -v z="$ZOOM" -v s="$s" 'BEGIN { z *= s; if (z < 1) z = 1; if (z > 3) z = 3; printf "%.4g", z }')

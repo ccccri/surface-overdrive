@@ -32,6 +32,11 @@ What was added, what broke, and what fixed it. Newest first. "Verified" means tr
   camera and its light come on while an app has the PC's virtual camera open, the microphone while an app records from
   "Surface Microphone". Verified with a reader on the PC: black, then the Surface's camera in 3 s, off 5 s after; the
   microphone on and off, the Surface's listener gone.
+- First call: the camera was black (WirePlumber, restarted on the Surface, no longer linked a stream of unknown kind to
+  the camera: the stream now says it is video; the Surface's end is killed by pid when the camera stops), the
+  microphone showed twice (the tunnel itself is now "Surface Microphone": idle, it is corked on the Surface), and the
+  PC's sound went to the Surface over Bluetooth headphones (Sunshine's sink made default: set back in Extended Display).
+  tools/pc-companion/touch-test.html shows fingers the PC thinks are down.
 
 ## 2026-11-03
 

@@ -9,9 +9,9 @@ black while no app has it open, the Surface's front camera while one has (opens 
 inotify, which needs no permissions and sees apps in Flatpaks). The Surface's camera, and its light, are on only then:
 PipeWire's libcamera node there, H.264 on its graphics chip, through ssh to the host "surface", decoded on the PC's.
 
-Microphone: a virtual source "Surface Microphone" (pw-loopback) always exists. While an app records from it, a PulseAudio
-tunnel to the Surface's microphone feeds it (the tunnel follows the two machines' clocks); the Surface listens for the
-tunnel only on its Tailscale address and only to the PC's, and only while it is needed.
+Microphone: "Surface Microphone" is a PulseAudio tunnel to the Surface's microphone for the session (it follows the two
+machines' clocks). Nobody recording, it is suspended and its stream on the Surface corked: the microphone is used only
+while an app records. The Surface listens for it only on its Tailscale address, only to the PC's, only during the session.
 """
 import ctypes
 import json
@@ -31,8 +31,7 @@ W, H, FPS = 1280, 960, 30
 SSH = ["ssh", "-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "-o", "ServerAliveInterval=5",
        "-o", "ServerAliveCountMax=3", "surface"]
 CAMERA = "libcamera_input.__SB_.PCI0.LNK1"   # the front camera (LNK0 is the rear one)
-MIC = "surface_mic"                          # the virtual source apps see
-TUNNEL = "surface_mic_tunnel"                # the tunnel feeding it
+MIC = "surface_mic"                          # the source apps see
 PORT = 4713
 LOG = os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/tmp"), "surface-screen.log")
 
@@ -116,7 +115,11 @@ class Camera:
         return self.proc is not None
 
     def start(self):
-        remote = (f"exec gst-launch-1.0 -q pipewiresrc target-object={CAMERA} do-timestamp=true ! watchdog timeout=3000"
+        # the stream says it is video (props and caps): as "Stream/Input/Unknown" WirePlumber's linking did not find the
+        # camera ("target not found") once it had been restarted. The pid is kept to end it for sure at stop.
+        remote = (f"echo $$ > $XDG_RUNTIME_DIR/surface-av-camera.pid; exec gst-launch-1.0 -q pipewiresrc target-object={CAMERA}"
+                  " stream-properties=props,media.type=Video,media.category=Capture,media.role=Camera do-timestamp=true"
+                  " ! video/x-raw ! watchdog timeout=3000"
                   f" ! vapostproc ! 'video/x-raw(memory:VAMemory),format=NV12,width={W},height={H}'"
                   " ! vah264enc rate-control=cbr bitrate=4000 key-int-max=30 ! h264parse config-interval=-1 ! mpegtsmux"
                   " ! fdsink fd=1")
@@ -148,12 +151,14 @@ class Camera:
             except subprocess.TimeoutExpired:
                 self.proc.kill()
             self.proc = None
+            # the Surface's end, in case it outlived its ssh session (it would keep the camera, and its light, on)
+            run(*SSH, 'f=$XDG_RUNTIME_DIR/surface-av-camera.pid; [ -s "$f" ] && kill "$(cat "$f")" 2>/dev/null; rm -f "$f"')
             log("camera off")
         self.latest = None
 
     def stalled(self):
-        """On, and no frame for 6 s (the camera taken by another app on the Surface, the network): to be started again."""
-        return self.on and (self.proc.poll() is not None or time.monotonic() - max(self.latest_at, self.started) > 6)
+        """On, and no frame for 10 s (the camera taken by another app on the Surface, the network): to be started again."""
+        return self.on and (self.proc.poll() is not None or time.monotonic() - max(self.latest_at, self.started) > 10)
 
     def close(self):
         self.stop()
@@ -161,40 +166,23 @@ class Camera:
 
 
 class Microphone:
+    """The tunnel itself is "Surface Microphone", for the whole session. With nobody recording it is suspended and its
+    stream on the Surface corked, so the Surface's microphone is not used (tried: SUSPENDED here, corked there)."""
+
     def __init__(self):
-        # the source apps see; its input follows the tunnel when there is one (silence otherwise)
-        self.loop = subprocess.Popen(
-            ["pw-loopback",
-             "--capture-props", f"node.name={MIC}_in node.passive=true target.object={TUNNEL} audio.channels=1",
-             "--playback-props", f"media.class=Audio/Source node.name={MIC} node.description=\"Surface Microphone\""
-             " audio.channels=1"],
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         self.module = None
         self.addr = None
-
-    def users(self):
-        """Streams recording from the virtual source, not counting level meters (Plasma's volume applet)."""
-        try:
-            index = next(s["index"] for s in json.loads(run("pactl", "-f", "json", "list", "sources").stdout)
-                         if s.get("name") == MIC)
-            outputs = json.loads(run("pactl", "-f", "json", "list", "source-outputs").stdout)
-        except (ValueError, StopIteration):
-            return 0
-        n = 0
-        for o in outputs:
-            props = o.get("properties", {})
-            if o.get("source") != index:
-                continue
-            if "peak" in (props.get("media.name", "") + " " + props.get("application.name", "")).lower():
-                continue
-            n += 1
-        return n
+        self.tried = 0.0
 
     @property
     def on(self):
         return self.module is not None
 
+    def present(self):
+        return any(line.split("\t")[1:2] == [MIC] for line in run("pactl", "list", "short", "sources").stdout.splitlines())
+
     def start(self):
+        self.tried = time.monotonic()
         status = json.loads(run("tailscale", "status", "--json").stdout or "{}")
         surface = next((p["TailscaleIPs"][0] for p in (status.get("Peer") or {}).values()
                         if p.get("HostName", "").lower() == "surface"), None)
@@ -202,23 +190,32 @@ class Microphone:
         if not surface or not pc:
             log("microphone: Tailscale does not see the Surface")
             return
-        remote = run(*SSH, f"pactl load-module module-native-protocol-tcp listen={surface} port={PORT} auth-ip-acl={pc}"
+        remote = run(*SSH, f"pactl list short modules | awk '/module-native-protocol-tcp/ && /port={PORT}/ {{print $1}}'"
+                     " | xargs -r -n1 pactl unload-module;"
+                     f" pactl load-module module-native-protocol-tcp listen={surface} port={PORT} auth-ip-acl={pc}"
                      " auth-anonymous=false >/dev/null; pactl get-default-source").stdout.split()
         if not remote:
             log("microphone: the Surface did not answer")
             return
         self.addr = surface
         res = run("pactl", "load-module", "module-tunnel-source", f"server=tcp:{surface}:{PORT}", f"source={remote[-1]}",
-                  f"source_name={TUNNEL}", "channels=1", "rate=48000", "format=s16le",
-                  "source_properties=device.description=Surface\\sMicrophone\\s(tunnel)")
+                  f"source_name={MIC}", "channels=1", "rate=48000", "format=s16le",
+                  "source_properties=device.description=Surface\\sMicrophone")
         self.module = res.stdout.strip() or None
-        log("microphone on" if self.module else "microphone: tunnel failed")
+        log("microphone ready" if self.module else "microphone: tunnel failed")
+
+    def check(self):
+        """Again when the tunnel went (the Surface asleep, the network), at most every 30 s."""
+        if self.on and not self.present():
+            log("microphone: tunnel gone")
+            self.stop()
+        if not self.on and time.monotonic() - self.tried > 30:
+            self.start()
 
     def stop(self):
         if self.module:
             run("pactl", "unload-module", self.module)
             self.module = None
-            log("microphone off")
         if self.addr:
             # the Surface's listener goes, found by its port (no pkill there: its pattern would match its own shell)
             run(*SSH, f"pactl list short modules | awk '/module-native-protocol-tcp/ && /port={PORT}/ {{print $1}}'"
@@ -227,7 +224,6 @@ class Microphone:
 
     def close(self):
         self.stop()
-        self.loop.terminate()
 
 
 def main():
@@ -236,6 +232,7 @@ def main():
     camera = Camera(device) if device else None
     openers = Openers(device) if device else None
     mic = Microphone()
+    mic.start()
     log(f"ready (camera {device or 'none: no v4l2loopback'})")
     baseline = None
     since = {}
@@ -264,12 +261,7 @@ def main():
                 log("camera: no frames, starting again")
                 camera.stop()
                 camera.start()
-        want = mic.users() > 0
-        t = held("mic", want, now)
-        if want and not mic.on and t >= 0.5:
-            mic.start()
-        elif not want and mic.on and t >= 10.0:
-            mic.stop()
+        mic.check()
         return True
 
     loop = GLib.MainLoop()

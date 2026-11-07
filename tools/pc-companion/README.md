@@ -58,9 +58,19 @@ used only on demand (surface-av, started and ended with the session):
   counted with inotify on the device, which sees Flatpak apps and needs no permissions). Only then is the Surface's camera,
   and its light, on: H.264 on its graphics chip (1280x960, 30 fps, 4 Mbit/s), through ssh to the host "surface", decoded
   on the PC's; started again when frames stop (the camera taken by another app on the Surface).
-- microphone: a source "Surface Microphone" (pw-loopback) always there; while an app records from it (level meters do not
-  count), a PulseAudio tunnel to the Surface's microphone feeds it, gone 10 s after the last one stops. The Surface listens
-  for the tunnel on its Tailscale address, for the PC's only, only then.
+- microphone: "Surface Microphone" is a PulseAudio tunnel to the Surface's microphone for the session (it follows the two
+  machines' clocks). With nobody recording it is suspended and its stream on the Surface corked, so the microphone is
+  used only while an app records. The Surface listens for it on its Tailscale address, for the PC's only, during the
+  session.
+- the camera stream says it is video (stream properties and caps): as "Stream/Input/Unknown", WirePlumber's linking did
+  not find the camera once it had been restarted ("target not found"), and the PC got black frames.
+
+Sound: with Extended Display (at home) the PC's sound stays where it was; Sunshine makes its own sink the default when a
+stream starts, which took the sound to the Surface and over Bluetooth headphones, and it is set back (a sink picked
+during the session is kept). With Desktop (remote) the sound goes to the Surface.
+
+`touch-test.html`: a page that draws every finger the PC thinks is down (and a held mouse button). Open it on the PC
+during a stream, swipe with three fingers on the Surface and back: no circle may stay on screen.
 
 In Discord/Vesktop: camera "OBS Virtual Camera", input "Surface Microphone". What it does goes to
 `$XDG_RUNTIME_DIR/surface-screen.log` ("av:" lines).

@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Touch Test</title>
+<style>
+  :root { --bg: #101418; --fg: #e8eef4; --dim: #8a96a3; --ok: #3ccf7a; --bad: #ff5a5a; --dot: #4aa8ff; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); font: 16px system-ui, sans-serif;
+               overflow: hidden; touch-action: none; user-select: none; -webkit-user-select: none; }
+  #bar { position: fixed; inset: 0 0 auto 0; padding: 12px 16px; display: flex; gap: 24px; align-items: baseline;
+         flex-wrap: wrap; background: rgba(0,0,0,.35); pointer-events: none; }
+  #count { font-size: 40px; font-weight: 700; }
+  #state { font-size: 22px; font-weight: 600; }
+  .ok { color: var(--ok); } .bad { color: var(--bad); }
+  #help { color: var(--dim); max-width: 60ch; }
+  #log { position: fixed; right: 0; bottom: 0; width: min(420px, 100%); max-height: 45%; overflow: hidden; padding: 8px 16px;
+         font: 13px ui-monospace, monospace; color: var(--dim); pointer-events: none; }
+  canvas { position: fixed; inset: 0; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="bar">
+  <div><span id="count">0</span> fingers held</div>
+  <div id="state" class="ok">no stuck fingers</div>
+  <div id="help">Lift every finger: the count must go back to 0. Then swipe with three fingers on the Surface to its other
+    desktop, come back, and look here without touching: a circle left on screen is a finger the PC still thinks is down.</div>
+</div>
+<div id="log"></div>
+<script>
+  // Every touch point the page has been told is down, drawn where it was last seen. A point with no news for 3 s while
+  // nothing touches the screen is "stuck" (the PC never got it lifted).
+  const c = document.getElementById("c"), g = c.getContext("2d");
+  const countEl = document.getElementById("count"), stateEl = document.getElementById("state"), logEl = document.getElementById("log");
+  const points = new Map();   // id -> {x, y, last}
+  let lines = [];
+
+  function log(msg) {
+    lines.unshift(new Date().toLocaleTimeString() + "  " + msg);
+    lines = lines.slice(0, 18);
+    logEl.textContent = lines.join("\n");
+  }
+  function resize() { c.width = innerWidth * devicePixelRatio; c.height = innerHeight * devicePixelRatio; }
+  addEventListener("resize", resize); resize();
+
+  function update(e, kind) {
+    e.preventDefault();
+    for (const t of e.changedTouches) {
+      if (kind === "start" || kind === "move") points.set(t.identifier, { x: t.clientX, y: t.clientY, last: performance.now() });
+      else points.delete(t.identifier);
+      if (kind !== "move") log(kind.padEnd(6) + " #" + t.identifier + "  (" + e.touches.length + " down)");
+    }
+  }
+  addEventListener("touchstart", e => update(e, "start"), { passive: false });
+  addEventListener("touchmove", e => update(e, "move"), { passive: false });
+  addEventListener("touchend", e => update(e, "end"), { passive: false });
+  addEventListener("touchcancel", e => update(e, "cancel"), { passive: false });
+  // the mouse too: a button the PC thinks is held shows as a press that never ends
+  let mouseDown = false;
+  addEventListener("mousedown", e => { mouseDown = true; log("mouse down (button " + e.button + ")"); });
+  addEventListener("mouseup", e => { mouseDown = false; log("mouse up (button " + e.button + ")"); });
+  addEventListener("contextmenu", e => e.preventDefault());
+
+  function draw(now) {
+    g.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
+    g.clearRect(0, 0, innerWidth, innerHeight);
+    let stuck = 0;
+    for (const [id, p] of points) {
+      const old = now - p.last > 3000;
+      if (old) stuck++;
+      g.beginPath(); g.arc(p.x, p.y, 38, 0, Math.PI * 2);
+      g.fillStyle = old ? "rgba(255,90,90,.35)" : "rgba(74,168,255,.35)"; g.fill();
+      g.lineWidth = 3; g.strokeStyle = old ? "#ff5a5a" : "#4aa8ff"; g.stroke();
+      g.fillStyle = "#e8eef4"; g.font = "600 16px system-ui"; g.textAlign = "center"; g.fillText("#" + id, p.x, p.y + 6);
+    }
+    countEl.textContent = points.size;
+    const bad = stuck > 0 || (mouseDown && points.size === 0);
+    stateEl.className = bad ? "bad" : "ok";
+    stateEl.textContent = stuck ? stuck + " stuck finger" + (stuck > 1 ? "s" : "") + " (no news for 3 s)"
+                        : mouseDown ? "mouse button held" : "no stuck fingers";
+    requestAnimationFrame(draw);
+  }
+  requestAnimationFrame(draw);
+  log("ready");
+</script>
+</body>
+</html>
