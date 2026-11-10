@@ -79,6 +79,11 @@ What was added, what broke, and what fixed it. Newest first. "Verified" means tr
   preinstall failed. It now tries again with the OCI remotes disabled for the time it takes (the app comes from
   Flathub), and puts them back in any case. The Fedora 44 runtimes pinned by Kinoite's installer and used by nothing
   are unpinned and removed (2 GB back on the tablet). Verified: the service finishes, kcalc installed, fedora enabled.
+- Kernel dumps in EFI variables (printk.always_kmsg_dump=Y, kept on the tablet to find why it sometimes powers off by
+  itself) were never archived: Fedora 45's SELinux policy denies systemd-pstore its per-boot directories, and the
+  variables of the 11-08 shutdown were left in the firmware's small store. systemd-pstore now writes them to the
+  journal (pstore.conf.d, Storage=journal): journalctl -b -1 -t systemd-pstore. The 17 variables left were removed by
+  hand (their copy failed: efivarfs files cannot be copied with cp; they held an ordinary shutdown log).
 - Panels: with Desktop the main panel goes to the left on the Surface and back to the bottom of the monitor at the end,
   each remembering its last position and thickness. The user's wallpaper on every screen. Verified with a Desktop session.
 
