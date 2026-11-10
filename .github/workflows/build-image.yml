@@ -37,7 +37,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        release: ["44", "45"]
+        release: ["45"]      # Fedora 44 is no longer built (the tablet and bootstrap.sh are on 45)
     env:
       IMAGE: ghcr.io/${{ github.repository_owner }}/surface-overdrive
     steps:
