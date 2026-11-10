@@ -63,7 +63,8 @@ def installed():
 def flatpak(*args):
     # flatpak wants a session bus for the authenticator of Fedora's OCI remote, which a system service has not. Fedora 45 no
     # longer ships dbus-run-session (dbus-daemon is gone, dbus-broker has no such tool): there flatpak runs without one,
-    # which works for flathub and for an up to date installation (tried on the tablet, 2026-11-03).
+    # which works for flathub and for an up to date installation (tried on the tablet, 2026-11-03); an install from Fedora's OCI
+    # remote does not (preinstall_without_oci).
     prefix = ["dbus-run-session", "--"] if shutil.which("dbus-run-session") else []
     return subprocess.run(prefix + ["flatpak", *args], check=False).returncode
 
@@ -155,6 +156,68 @@ def moonlight_touch(home, state, lib=TOUCH_LIB):
         state.write_text("1\n")
 
 
+def os_version():
+    try:
+        for line in open("/etc/os-release"):
+            if line.startswith("VERSION_ID="):
+                return int(line.split("=", 1)[1].strip().strip('"'))
+    except (OSError, ValueError):
+        pass
+    return None
+
+
+def old_fedora_pins(pins, version):
+    """The pinned Fedora runtimes of an older release than the system's ("runtime/org.fedoraproject.X/arch/f44" with the
+    system on 45)."""
+    old = []
+    for pin in pins:
+        parts = pin.strip().split("/")
+        if len(parts) == 4 and parts[0] == "runtime" and parts[1].startswith("org.fedoraproject.") \
+                and parts[3][:1] == "f" and parts[3][1:].isdigit() and version and int(parts[3][1:]) < version:
+            old.append(pin.strip())
+    return old
+
+
+def unpin_old_fedora_runtimes():
+    """Kinoite's installer pins the Fedora runtimes it came with, so that "uninstall --unused" never removes them: after the
+    image moved to a newer Fedora the old ones stayed, used by nothing (3.2 GB on the tablet, 2026-11-10). Unpinned here,
+    they go with the other unused ones; one an app still uses stays."""
+    pins = subprocess.run(["flatpak", "pin", "--system"], capture_output=True, text=True, check=False).stdout.splitlines()
+    for pin in old_fedora_pins(pins, os_version()):
+        flatpak("pin", "--system", "--remove", pin)
+
+
+def oci_remotes():
+    """The enabled system remotes that are OCI registries (Fedora's): flatpak asks their authenticator for a token over
+    the session bus, which a system service has not."""
+    out = subprocess.run(["flatpak", "remotes", "--system", "--columns=name,url,options"], capture_output=True, text=True,
+                         check=False).stdout
+    names = []
+    for line in out.splitlines():
+        cols = line.split("\t")
+        if len(cols) >= 2 and cols[1].startswith("oci+") and "disabled" not in (cols[2] if len(cols) > 2 else ""):
+            names.append(cols[0])
+    return names
+
+
+def preinstall_without_oci():
+    """preinstall again with the OCI remotes disabled for the time it takes, put back in any case.
+
+    An app of the image missing on the tablet was installed from the first remote that has it, Fedora's: that needs a
+    token from its authenticator over the session bus ("Cannot autolaunch D-Bus without X11 $DISPLAY") and the whole
+    preinstall failed at every boot (seen 2026-11-10, kcalc). Without them it comes from Flathub; apps already installed
+    from Fedora stay as they are."""
+    remotes = oci_remotes()
+    if not remotes:
+        return 1
+    disabled = [r for r in remotes if flatpak("remote-modify", "--system", "--disable", r) == 0]
+    try:
+        return flatpak("preinstall", "--system", "-y", "--noninteractive")
+    finally:
+        for r in disabled:
+            flatpak("remote-modify", "--system", "--enable", r)
+
+
 def main(argv=None):
     argv = sys.argv[1:] if argv is None else argv
     if "--user" in argv:
@@ -172,7 +235,10 @@ def main(argv=None):
         DONE.parent.mkdir(parents=True, exist_ok=True)
         DONE.write_text("".join(app + "\n" for app in sorted(done)))
     status = flatpak("preinstall", "--system", "-y", "--noninteractive")
+    if status != 0:
+        status = preinstall_without_oci()
     if status == 0:
+        unpin_old_fedora_runtimes()
         flatpak("uninstall", "--system", "-y", "--noninteractive", "--unused")
     return status
 

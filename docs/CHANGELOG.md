@@ -74,6 +74,11 @@ What was added, what broke, and what fixed it. Newest first. "Verified" means tr
   ways, and the camera light goes off sooner. A libcamera patch resetting only the camera's own ImgU was tried and
   dropped: with both ImgUs configured the second one gave no frames and stuck the cameras until a restart.
   Firefox's default size for a page that asks for none is now 1280x960 (it got 2560x1920 at 8 fps).
+- overdrive-flatpaks failed at every boot: an app of the image missing on the tablet (kcalc) was taken from Fedora's
+  OCI remote, whose authenticator needs a session bus ("Cannot autolaunch D-Bus without X11 $DISPLAY"), and the whole
+  preinstall failed. It now tries again with the OCI remotes disabled for the time it takes (the app comes from
+  Flathub), and puts them back in any case. The Fedora 44 runtimes pinned by Kinoite's installer and used by nothing
+  are unpinned and removed (2 GB back on the tablet). Verified: the service finishes, kcalc installed, fedora enabled.
 - Panels: with Desktop the main panel goes to the left on the Surface and back to the bottom of the monitor at the end,
   each remembering its last position and thickness. The user's wallpaper on every screen. Verified with a Desktop session.
 

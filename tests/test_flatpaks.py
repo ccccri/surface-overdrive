@@ -108,3 +108,47 @@ class MoonlightMouse(unittest.TestCase):
             flatpaks.moonlight_absolute_mouse(d, state)
             self.assertIn("absolutemousemode=true", Path(d, flatpaks.MOONLIGHT_CONF).read_text())
             self.assertTrue(state.exists())
+
+
+class PreinstallWithoutOci(unittest.TestCase):
+    def test_oci_remotes_disabled_for_the_retry_and_put_back(self):
+        calls = []
+        listing = mock.Mock(stdout="fedora\toci+https://registry.fedoraproject.org\t\nflathub\thttps://dl.flathub.org/repo/\tfiltered\n")
+        with mock.patch.object(flatpaks.subprocess, "run", return_value=listing), \
+                mock.patch.object(flatpaks, "flatpak", side_effect=lambda *a: calls.append(a) or 0):
+            self.assertEqual(flatpaks.preinstall_without_oci(), 0)
+        self.assertEqual(calls, [("remote-modify", "--system", "--disable", "fedora"),
+                                 ("preinstall", "--system", "-y", "--noninteractive"),
+                                 ("remote-modify", "--system", "--enable", "fedora")])
+
+    def test_put_back_when_preinstall_raises(self):
+        calls = []
+
+        def fake(*a):
+            calls.append(a)
+            if a[0] == "preinstall":
+                raise OSError("boom")
+            return 0
+        listing = mock.Mock(stdout="fedora\toci+https://x\t\n")
+        with mock.patch.object(flatpaks.subprocess, "run", return_value=listing), \
+                mock.patch.object(flatpaks, "flatpak", side_effect=fake):
+            with self.assertRaises(OSError):
+                flatpaks.preinstall_without_oci()
+        self.assertEqual(calls[-1], ("remote-modify", "--system", "--enable", "fedora"))
+
+    def test_disabled_oci_remote_left_alone(self):
+        listing = mock.Mock(stdout="fedora\toci+https://x\tdisabled\n")
+        with mock.patch.object(flatpaks.subprocess, "run", return_value=listing), \
+                mock.patch.object(flatpaks, "flatpak") as fp:
+            self.assertEqual(flatpaks.preinstall_without_oci(), 1)
+            fp.assert_not_called()
+
+
+class OldFedoraPins(unittest.TestCase):
+    def test_only_older_fedora_runtimes(self):
+        pins = ["  runtime/org.fedoraproject.KDE6Platform/x86_64/f44", "  runtime/org.fedoraproject.Platform/x86_64/f45",
+                "  runtime/org.kde.Platform/x86_64/6.8", "  app/org.fedoraproject.Foo/x86_64/f43"]
+        self.assertEqual(flatpaks.old_fedora_pins(pins, 45), ["runtime/org.fedoraproject.KDE6Platform/x86_64/f44"])
+
+    def test_nothing_without_a_version(self):
+        self.assertEqual(flatpaks.old_fedora_pins(["runtime/org.fedoraproject.X/x86_64/f44"], None), [])
