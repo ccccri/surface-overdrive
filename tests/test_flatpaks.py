@@ -84,3 +84,27 @@ class MoonlightTouch(unittest.TestCase):
         with TemporaryDirectory() as d, mock.patch.object(flatpaks.subprocess, "run") as run:
             flatpaks.moonlight_touch(Path(d), Path(d, "done"), Path(d, "missing.so"))
             run.assert_not_called()
+
+
+class MoonlightMouse(unittest.TestCase):
+    def test_added_to_general(self):
+        self.assertEqual(flatpaks.with_absolute_mouse("[General]\nfps=60\n[hosts]\n1\\x=1\n"),
+                         "[General]\nabsolutemousemode=true\nfps=60\n[hosts]\n1\\x=1\n")
+
+    def test_existing_value_changed(self):
+        self.assertEqual(flatpaks.with_absolute_mouse("[General]\nabsolutemousemode=false\n"),
+                         "[General]\nabsolutemousemode=true\n")
+
+    def test_new_file(self):
+        self.assertEqual(flatpaks.with_absolute_mouse(""), "[General]\nabsolutemousemode=true\n")
+
+    def test_once_and_not_while_running(self):
+        with TemporaryDirectory() as d, mock.patch.object(flatpaks.subprocess, "run") as run:
+            state = Path(d, "done")
+            run.return_value.returncode = 0          # moonlight running
+            flatpaks.moonlight_absolute_mouse(d, state)
+            self.assertFalse(state.exists())
+            run.return_value.returncode = 1
+            flatpaks.moonlight_absolute_mouse(d, state)
+            self.assertIn("absolutemousemode=true", Path(d, flatpaks.MOONLIGHT_CONF).read_text())
+            self.assertTrue(state.exists())

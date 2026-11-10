@@ -12,7 +12,8 @@ works), and, per user, Chromium's PipeWire camera turned on in its flags file.
 Moonlight gets, per user, the image's touch-cancel library preloaded (src/moonlight-touch): when KWin takes a three-finger
 gesture its fingers are canceled, which the Flatpak's sdl2-compat drops, and the PC kept them pressed. The library is
 copied into the app's own directory (the sandbox does not see /usr) at every login, so a new image brings a new one; the
-override is set once.
+override is set once. Its "Optimize mouse for remote desktop" is turned on once too: Moonlight sends the Surface pen as
+a mouse, which otherwise moves relative to where the pointer was.
 """
 import os
 import shutil
@@ -44,6 +45,8 @@ FLAGS_DONE = "flatpak-chromium-flags"
 MOONLIGHT = "com.moonlight_stream.Moonlight"
 TOUCH_LIB = Path("/usr/lib64/surface-overdrive/moonlight-touch-cancel.so")
 TOUCH_DONE = "flatpak-moonlight-touch"
+MOUSE_DONE = "flatpak-moonlight-absolute-mouse"
+MOONLIGHT_CONF = Path(".var/app", MOONLIGHT, "config/Moonlight Game Streaming Project/Moonlight.conf")
 
 
 def wanted_gone(text):
@@ -105,7 +108,35 @@ def user_main(home=None):
     userconfig.write_atomic(str(state), "".join(app + "\n" for app in sorted(done)))
     if MOONLIGHT in out:
         moonlight_touch(home, Path(userconfig.CONFIG, TOUCH_DONE))
+        moonlight_absolute_mouse(home, Path(userconfig.CONFIG, MOUSE_DONE))
     return 0
+
+
+def with_absolute_mouse(text):
+    """Moonlight's settings with absolutemousemode=true in [General] (added, or an existing value changed)."""
+    lines = text.splitlines()
+    general = next((i for i, line in enumerate(lines) if line.strip() == "[General]"), None)
+    if general is None:
+        return "[General]\nabsolutemousemode=true\n" + "".join(line + "\n" for line in lines)
+    end = next((i for i in range(general + 1, len(lines)) if lines[i].startswith("[")), len(lines))
+    for i in range(general + 1, end):
+        if lines[i].split("=", 1)[0].strip() == "absolutemousemode":
+            lines[i] = "absolutemousemode=true"
+            break
+    else:
+        lines.insert(general + 1, "absolutemousemode=true")
+    return "".join(line + "\n" for line in lines)
+
+
+def moonlight_absolute_mouse(home, state):
+    """Once per user (a later change in Moonlight's settings stays), and not while Moonlight runs: it writes its settings
+    back when it closes."""
+    if state.exists() or subprocess.run(["pgrep", "-x", "moonlight"], capture_output=True, check=False).returncode == 0:
+        return
+    path = Path(home) / MOONLIGHT_CONF
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(with_absolute_mouse(path.read_text() if path.exists() else ""))
+    state.write_text("1\n")
 
 
 def moonlight_touch(home, state, lib=TOUCH_LIB):
