@@ -48,6 +48,18 @@ What was added, what broke, and what fixed it. Newest first. "Verified" means tr
   quiet: two or more quiet for half a second, any quiet for 150 ms when a new one comes, and a finger whose id comes down
   again; the watch is put back whenever SDL starts. Verified: after a swipe to the tablet's desktop and back the PC has
   no finger left down, taps work, a 2.5 s long press stays down.
+- The on-screen keyboard's repeated letters came from the same stuck fingers: typing by touch gives one letter per tap.
+- Extended Display: the on-screen keyboard was cut on both sides (sized for the monitor, centred on the Surface): for the
+  session it does not fill the screen width, and it fits. Verified on the Surface's screen.
+- Sound: Sunshine records whatever sink is the default (a PC sink chosen in Extended Display played on the Surface too)
+  and at the end puts back the default it found at its own start (Bluetooth headphones were lost). Extended Display now
+  pins Sunshine's recording to its silent sink when a PC sink is chosen and to the chosen Sunshine sink otherwise, and
+  the sink in use before the session comes back at the end. Verified by switching sinks during a session.
+- A stream hung in the portal and Sunshine killed itself; the portal had replaced its restore token meanwhile, and KDE
+  asked again for remote control at every start. surface-screen-token puts the user's existing grant back in Sunshine's
+  file (before it starts and before every stream).
+- Windows between the Surface and the monitor: Meta+Shift+Down/Up and a swipe in from the Surface's right edge (KWin
+  script on the PC). Verified both ways.
 
 ## 2026-11-03
 

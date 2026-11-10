@@ -1,5 +1,6 @@
 #!/bin/bash
-# surface-screen-restore: what a "Desktop" session from the Surface changed, back as it was: the PC's monitors on, Plasma's tablet mode setting.
+# surface-screen-restore: what a session from the Surface changed, back as it was: the PC's monitors on, Plasma's tablet
+# mode setting, the on-screen keyboard's width.
 # Run at the end of the session, or 2 minutes after a client went away without quitting.
 OFFFILE=${XDG_RUNTIME_DIR:-/tmp}/surface-screen.off
 TABLETFILE=${XDG_RUNTIME_DIR:-/tmp}/surface-screen.tablet
@@ -14,4 +15,11 @@ if [ -f "$TABLETFILE" ]; then
     if [ -n "$old" ]; then kwriteconfig6 --notify --file kwinrc --group Input --key TabletMode "$old"
     else kwriteconfig6 --notify --file kwinrc --group Input --key TabletMode --delete; fi
     rm -f "$TABLETFILE"
+fi
+OSKFILL=${XDG_RUNTIME_DIR:-/tmp}/surface-screen.oskfill
+if [ -f "$OSKFILL" ]; then
+    old=$(cat "$OSKFILL")
+    if [ -n "$old" ]; then kwriteconfig6 --notify --file plasmakeyboardrc --group General --key panelFillScreenWidth "$old"
+    else kwriteconfig6 --notify --file plasmakeyboardrc --group General --key panelFillScreenWidth --delete; fi
+    rm -f "$OSKFILL"
 fi

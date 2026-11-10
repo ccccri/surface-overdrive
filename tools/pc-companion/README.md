@@ -65,12 +65,29 @@ used only on demand (surface-av, started and ended with the session):
 - the camera stream says it is video (stream properties and caps): as "Stream/Input/Unknown", WirePlumber's linking did
   not find the camera once it had been restarted ("target not found"), and the PC got black frames.
 
-Sound: with Extended Display (at home) the PC's sound stays where it was; Sunshine makes its own sink the default when a
-stream starts, which took the sound to the Surface and over Bluetooth headphones, and it is set back (a sink picked
-during the session is kept). With Desktop (remote) the sound goes to the Surface.
+Sound. Sunshine makes its own sink the default when a stream starts, records whatever sink is the default, and at the
+end puts back the default it found when it started. With Extended Display (at home) its switch is undone once, and then
+the user's choice stands: with a sink of the PC chosen Sunshine records its own silent stereo sink (the sound came out of
+the Surface too), with one of Sunshine's (stereo, 5.1, 7.1) it records that one and the sound goes to the Surface. With
+Desktop (remote) the sound goes to the Surface. At the end the sink in use before the session comes back (Sunshine's
+own restore lost Bluetooth headphones).
+
+On-screen keyboard: plasma-keyboard takes the width of the screen it starts on; in Extended Display that is the monitor,
+and on the narrower Surface its sides were cut off. For the session it does not fill the screen width (three times its
+height, about 1150 px), which fits; put back at the end.
+
+Windows between the screens (KWin script `kwin/overdrive_screen_swap`, installed by install.sh): Meta+Shift+Down sends
+the active window to the Surface, Meta+Shift+Up to the monitor, and a swipe in from the right edge of the Surface sends
+it to the other screen.
+
+Portal permission: the portal replaces Sunshine's restore token when it is used, and a stream that hung (the capture
+never answered and Sunshine killed itself after 10 s) left the file with a token the portal no longer knew; KDE then
+asked again on the PC, with every stream waiting on it. surface-screen-token (before Sunshine starts and before every
+stream) writes the grant the user gave, found in the permission store, back into Sunshine's file. It grants nothing.
 
 `touch-test.html`: a page that draws every finger the PC thinks is down (and a held mouse button). Open it on the PC
-during a stream, swipe with three fingers on the Surface and back: no circle may stay on screen.
+during a stream, swipe with three fingers on the Surface and back: no circle may stay on screen. To run it without
+hands, a virtual touch screen on the Surface (uinput, as root) can tap and swipe like fingers.
 
 In Discord/Vesktop: camera "OBS Virtual Camera", input "Surface Microphone". What it does goes to
 `$XDG_RUNTIME_DIR/surface-screen.log` ("av:" lines).

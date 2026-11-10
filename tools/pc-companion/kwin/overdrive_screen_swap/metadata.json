@@ -1,0 +1,12 @@
+{
+    "KPlugin": {
+        "Id": "overdrive_screen_swap",
+        "Name": "Windows between Surface and Monitor",
+        "Description": "Meta+Shift+Down sends the active window to the Surface's screen, Meta+Shift+Up back to the monitor; a swipe in from the right edge of the Surface sends it to the other screen",
+        "License": "MIT",
+        "EnabledByDefault": true
+    },
+    "X-Plasma-API": "javascript",
+    "X-Plasma-MainScript": "code/main.js",
+    "KPackageStructure": "KWin/Script"
+}

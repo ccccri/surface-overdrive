@@ -100,6 +100,14 @@ apply() {  # <width> <height>
 }
 apply "$VW" "$VH"
 
+if [ "$MODE" = extend ]; then
+    # The on-screen keyboard (plasma-keyboard) takes the width of the screen it starts on, the monitor, and KWin centres it
+    # on the Surface, narrower: its sides were cut off. Not filling the screen width it is three times its height (about
+    # 1150 px from the monitor's height), which fits. Put back at the end (surface-screen-restore).
+    printf '%s\n' "$(kreadconfig6 --file plasmakeyboardrc --group General --key panelFillScreenWidth)" > "$RUN/surface-screen.oskfill"
+    kwriteconfig6 --notify --file plasmakeyboardrc --group General --key panelFillScreenWidth false
+fi
+
 if [ "$MODE" = only ]; then
     # only: the Surface is the only screen, every window on it; the monitors that were on are noted to come back
     kscreen-doctor --json | jq -r --arg o "$OUT" '.outputs[] | select(.enabled and .name != $o) | .name' > "$OFFFILE"
@@ -124,13 +132,26 @@ if [ "$MODE" = only ]; then
     ) >/dev/null 2>&1 &
 fi
 
-# Extended Display is at home, by the PC: its sound stays where it was (speakers, headphones). Sunshine makes its own
-# sink the default when a stream starts, which took the sound away to the Surface and over Bluetooth headphones; it is set
-# back. A sink the user picks during the session is kept. Desktop (remote) keeps Sunshine's: the sound goes to the Surface.
+# Sound. Sunshine makes its own sink the default when a stream starts, records the default sink whatever it is, and at
+# the end puts back the default it found when it started (not the one in use: Bluetooth headphones were lost).
+# - Extended Display is at home, by the PC: Sunshine's switch at the start is undone once (the sound stays on the PC's
+#   speakers or headphones); after that the user's choice stands. With a sink of the PC chosen, Sunshine records its own
+#   stereo sink, which nothing plays to (the sound came out of the Surface too); with one of Sunshine's (stereo, 5.1, 7.1)
+#   it records that one, and the sound goes to the Surface.
+# - Desktop (remote) keeps Sunshine's sink: the sound goes to the Surface.
+# The default before the session is kept for surface-screen-stop, which puts it back after Sunshine's own.
 home_sink=$(pactl get-default-sink 2>/dev/null)
 case "$home_sink" in sink-sunshine*)   # left by a session that ended badly: the first sink that is not Sunshine's
     home_sink=$(pactl list short sinks 2>/dev/null | awk '$2 !~ /^sink-sunshine/ {print $2; exit}') ;;
 esac
+[ -n "$home_sink" ] && echo "$home_sink" > "$RUN/surface-screen.sink"
+pin_recording() {  # Sunshine's recording on the monitor of $1
+    pactl -f json list source-outputs 2>/dev/null | jq -r --arg want "$1.monitor" --argjson srcs \
+        "$(pactl -f json list sources 2>/dev/null || echo '[]')" '
+        ($srcs | map({key: (.index | tostring), value: .name}) | from_entries) as $name
+        | .[] | select(.properties["application.name"] == "sunshine") | select($name[(.source | tostring)] != $want) | .index' |
+        while read -r i; do pactl move-source-output "$i" "$1.monitor" && log "sunshine records $1"; done
+}
 
 # a scale set in System Settings during the session becomes the zoom: back to 100% with a screen that much smaller
 (
@@ -138,9 +159,14 @@ sleep 3
 while exists; do
     if [ "$MODE" = extend ]; then
         cur=$(pactl get-default-sink 2>/dev/null)
+        if [ -z "${undone:-}" ] && [ -n "$home_sink" ]; then
+            case "$cur" in sink-sunshine*)
+                pactl set-default-sink "$home_sink" && log "sound back to $home_sink"; cur=$home_sink; undone=1 ;;
+            esac
+        fi
         case "$cur" in
-        sink-sunshine*) [ -n "$home_sink" ] && pactl set-default-sink "$home_sink" && log "sound back to $home_sink" ;;
-        ?*) home_sink=$cur ;;
+        sink-sunshine*) pin_recording "$cur" ;;
+        ?*) pactl list short sinks 2>/dev/null | grep -q $'\tsink-sunshine-stereo\t' && pin_recording sink-sunshine-stereo ;;
         esac
     fi
     s=$(kscreen-doctor --json 2>/dev/null | jq -r --arg o "$OUT" '.outputs[] | select(.name == $o) | .scale')

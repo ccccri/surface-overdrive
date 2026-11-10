@@ -4,6 +4,8 @@
 # Also the global prep "do" of every app: whatever a session left behind (Sunshine stopped in the middle, a crash) is
 # cleared before a phone or a game stream starts. Doing nothing when there is nothing left.
 PIDFILE=${XDG_RUNTIME_DIR:-/tmp}/surface-screen.pid
+# Sunshine's portal token in step with the user's grant, before the stream asks for the screen (surface-screen-token)
+"$(dirname "$0")/surface-screen-token"
 # what a "only" session changed comes back first (the monitors, so that windows return to them; tablet mode)
 "$(dirname "$0")/surface-screen-restore"
 [ -f "$PIDFILE" ] && kill "$(cat "$PIDFILE")" 2>/dev/null
@@ -13,5 +15,12 @@ pkill -f "krfb-virtualmonitor .*--name surface( |\$)" 2>/dev/null
 # the Surface's camera and microphone: surface-av takes them down on both machines when told to stop
 if pkill -TERM -f "^/usr/bin/python3 [^ ]*/surface-av$" 2>/dev/null; then
     for _ in $(seq 25); do pgrep -f "^/usr/bin/python3 [^ ]*/surface-av$" >/dev/null || break; sleep 0.2; done
+fi
+# the sound output in use before the session, after Sunshine put back the one it found when it started
+SINKFILE=${XDG_RUNTIME_DIR:-/tmp}/surface-screen.sink
+if [ -s "$SINKFILE" ]; then
+    sink=$(cat "$SINKFILE")
+    pactl list short sinks 2>/dev/null | awk '{print $2}' | grep -qxF "$sink" && pactl set-default-sink "$sink"
+    rm -f "$SINKFILE"
 fi
 exit 0   # a prep "do" that fails stops the stream
