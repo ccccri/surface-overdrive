@@ -73,7 +73,11 @@ class EventServer:
 
 
 class PowerProfile:
-    """True while the desktop power profile is "power-saver" (power-profiles-daemon or tuned-ppd). Cached for one second."""
+    """True while the desktop power profile is "power-saver" (power-profiles-daemon or tuned-ppd). Cached for CACHE_S: asked
+    every second, the busctl it starts at every poll cycle cost the daemon 0.5% of a core (46 s of CPU in 2.6 h, 2026-11-10),
+    and the profile changes seldom; a change is followed within that time."""
+
+    CACHE_S = 15.0
 
     def __init__(self):
         self._at = 0.0
@@ -81,7 +85,7 @@ class PowerProfile:
 
     def saver(self):
         now = time.monotonic()
-        if now - self._at > 1.0:
+        if now - self._at > self.CACHE_S:
             self._at = now
             try:
                 out = subprocess.run(

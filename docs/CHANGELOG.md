@@ -87,6 +87,8 @@ What was added, what broke, and what fixed it. Newest first. "Verified" means tr
 - Camera app: with the preview stopping on a thread, a camera switch could configure the next camera while the previous
   one still ran (EBUSY, back only after the 5 s watchdog); it now waits for the old preview to stop. Verified: three
   switches in a row, no EBUSY.
+- overdrive-nfcd asked for the power profile with a busctl at every poll cycle (about every 2 s): 0.5% of a core on
+  the tablet. Cached for 15 s: 65 ms of CPU in 2 minutes instead of about 590.
 - CI: Fedora 45 only (bootstrap.sh, ci/local-build.sh and the docs too). The unit tests failed on CI, which has no
   flatpak: overdrive-flatpaks' new reads ran the real command (now a command that cannot run reads as no output).
 - Docs: the README described a design phase, ARCHITECTURE Rust daemons, cosign and a series-check job that were never
