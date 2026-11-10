@@ -1,0 +1,90 @@
+From: Surface Overdrive <noreply@surface-overdrive>
+Subject: [PATCH] ipu3: every picture size offered, the lightest first
+
+Applications and browsers without wishes take the first size or the one closest to 640x480, and got the picture size
+chosen in the Cameras page: with 2560x1920 on the front camera, 8 to 19 fps in Firefox 159 and Chromium 157 (getUserMedia
+with no size, 2026-11-10). Every size is offered again, the lightest first (front 1280x960 at about 28 fps, rear 1536x1152
+at 30), with 1280x720 last on the front camera for calls that ask for 16:9 (not on the rear: zoomed there, and Chromium
+then failed to negotiate the rear camera again). Offering only the chosen size and bigger ones was for Kamoso, which
+took a smaller size when one was offered; Kamoso is no longer in the image, and the image's camera app asks for the chosen
+picture size itself (min_width of the profile).
+
+---
+diff --git a/src/libcamera/pipeline/ipu3/ipu3.cpp b/src/libcamera/pipeline/ipu3/ipu3.cpp
+index f807f23..bb7f77a 100644
+--- a/src/libcamera/pipeline/ipu3/ipu3.cpp
++++ b/src/libcamera/pipeline/ipu3/ipu3.cpp
+@@ -580,9 +580,8 @@ PipelineHandlerIPU3::generateConfiguration(Camera *camera, Span<const StreamRole
+ 			streamFormats[pixelFormat] = { { kMinOfferedSize, maxSize } };
+ 
+ 			/*
+-			 * The sizes offered: first the picture size chosen in the Cameras page ("min_width" of the live profile,
+-			 * LIBCAMERA_IPU3_REAR_MIN_WIDTH for the rear), which applications such as Kamoso simply take, then the others,
+-			 * among which a browser picks by its constraints (1280x960 for a call). Only sizes that show the whole picture are offered:
++			 * The sizes offered (the order is explained below), among which a browser picks by its constraints
++			 * (1280x960 for a call). Only sizes that show the whole picture are offered:
+ 			 * the ImgU's main output cannot scale (its GDC size is the output size), so a size the BDS cannot reach from
+ 			 * the sensor comes out cropped. Measured from pictures (zoom against the largest size): front 2560x1920,
+ 			 * 1280x960 and 1280x720 show the whole sensor, 1152x864 to 2048x1536 were zoomed 1.06-1.18x and 640x480
+@@ -593,46 +592,29 @@ PipelineHandlerIPU3::generateConfiguration(Camera *camera, Span<const StreamRole
+ 			 */
+ 			{
+ 				const bool rear = data->cio2_.sensor()->model() == "ov8865";
+-				LiveProfile profile(data->cio2_.sensor()->model());
+-				unsigned int minW = 0;
+-				const char *minWidth = rear ? getenv("LIBCAMERA_IPU3_REAR_MIN_WIDTH") : nullptr;
+-				if (minWidth)
+-					minW = strtoul(minWidth, nullptr, 10);
+-				if (profile.has("min_width"))
+-					minW = std::clamp(profile.number("min_width", 0), 0.0, 10000.0);
+-
+ 				const std::vector<Size> pictures = rear
+ 					? std::vector<Size>{ { 1536, 1152 }, { 2048, 1536 }, { 2560, 1920 }, { 3200, 2400 } }
+ 					: std::vector<Size>{ { 1280, 960 }, { 2560, 1920 } };
+ 				/*
+-				 * No 16:9 size: Kamoso picks 1280x720 when it is offered, whatever comes first, and its pictures and
+-				 * videos then lost the size chosen for them. Browsers take 1280x960 for a call (4:3, like most webcams).
+-				 */
+-				const std::vector<Size> calls{};
+-
+-				/* the first picture size at least min_width wide (an older profile's 1152, 1536 or 2048 picks the next one) */
+-				Size first = pictures.back();
+-				for (const Size &s : pictures)
+-					if (s.width >= minW) {
+-						first = s;
+-						break;
+-					}
+-
+-				/*
+-				 * Only that size and the bigger ones: applications without wishes (Kamoso, GStreamer) take the size closest
+-				 * to 640x480, whatever comes first, so a smaller size on offer took Kamoso's pictures down to it (1.2 MP
+-				 * instead of the 4.9 MP chosen, Fedora 45). The size chosen in the Cameras page is the smallest any
+-				 * application gets; 1280x960 there makes calls lighter.
++				 * Every size, the lightest first: applications and browsers without wishes take the first or the one
++				 * closest to 640x480, and got the picture size chosen in the Cameras page (2560x1920 on the front camera:
++				 * 8 to 19 fps in Firefox and Chromium, 2026-11-10); now 1280x960 at about 28 fps on the front, 1536x1152 at
++				 * 30 on the rear. The camera app asks for the chosen picture size itself ("min_width" of the profile, read
++				 * by overdrive.cameraapp), and Kamoso, which took a smaller size when one was offered, is no longer in the
++				 * image. On the front camera 1280x720 comes last, for calls that ask for 16:9 (it shows the sensor's
++				 * whole width); not on the rear one, where it is zoomed 1.10x and Chromium's capture, given it, failed to
++				 * negotiate the rear camera again after its first stream ("no more input formats").
+ 				 */
+-				std::vector<SizeRange> offered{ SizeRange(first) };
++				std::vector<SizeRange> offered;
+ 				for (const Size &s : pictures)
+-					if (s.width > first.width && s.width <= maxSize.width)
+-						offered.emplace_back(s);
+-				for (const Size &s : calls)
+-					if (s.width >= first.width && s.width <= maxSize.width)
++					if (s.width <= maxSize.width)
+ 						offered.emplace_back(s);
++				if (offered.empty())
++					offered.emplace_back(pictures.front());
++				if (!rear && maxSize.width >= 1280)
++					offered.emplace_back(Size{ 1280, 720 });
+ 
+-				size = first;
++				size = offered.front().max;
+ 				streamFormats[pixelFormat] = offered;
+ 			}
+ 

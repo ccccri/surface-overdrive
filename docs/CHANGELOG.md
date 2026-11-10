@@ -74,6 +74,14 @@ What was added, what broke, and what fixed it. Newest first. "Verified" means tr
   ways, and the camera light goes off sooner. A libcamera patch resetting only the camera's own ImgU was tried and
   dropped: with both ImgUs configured the second one gave no frames and stuck the cameras until a restart.
   Firefox's default size for a page that asks for none is now 1280x960 (it got 2560x1920 at 8 fps).
+- Cameras in Chromium and other apps without wishes got the largest picture (2560x1920 at 12 fps): libcamera now offers
+  every size, the lightest first (patch 0048: front 1280x960, rear 1536x1152, then up to the full sensor; 1280x720 last
+  on the front camera only). The camera app picks its own size from the profile instead of the first offered. Verified:
+  Chromium with no constraints 1280x720 at about 21 fps on the front camera, the app still at 2560x1920 / 2048x1536.
+- Chromium got the rear camera only once ("no more input formats" the second time): the frame rate PipeWire's libcamera
+  plugin offers (our patch 0001) came from the camera's frame duration limits, which follow the sensor mode of the last
+  stream (rear: 15 fps before, 30 after). It is now worked out once per node (PipeWire patch 0005). Verified: Chromium and
+  Firefox, both cameras, every size, in a row.
 - overdrive-flatpaks failed at every boot: an app of the image missing on the tablet (kcalc) was taken from Fedora's
   OCI remote, whose authenticator needs a session bus ("Cannot autolaunch D-Bus without X11 $DISPLAY"), and the whole
   preinstall failed. It now tries again with the OCI remotes disabled for the time it takes (the app comes from

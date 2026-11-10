@@ -16,14 +16,23 @@ class CamerasFromDump(unittest.TestCase):
         dump = [node("libcamera_input.__SB_.PCI0.LNK1", [(2560, 1920), (2560, 1920)]),
                 node("libcamera_input.__SB_.PCI0.LNK0", [(1536, 1152), (3200, 2400)]),
                 node("alsa_input.pci", [])]
-        cams = cameraapp.cameras_from_dump(dump)
+        cams = cameraapp.cameras_from_dump(dump, {})
         self.assertEqual(cams["front"]["size"], (2560, 1920))
         self.assertEqual(cams["rear"]["size"], (1536, 1152))
         self.assertEqual(cams["rear"]["node"], "libcamera_input.__SB_.PCI0.LNK0")
 
+    def test_the_chosen_picture_size_not_the_first_offered(self):
+        # libcamera offers the lightest size first (for browsers), 16:9 last; the app takes the size chosen in the Cameras page
+        offered = [(1280, 960), (2560, 1920), (1280, 720)]
+        self.assertEqual(cameraapp.picture_size(offered, 2560), (2560, 1920))
+        self.assertEqual(cameraapp.picture_size(offered, 0), (1280, 960))
+        self.assertEqual(cameraapp.picture_size(offered, 5000), (2560, 1920))
+        dump = [node("libcamera_input.__SB_.PCI0.LNK1", offered)]
+        self.assertEqual(cameraapp.cameras_from_dump(dump, {"front": 2560})["front"]["size"], (2560, 1920))
+
     def test_no_formats_no_camera(self):
-        self.assertEqual(cameraapp.cameras_from_dump([node("libcamera_input.__SB_.PCI0.LNK1", [])]), {})
-        self.assertEqual(cameraapp.cameras_from_dump(None), {})
+        self.assertEqual(cameraapp.cameras_from_dump([node("libcamera_input.__SB_.PCI0.LNK1", [])], {}), {})
+        self.assertEqual(cameraapp.cameras_from_dump(None, {}), {})
 
 
 class PenButton(unittest.TestCase):

@@ -21,7 +21,8 @@ TUNING_DIR = "/usr/share/libcamera/ipa/ipu3"
 STATE_DIR = "/dev/shm"
 SENSORS = {"front": "ov5693", "rear": "ov8865"}
 
-# Picture sizes offered to applications ("min_width": the smallest width offered, apps take the first size) and what each costs.
+# Picture sizes of the camera app ("min_width": the first size at least that wide; libcamera offers every size, the lightest
+# first, to other applications since patch 0048) and what each costs.
 # Frame rates measured on the tablet on 2026-10-26 (temporal denoise on one thread): the rear's sizes above 1536x1152 use
 # the full resolution mode of the sensor, which gives 15 frames a second.
 SIZES = {

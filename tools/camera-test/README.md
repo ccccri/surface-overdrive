@@ -15,6 +15,9 @@ On the tablet:
 `--password-store=basic`: a new Chromium profile otherwise asks to open the KDE wallet.
 
 Results (2026-11-10, evening light): Firefox 159 and Chromium 157 get both cameras at every size; the rear one gave no
-frames after the front one until camera nodes were suspended at once (wireplumber 91-surface-overdrive-camera-suspend);
-WebRTC 960x540 VP8 at 15 fps; facingMode is not known to either browser through PipeWire (OverconstrainedError for an
-exact facingMode).
+frames after the front one until camera nodes were suspended at once (wireplumber 91-surface-overdrive-camera-suspend).
+With no size asked, both get the lightest picture (libcamera patch 0048): front 1280x720 at about 20 fps, rear 1536x1152
+(Chromium 30 fps; Firefox keeps to the 15 fps the rear node offers). Chromium opened the rear camera only once until the
+frame rate the node offers stopped changing after a stream (PipeWire patch 0005). Firefox WebRTC 960x540 VP8 at 20 fps;
+Chromium's call to itself gets no frames even from a canvas, so that check says nothing about the cameras there. facingMode
+is not known to either browser through PipeWire (OverconstrainedError for an exact facingMode).

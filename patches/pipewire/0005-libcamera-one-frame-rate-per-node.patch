@@ -1,0 +1,42 @@
+diff --git a/spa/plugins/libcamera/libcamera-source.cpp b/spa/plugins/libcamera/libcamera-source.cpp
+index f91d977..9b0f7d6 100644
+--- a/spa/plugins/libcamera/libcamera-source.cpp
++++ b/spa/plugins/libcamera/libcamera-source.cpp
+@@ -179,6 +179,8 @@ struct impl {
+ 	ControlList initial_controls;
+ 	bool active = false;
+ 	bool acquired = false;
++	/* The frame rate offered with every format, worked out once (see camera_max_fps) */
++	uint32_t offered_fps = 0;
+ 
+ 	impl(spa_log *log, spa_loop *data_loop, spa_system *system,
+ 	     std::shared_ptr<CameraManager> manager, std::shared_ptr<Camera> camera,
+@@ -561,7 +563,7 @@ color_space_to_colorimetry(const libcamera::ColorSpace& colorspace)
+  * stream failed. At most 30: the front camera of the Surface Go reports 60 at 1152x864 but delivers about 29 (its
+  * exposure takes the frame time), and a rate the camera does not keep misleads the applications that trust it.
+  */
+-static uint32_t camera_max_fps(struct impl *impl)
++static uint32_t camera_max_fps_now(struct impl *impl)
+ {
+ 	const ControlInfoMap &info = impl->camera->controls();
+ 	auto it = info.find(&controls::FrameDurationLimits);
+@@ -578,6 +580,19 @@ static uint32_t camera_max_fps(struct impl *impl)
+ 	return 1;
+ }
+ 
++/*
++ * The same rate for the whole life of the node: the camera's frame duration limits follow the sensor mode of its last
++ * configuration (the Surface Go's rear camera reports 15 fps before its first stream and 30 after one at 1536x1152).
++ * Applications that remember the formats they were offered then ask for a rate no longer offered: Chromium opened the
++ * rear camera once, and the second time got "no more input formats".
++ */
++static uint32_t camera_max_fps(struct impl *impl)
++{
++	if (impl->offered_fps == 0)
++		impl->offered_fps = camera_max_fps_now(impl);
++	return impl->offered_fps;
++}
++
+ int
+ spa_libcamera_enum_format(struct impl *impl, struct port *port, int seq,
+ 		     uint32_t start, uint32_t num, const struct spa_pod *filter)

@@ -10,7 +10,8 @@ How the picture flows:
                                  Python: the first version copied every frame into a QVideoFrame and the preview lagged)
                               -> appsink holding the last full-size frame, for photos
   video    a second pipewiresrc on the same camera -> vapostproc -> vah264enc -> mp4mux, with the microphone
-The camera's size is the first one it offers, which the Cameras page of System Settings chooses ("min_width").
+The picture size is the one chosen in the Cameras page of System Settings ("min_width" of the profile), among the sizes the
+camera offers (the lightest first, for other applications: libcamera patch 0048).
 """
 import datetime
 import json
@@ -38,8 +39,30 @@ MAX_GALLERY = 200
 
 # ---- Pure helpers (tested in tests/test_cameraapp.py)
 
-def cameras_from_dump(dump):
-    """{key: {"label", "node", "size": (w, h)}} for the built-in cameras PipeWire has, from the JSON of pw-dump."""
+def picture_size(sizes, min_width):
+    """The picture size: the first 4:3 size offered at least min_width wide (the size chosen in the Cameras page), or the
+    largest. libcamera offers the lightest size first for other applications (patch 0048), so the app asks for its own."""
+    four_three = [s for s in sizes if s[0] * 3 == s[1] * 4] or sizes
+    for s in four_three:
+        if s[0] >= min_width:
+            return s
+    return max(four_three)
+
+
+def chosen_widths():
+    """{key: min_width} from the camera profiles of the Cameras page (0 when not set)."""
+    try:
+        from overdrive import camera as camera_settings
+        return {key: int((camera_settings.read_profile(key).get("min_width") or [0])[0]) for key in ("front", "rear")}
+    except Exception:          # noqa: BLE001 - a profile that cannot be read means the default size
+        return {}
+
+
+def cameras_from_dump(dump, min_widths=None):
+    """{key: {"label", "node", "size": (w, h)}} for the built-in cameras PipeWire has, from the JSON of pw-dump; size is the
+    picture size chosen in the Cameras page (min_widths, read from the profiles when not given)."""
+    if min_widths is None:
+        min_widths = chosen_widths()
     found = {}
     for obj in dump or []:
         if not str(obj.get("type", "")).endswith("Node"):
@@ -52,7 +75,7 @@ def cameras_from_dump(dump):
             sizes = [(f["size"]["width"], f["size"]["height"]) for f in (info.get("params") or {}).get("EnumFormat", [])
                      if isinstance(f, dict) and f.get("format") == "NV12" and isinstance(f.get("size"), dict)]
             if sizes:
-                found[key] = {"label": label, "node": node, "size": sizes[0]}
+                found[key] = {"label": label, "node": node, "size": picture_size(sizes, min_widths.get(key, 0))}
     return found
 
 
