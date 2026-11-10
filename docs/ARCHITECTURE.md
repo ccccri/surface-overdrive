@@ -1,8 +1,28 @@
-# Surface Overdrive: architecture (draft v0, 2026-10-06)
+# Surface Overdrive: architecture
 
-A personal project for one Surface Go 1824 (Wi-Fi, 8 GB, NVMe) running Fedora Kinoite 44, later 45, with Secure Boot on.
-It is not meant for other models or other users. Every decision is marked **[DECIDED]** or **[TO VERIFY]**
-(in which case a spike in `docs/SPIKES.md` confirms or rejects it on the device).
+A personal project for one Surface Go 1824 (Wi-Fi, 8 GB, NVMe) running Fedora Kinoite 45, with Secure Boot on.
+It is not meant for other models or other users. Section 0 is how it is built today; sections 1 to 13 are the design of
+2026-10-06 (draft v0), kept for its reasons: where the build went another way, section 0 says so.
+
+## 0. As built (2026-11-10)
+
+- **Image**: `Containerfile`, one multi-stage build on `quay.io/fedora-ostree-desktops/kinoite:45`. Stages: the kernel
+  modules (`kmods`, signed with the MOK key), libcamera and PipeWire's libcamera plugin rebuilt from Fedora's SRPMs with
+  our patches (`rpmbuild`, not mock), Plasma's login screen, plasma-pa and powerdevil rebuilt with small patches, the
+  pen's HID-BPF program, the KCMs (C++ and QML, `kcm/`), the microphone denoise LADSPA plugin and Moonlight's touch
+  library (`ladspa/`, `src/moonlight-touch`), our KWin rotation effect, the wallpapers; the last stage adds them and
+  `image/rootfs`.
+- **Runtime**: Python, not Rust. The package `overdrive` (`src/overdrive`, in `/usr/lib/overdrive/python`) is behind
+  `overdrivectl`, `overdrive-camera` and the services in `/usr/libexec/overdrive`: system units `overdrive-nfcd`,
+  `overdrive-bootconfig`, `overdrive-flatpaks`; user units `overdrive-audio-route`, `-camera-boost`, `-flatpak-flags`,
+  `-health-watch` (timer), `-nfc-notify`, `-osk-guard`, `-wallpaper`; a second WirePlumber for the cameras
+  (`wireplumber@video-capture`); KWin scripts in `/usr/share/kwin/scripts`. Privileged steps go through a polkit helper.
+  There is no fix manifest (§6.1): checks and explanations live in `overdrive/health.py`.
+- **CI** (`.github/workflows/build-image.yml`, one job per Fedora release, now 45 only): unit tests, base image and kernel
+  found, skipped when nothing changed, the image built with the module key from the secrets, pushed as `:45` and a dated
+  tag, an Issue opened when it fails and closed when it works again. The image is not cosign-signed: the tablet pulls it as
+  `ostree-unverified-registry` (§4.1 step 5, §5 step 4); the kernel modules are signed. There is no series-check job.
+- **PC side** (`tools/pc-companion`): Sunshine on the owner's PC streams a virtual screen to the Surface's Moonlight.
 
 ## 1. Goal
 
@@ -66,9 +86,9 @@ Triggers: daily, on every push, and manually. Matrix: Fedora 45 (44 dropped on 2
    from which it extracts only the sources of the drivers to patch. The source is thus that of the running kernel, not an upstream tag. Safety check: if a Fedora patch touches
    one of those files the job fails and says so. It builds, signs with the project key and produces a `kmod-surface-overdrive` RPM.
 3. **libcamera**: downloads Fedora's SRPM, applies the patch series, rebuilds with `mock`. Cached by (version + patch hash).
-4. **image**: a `Containerfile` = base + RPMs + configuration files, systemd units, udev rules, Rust binaries, KCM. Smoke test inside the container.
-5. **sign + publish**: cosign signature, push to `ghcr.io/ccccri/surface-overdrive:<44|45>` and a dated tag.
-6. **series-check** (separate, independent job): applies the patch series on Fedora 44, 45, `updates-testing` and Rawhide. This is the early warning: it tells us in advance what will break.
+4. **image**: a `Containerfile` = base + RPMs + configuration files, systemd units, udev rules, Python services, KCM.
+5. **publish**: push to `ghcr.io/ccccri/surface-overdrive:45` and a dated tag (planned: a cosign signature; not done, see §0).
+6. **series-check** (planned, not built): applying the patch series to `updates-testing` and Rawhide as an early warning.
 7. If a job fails: it opens an Issue with kernel, versions, commit and the log tail, and GitHub notifies you. We fix it together in a Claude Code session. The tablet keeps pulling the previous image.
 
 Module signing key: a repository secret. The public certificate ships in `/usr/share/surface-overdrive/mok.der` and must be enrolled in the firmware once (MOK).
