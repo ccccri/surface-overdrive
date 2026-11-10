@@ -87,6 +87,11 @@ What was added, what broke, and what fixed it. Newest first. "Verified" means tr
 - Camera app: with the preview stopping on a thread, a camera switch could configure the next camera while the previous
   one still ran (EBUSY, back only after the 5 s watchdog); it now waits for the old preview to stop. Verified: three
   switches in a row, no EBUSY.
+- Update guard: the health watch remembers the image in use and the problems it had at its last check; on the first check
+  after an update, a fix that worked before and no longer does brings a notification "The update to <version> broke
+  something" with "Go back" (rpm-ostree rollback, administrator password, the previous image starts at the next restart)
+  and "Show fixes". Never by itself, once per image. Tried on the tablet with a faked previous image and the NFC service
+  stopped: the notification came with both buttons (not pressed).
 - Discover showed "Update Issue" at every start: it checks for updates twice and refreshes the firmware metadata (LVFS)
   twice; fwupd refuses the second download within 1.5 s and Discover showed the refusal as an error. Discover is rebuilt
   with that refusal ignored (ci/patch_discover.py, every subpackage, as they require one another at one version).
