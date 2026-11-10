@@ -84,6 +84,13 @@ What was added, what broke, and what fixed it. Newest first. "Verified" means tr
   variables of the 11-08 shutdown were left in the firmware's small store. systemd-pstore now writes them to the
   journal (pstore.conf.d, Storage=journal): journalctl -b -1 -t systemd-pstore. The 17 variables left were removed by
   hand (their copy failed: efivarfs files cannot be copied with cp; they held an ordinary shutdown log).
+- Camera app: with the preview stopping on a thread, a camera switch could configure the next camera while the previous
+  one still ran (EBUSY, back only after the 5 s watchdog); it now waits for the old preview to stop. Verified: three
+  switches in a row, no EBUSY.
+- CI: Fedora 45 only (bootstrap.sh, ci/local-build.sh and the docs too). The unit tests failed on CI, which has no
+  flatpak: overdrive-flatpaks' new reads ran the real command (now a command that cannot run reads as no output).
+- Docs: the README described a design phase, ARCHITECTURE Rust daemons, cosign and a series-check job that were never
+  built: README rewritten, ARCHITECTURE opens with how it is built today, FEATURES brought up to date.
 - Panels: with Desktop the main panel goes to the left on the Surface and back to the bottom of the monitor at the end,
   each remembering its last position and thickness. The user's wallpaper on every screen. Verified with a Desktop session.
 
