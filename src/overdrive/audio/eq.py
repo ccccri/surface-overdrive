@@ -5,7 +5,6 @@ One set of values for the speakers and one for the headphone jack; they can be k
 and are applied at login and whenever the jack changes by the audio route service, and at once when the panel changes them.
 """
 import math
-import os
 import re
 
 from . import graph, pw, store
@@ -412,7 +411,6 @@ def assign_slots(bands, notes):
             peaks.append(b)
         else:
             notes.append("a %s filter at %d Hz does not fit (one shelf or cut per end, no notch): skipped" % (t, round(b["freq"])))
-    free = [i for i in range(N) if slots[i] is None]
     middle = [i for i in range(1, N - 1) if slots[i] is None]
     peaks.sort(key=lambda b: -abs(b["gain"]))
     room = len(middle) + sum(1 for i in (0, N - 1) if slots[i] is None)

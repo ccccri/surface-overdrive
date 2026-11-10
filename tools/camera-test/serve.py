@@ -1,6 +1,6 @@
 #!/usr/bin/python3
 """serve.py <dir> <result.json>: serves camera-test.html on http://127.0.0.1:8765 and writes the POSTed result."""
-import http.server, os, sys
+import http.server, sys
 root, result = sys.argv[1], sys.argv[2]
 class H(http.server.SimpleHTTPRequestHandler):
     def __init__(self, *a, **k): super().__init__(*a, directory=root, **k)

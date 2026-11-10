@@ -4,7 +4,6 @@ import os
 import signal
 import struct
 import subprocess
-import time
 import wave
 
 SOUNDS = "/usr/share/sounds/freedesktop/stereo/"
