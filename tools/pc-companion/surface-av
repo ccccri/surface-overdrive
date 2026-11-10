@@ -59,30 +59,34 @@ def loopback_device():
 
 
 class Openers:
-    """How many times the device is open, from inotify's IN_OPEN and IN_CLOSE_* (any process, Flatpaks too)."""
+    """How many times apps have the device open: every open and close of it from inotify (any process, Flatpaks too),
+    less the ones this process has itself (v4l2sink opened it a second time once, and an app's open was counted for
+    good: the Surface's camera stayed on)."""
     IN_OPEN, IN_CLOSE_WRITE, IN_CLOSE_NOWRITE = 0x20, 0x08, 0x10
 
     def __init__(self, path):
+        """Made once our writer has settled (it opens the device more than once while it starts): every open there is
+        then is counted from /proc, ours included (an app that had it open already, a call going on when the Surface
+        connects again, as far as /proc can be read), and from then on the opens and closes. Scanning after the watch
+        counted an open of ours twice and kept the camera on."""
+        self.path = path
+        self.total = self.open_in(None)
         libc = ctypes.CDLL(None, use_errno=True)
         self.fd = libc.inotify_init1(os.O_NONBLOCK | os.O_CLOEXEC)
         libc.inotify_add_watch(self.fd, path.encode(), self.IN_OPEN | self.IN_CLOSE_WRITE | self.IN_CLOSE_NOWRITE)
-        # apps that had it open already (a call going on when the Surface connects again): counted from /proc, as far
-        # as it can be read; our own writer opened it before the watch and is not counted
-        self.count = self.already_open(path)
 
-    @staticmethod
-    def already_open(path):
+    def open_in(self, pid):
+        """Open descriptors of the device in process pid, or in every process (None)."""
+        pids = [str(pid)] if pid else filter(str.isdigit, os.listdir("/proc"))
         n = 0
-        for pid in filter(str.isdigit, os.listdir("/proc")):
-            if int(pid) == os.getpid():
-                continue
+        for p in pids:
             try:
-                fds = os.listdir(f"/proc/{pid}/fd")
+                fds = os.listdir(f"/proc/{p}/fd")
             except OSError:
                 continue
             for fd in fds:
                 try:
-                    if os.readlink(f"/proc/{pid}/fd/{fd}") == path:
+                    if os.readlink(f"/proc/{p}/fd/{fd}") == self.path:
                         n += 1
                 except OSError:
                     pass
@@ -92,16 +96,20 @@ class Openers:
         try:
             data = os.read(self.fd, 65536)
         except BlockingIOError:
-            return self.count
+            data = b""
         i = 0
         while i + 16 <= len(data):
             _wd, mask, _cookie, length = struct.unpack_from("iIII", data, i)
             if mask & self.IN_OPEN:
-                self.count += 1
+                self.total += 1
             if mask & (self.IN_CLOSE_WRITE | self.IN_CLOSE_NOWRITE):
-                self.count = max(0, self.count - 1)
+                self.total = max(0, self.total - 1)
             i += 16 + length
-        return self.count
+        own = self.open_in(os.getpid())
+        if (self.total, own) != getattr(self, "last", None):
+            self.last = (self.total, own)
+            log(f"camera device: open {self.total} times, {own} by surface-av")
+        return max(0, self.total - own)
 
 
 class Camera:
@@ -265,6 +273,13 @@ def main():
     Gst.init(None)
     device = loopback_device()
     camera = Camera(device) if device else None
+    if camera:
+        # the writer settles (first frames pushed by the main loop, which is not running yet: a short loop of its own)
+        ctx = GLib.MainContext.default()
+        end = time.monotonic() + 1.5
+        while time.monotonic() < end:
+            ctx.iteration(False)
+            time.sleep(0.01)
     openers = Openers(device) if device else None
     mic = Microphone()
     stopping = threading.Event()
