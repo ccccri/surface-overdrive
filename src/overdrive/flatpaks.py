@@ -24,6 +24,7 @@ from pathlib import Path
 REMOVE_LIST = Path("/usr/share/surface-overdrive/flatpak-remove.list")
 DONE = Path("/var/lib/surface-overdrive/flatpaks-removed")
 OVERRIDDEN = Path("/var/lib/surface-overdrive/flatpaks-camera-overridden")
+UNLISTED = Path("/var/lib/surface-overdrive/flatpaks-oci-unlisted")
 
 # apps that open cameras: they keep the GPU and input devices (game pads), not the raw video nodes
 CAMERA_APPS = [
@@ -107,6 +108,7 @@ def user_main(home=None):
         path.write_text(with_feature(path.read_text() if path.exists() else ""))
         done.add(app)
     userconfig.write_atomic(str(state), "".join(app + "\n" for app in sorted(done)))
+    unlist_oci_remotes("--user", Path(userconfig.CONFIG, "flatpak-oci-unlisted"))
     if MOONLIGHT in out:
         moonlight_touch(home, Path(userconfig.CONFIG, TOUCH_DONE))
         moonlight_absolute_mouse(home, Path(userconfig.CONFIG, MOUSE_DONE))
@@ -195,16 +197,33 @@ def unpin_old_fedora_runtimes():
         flatpak("pin", "--system", "--remove", pin)
 
 
-def oci_remotes():
-    """The enabled system remotes that are OCI registries (Fedora's): flatpak asks their authenticator for a token over
-    the session bus, which a system service has not."""
-    out = output("flatpak", "remotes", "--system", "--columns=name,url,options")
+def oci_remotes(scope="--system", listed_only=False):
+    """The enabled remotes of a scope that are OCI registries (Fedora's): flatpak asks their authenticator for a token over
+    the session bus, which a system service has not. listed_only: those whose apps Discover still lists."""
+    out = output("flatpak", "remotes", scope, "--columns=name,url,options")
     names = []
     for line in out.splitlines():
         cols = line.split("\t")
-        if len(cols) >= 2 and cols[1].startswith("oci+") and "disabled" not in (cols[2] if len(cols) > 2 else ""):
+        options = cols[2] if len(cols) > 2 else ""
+        if len(cols) >= 2 and cols[1].startswith("oci+") and "disabled" not in options:
+            if listed_only and "no-enumerate" in options:
+                continue
             names.append(cols[0])
     return names
+
+
+def unlist_oci_remotes(scope, state):
+    """Fedora's OCI remote no longer listed in Discover, once per installation (a later change stays).
+
+    Kinoite has it with Flathub, in the system installation and again in the user's, and Discover showed most apps twice,
+    Fedora's without an icon (seen on the tablet, 2026-11-10). With --no-enumerate its apps are no longer offered (Flathub
+    has them, unfiltered on Kinoite 45) while what is installed from it keeps its updates."""
+    if state.exists():
+        return
+    for name in oci_remotes(scope, listed_only=True):
+        flatpak("remote-modify", scope, "--no-enumerate", name)
+    state.parent.mkdir(parents=True, exist_ok=True)
+    state.write_text("1\n")
 
 
 def preinstall_without_oci():
@@ -241,6 +260,7 @@ def main(argv=None):
             done.add(app)
         DONE.parent.mkdir(parents=True, exist_ok=True)
         DONE.write_text("".join(app + "\n" for app in sorted(done)))
+    unlist_oci_remotes("--system", UNLISTED)
     status = flatpak("preinstall", "--system", "-y", "--noninteractive")
     if status != 0:
         status = preinstall_without_oci()

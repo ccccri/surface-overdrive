@@ -22,6 +22,7 @@ class Flatpaks(unittest.TestCase):
             calls = []
             with mock.patch.object(flatpaks, "REMOVE_LIST", remove), mock.patch.object(flatpaks, "DONE", state), \
                     mock.patch.object(flatpaks, "OVERRIDDEN", Path(tmp, "state", "overridden")), \
+                    mock.patch.object(flatpaks, "UNLISTED", Path(tmp, "state", "unlisted")), \
                     mock.patch.object(flatpaks, "installed", return_value=set(present)), \
                     mock.patch.object(flatpaks, "flatpak", side_effect=lambda *a: calls.append(a) or 0):
                 flatpaks.main([])
@@ -152,3 +153,21 @@ class OldFedoraPins(unittest.TestCase):
 
     def test_nothing_without_a_version(self):
         self.assertEqual(flatpaks.old_fedora_pins(["runtime/org.fedoraproject.X/x86_64/f44"], None), [])
+
+
+class UnlistOci(unittest.TestCase):
+    def test_listed_oci_remotes_unlisted_once(self):
+        calls = []
+        listing = "fedora\toci+https://registry.fedoraproject.org\t\nflathub\thttps://dl.flathub.org/repo/\tfiltered\n"
+        with TemporaryDirectory() as d, mock.patch.object(flatpaks, "output", return_value=listing), \
+                mock.patch.object(flatpaks, "flatpak", side_effect=lambda *a: calls.append(a) or 0):
+            state = Path(d, "done")
+            flatpaks.unlist_oci_remotes("--user", state)
+            flatpaks.unlist_oci_remotes("--user", state)
+        self.assertEqual(calls, [("remote-modify", "--user", "--no-enumerate", "fedora")])
+
+    def test_already_unlisted_left_alone(self):
+        listing = "fedora\toci+https://registry.fedoraproject.org\tno-enumerate\n"
+        with mock.patch.object(flatpaks, "output", return_value=listing):
+            self.assertEqual(flatpaks.oci_remotes("--system", listed_only=True), [])
+            self.assertEqual(flatpaks.oci_remotes("--system"), ["fedora"])

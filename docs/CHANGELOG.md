@@ -87,6 +87,10 @@ What was added, what broke, and what fixed it. Newest first. "Verified" means tr
 - Camera app: with the preview stopping on a thread, a camera switch could configure the next camera while the previous
   one still ran (EBUSY, back only after the 5 s watchdog); it now waits for the old preview to stop. Verified: three
   switches in a row, no EBUSY.
+- Discover listed most apps twice, Fedora's without an icon: Kinoite has Fedora's OCI remote next to Flathub, in the
+  system installation and again in the user's. overdrive-flatpaks makes it --no-enumerate once per installation: its
+  apps are no longer offered (Flathub has them, unfiltered on Kinoite 45), the apps installed from it keep updating.
+  Verified in Discover: each app once, with its icon; the installed Fedora apps still listed.
 - surface-av: counting the opens of the virtual camera from inotify was wrong a second way: inotify merges two identical
   events in a row, so two closes counted as one and the Surface's camera stayed on (found by a new unit test,
   tests/test_surface_av.py). /proc is now the count (Chromium's video capture process can be read there; tried), and
