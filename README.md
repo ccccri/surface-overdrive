@@ -29,6 +29,7 @@ blue MOK screen once) the tablet runs Surface Overdrive.
 ## Documents
 
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md): how it is built (the first section) and the original design.
+- [`docs/UPSTREAM-WORKAROUNDS.md`](docs/UPSTREAM-WORKAROUNDS.md): patches for other projects' bugs, to remove once they are fixed.
 - [`docs/TEST-RESULTS.md`](docs/TEST-RESULTS.md), [`docs/SPIKE-RESULTS.md`](docs/SPIKE-RESULTS.md): measurements on the tablet.
 - [`tools/camera-test`](tools/camera-test): how web pages get the cameras, checked in Firefox and Chromium.
 - [`docs/voice-search-amo.md`](docs/voice-search-amo.md): the Firefox voice search extension and its store listing.
