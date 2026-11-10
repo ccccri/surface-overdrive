@@ -57,9 +57,14 @@
   addEventListener("touchend", e => update(e, "end"), { passive: false });
   addEventListener("touchcancel", e => update(e, "cancel"), { passive: false });
   // the mouse too: a button the PC thinks is held shows as a press that never ends
-  let mouseDown = false;
-  addEventListener("mousedown", e => { mouseDown = true; log("mouse down (button " + e.button + ")"); });
-  addEventListener("mouseup", e => { mouseDown = false; log("mouse up (button " + e.button + ")"); });
+  // where a mouse or pen press lands, as a fraction of the page (to compare with where it was made)
+  let mouseDown = false, mark = null;
+  addEventListener("pointerdown", e => {
+    if (e.pointerType === "touch") return;
+    mouseDown = true; mark = { x: e.clientX, y: e.clientY };
+    log(e.pointerType + " down at " + (e.clientX / innerWidth).toFixed(3) + ", " + (e.clientY / innerHeight).toFixed(3));
+  });
+  addEventListener("pointerup", e => { if (e.pointerType !== "touch") { mouseDown = false; log(e.pointerType + " up"); } });
   addEventListener("contextmenu", e => e.preventDefault());
 
   function draw(now) {
@@ -73,6 +78,10 @@
       g.fillStyle = old ? "rgba(255,90,90,.35)" : "rgba(74,168,255,.35)"; g.fill();
       g.lineWidth = 3; g.strokeStyle = old ? "#ff5a5a" : "#4aa8ff"; g.stroke();
       g.fillStyle = "#e8eef4"; g.font = "600 16px system-ui"; g.textAlign = "center"; g.fillText("#" + id, p.x, p.y + 6);
+    }
+    if (mark) {
+      g.strokeStyle = "#ffd24a"; g.lineWidth = 2; g.beginPath();
+      g.moveTo(mark.x - 30, mark.y); g.lineTo(mark.x + 30, mark.y); g.moveTo(mark.x, mark.y - 30); g.lineTo(mark.x, mark.y + 30); g.stroke();
     }
     countEl.textContent = points.size;
     const bad = stuck > 0 || (mouseDown && points.size === 0);
