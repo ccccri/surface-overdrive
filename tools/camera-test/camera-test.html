@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Camera Test</title>
+<style>body{background:#111;color:#ddd;font:14px monospace;margin:16px}video{width:320px;background:#000}</style></head>
+<body>
+<h3>Camera test: how web pages get the Surface's cameras</h3>
+<video id="v" autoplay muted playsinline></video>
+<pre id="out">running...</pre>
+<script>
+// Each way a web page uses a camera: listing devices, getUserMedia at several sizes for each camera and by facingMode,
+// MediaRecorder, and a WebRTC call to itself (encode, send, decode) as video calls do. Results are POSTed to /result.
+const out = document.getElementById("out"), video = document.getElementById("v");
+const R = { ua: navigator.userAgent, started: new Date().toISOString(), devices: [], gum: [], facing: [], recorder: null, webrtc: null, errors: [] };
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+// shown, and sent after every step (a step that hangs leaves what came before)
+const show = () => { out.textContent = JSON.stringify(R, null, 1); fetch("/result", { method: "POST", body: JSON.stringify(R) }).catch(() => {}); };
+const timeout = (p, ms, what) => Promise.race([p, sleep(ms).then(() => { throw new Error(what + ": timed out"); })]);
+
+async function measure(stream, seconds) {
+  // frames that reach a <video> per second, and how bright the picture is (0 = black)
+  video.srcObject = stream;
+  await timeout(new Promise(r => video.onloadeddata = r), 8000, "first frame");
+  let frames = 0; const t0 = performance.now();
+  if (video.requestVideoFrameCallback) {
+    await new Promise(done => { const f = () => { frames++; if (performance.now() - t0 < seconds * 1000) video.requestVideoFrameCallback(f); else done(); }; video.requestVideoFrameCallback(f); });
+  } else { await sleep(seconds * 1000); frames = NaN; }
+  const c = document.createElement("canvas"); c.width = 160; c.height = 120;
+  const g = c.getContext("2d"); g.drawImage(video, 0, 0, 160, 120);
+  const d = g.getImageData(0, 0, 160, 120).data; let sum = 0;
+  for (let i = 0; i < d.length; i += 4) sum += (d[i] + d[i + 1] + d[i + 2]) / 3;
+  return { fps: +(frames / ((performance.now() - t0) / 1000)).toFixed(1), brightness: Math.round(sum / (d.length / 4)), videoSize: video.videoWidth + "x" + video.videoHeight };
+}
+
+async function gum(constraints, label) {
+  const entry = { label, constraints };
+  try {
+    const t0 = performance.now();
+    const s = await timeout(navigator.mediaDevices.getUserMedia({ video: constraints }), 15000, "getUserMedia");
+    entry.openMs = Math.round(performance.now() - t0);
+    const t = s.getVideoTracks()[0];
+    entry.device = t.label; const st = t.getSettings(); entry.settings = { width: st.width, height: st.height, frameRate: st.frameRate, facingMode: st.facingMode };
+    Object.assign(entry, await measure(s, 3));
+    s.getTracks().forEach(x => x.stop()); video.srcObject = null;
+  } catch (e) { entry.error = e.name + ": " + e.message; }
+  await sleep(800);
+  return entry;
+}
+
+async function main() {
+  try {
+    const first = await timeout(navigator.mediaDevices.getUserMedia({ video: true }), 15000, "permission");
+    first.getTracks().forEach(t => t.stop());
+  } catch (e) { R.errors.push("permission: " + e.name + " " + e.message); }
+  const devs = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === "videoinput");
+  R.devices = devs.map(d => ({ label: d.label, id: d.deviceId.slice(0, 8) })); show();
+  R.gum.push(await gum(true, "video: true (no camera, no size)")); show();
+  const sizes = [[null, null], [640, 480], [1280, 720], [1280, 960], [1920, 1080]];
+  for (const d of devs) for (const [w, h] of sizes) {
+    const c = { deviceId: { exact: d.deviceId } };
+    if (w) { c.width = { ideal: w }; c.height = { ideal: h }; }
+    R.gum.push(await gum(c, d.label + (w ? " " + w + "x" + h : " default"))); show();
+  }
+  for (const f of ["user", "environment"]) { R.facing.push(await gum({ facingMode: { exact: f } }, "facing " + f)); show(); }
+  // MediaRecorder: 3 s from the default camera
+  try {
+    const s = await navigator.mediaDevices.getUserMedia({ video: { width: { ideal: 1280 }, height: { ideal: 720 } } });
+    const chunks = []; const mr = new MediaRecorder(s); mr.ondataavailable = e => chunks.push(e.data);
+    mr.start(500); await sleep(3000);
+    const stopped = new Promise(r => mr.onstop = r); mr.stop(); await timeout(stopped, 5000, "recorder stop");
+    const blob = new Blob(chunks, { type: mr.mimeType });
+    R.recorder = { mimeType: mr.mimeType, bytes: blob.size };
+    s.getTracks().forEach(t => t.stop());
+  } catch (e) { R.recorder = { error: e.name + ": " + e.message }; }
+  show();
+  // WebRTC to itself, as a video call does
+  try {
+    const s = await navigator.mediaDevices.getUserMedia({ video: { width: { ideal: 1280 }, height: { ideal: 720 } } });
+    const a = new RTCPeerConnection(), b = new RTCPeerConnection();
+    a.onicecandidate = e => e.candidate && b.addIceCandidate(e.candidate);
+    b.onicecandidate = e => e.candidate && a.addIceCandidate(e.candidate);
+    let remote = null; b.ontrack = e => remote = e.streams[0] || new MediaStream([e.track]);
+    s.getTracks().forEach(t => a.addTrack(t, s));
+    await a.setLocalDescription(); await b.setRemoteDescription(a.localDescription);
+    await b.setLocalDescription(); await a.setRemoteDescription(b.localDescription);
+    await timeout((async () => { while (!remote) await sleep(100); })(), 10000, "remote track");
+    const m = await measure(remote, 6);
+    let inbound = {};
+    (await b.getStats()).forEach(r => { if (r.type === "inbound-rtp" && r.kind === "video") inbound = { frameWidth: r.frameWidth, frameHeight: r.frameHeight, framesPerSecond: r.framesPerSecond, framesDecoded: r.framesDecoded, decoder: r.decoderImplementation, codecId: r.codecId }; });
+    (await b.getStats()).forEach(r => { if (r.type === "codec" && r.id === inbound.codecId) inbound.codec = r.mimeType; });
+    let outbound = {};
+    (await a.getStats()).forEach(r => { if (r.type === "outbound-rtp" && r.kind === "video") outbound = { encoder: r.encoderImplementation, qualityLimitation: r.qualityLimitationReason, frameWidth: r.frameWidth, frameHeight: r.frameHeight }; });
+    R.webrtc = { received: m, inbound, outbound };
+    s.getTracks().forEach(t => t.stop()); a.close(); b.close();
+  } catch (e) { R.webrtc = { error: e.name + ": " + e.message }; }
+  R.finished = new Date().toISOString(); show();
+  await fetch("/result", { method: "POST", body: JSON.stringify(R) });
+  document.title = "Camera Test done";
+}
+main();
+</script>
+</body>
+</html>

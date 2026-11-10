@@ -67,6 +67,13 @@ What was added, what broke, and what fixed it. Newest first. "Verified" means tr
   image's install writes a new file and renames it, as the tests now do).
 - Moonlight's "Optimize mouse for remote desktop" turned on on the tablet: the pen lands where it touches (taps at 25%
   and 75% of the Surface landed at 0.250 and 0.750 on the PC).
+- Cameras in browsers (tools/camera-test, Firefox 159 and Chromium 157 on the tablet): after the front camera the rear one
+  gave no frames, in every size. The front camera kept running until WirePlumber suspended its idle node (5 s) and the
+  rear one cannot be configured meanwhile (libcamera resets the links of both ImgUs: "Device or resource busy"). Camera
+  nodes are now suspended at once (wireplumber 91-surface-overdrive-camera-suspend): switching works 0.3 s apart, both
+  ways, and the camera light goes off sooner. A libcamera patch resetting only the camera's own ImgU was tried and
+  dropped: with both ImgUs configured the second one gave no frames and stuck the cameras until a restart.
+  Firefox's default size for a page that asks for none is now 1280x960 (it got 2560x1920 at 8 fps).
 - Panels: with Desktop the main panel goes to the left on the Surface and back to the bottom of the monitor at the end,
   each remembering its last position and thickness. The user's wallpaper on every screen. Verified with a Desktop session.
 

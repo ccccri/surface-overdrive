@@ -7,3 +7,8 @@ pref("browser.translations.automaticallyPopup", false);
 // Firefox's default permissions plus the microphone for google.com (the voice search button), made at image build
 // time (Containerfile). Default permissions hold in private windows too, which the Permissions policy does not.
 pref("permissions.manager.defaultsUrl", "file:///usr/lib64/firefox/browser/defaults/surface-overdrive-permissions");
+// A page asking for a camera without a size (getUserMedia({video: true})) got the camera's first size, the picture size of
+// the Cameras page: 2560x1920 at 8 frames a second on the front camera (measured in Firefox 159, tools/camera-test). 1280x960
+// is the sensor's 4:3 at about 25 fps; a page that asks for a size still gets it.
+pref("media.navigator.video.default_width", 1280);
+pref("media.navigator.video.default_height", 960);
