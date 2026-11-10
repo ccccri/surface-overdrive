@@ -47,7 +47,7 @@ libcamera patch tiers: **1** correctness (crashes, AF, AGC, black level, flip, d
 
 ## 4. Distribution: a custom bootc image **[DECIDED]**
 
-Start from `quay.io/fedora-ostree-desktops/kinoite:44` (and `:45` once its stable base exists) and add only what is needed.
+Start from `quay.io/fedora-ostree-desktops/kinoite:45` and add only what is needed (Fedora 44 was built until 2026-11-10).
 
 Why not on-device scripts or layering:
 - kernel and modules travel together: **a new kernel cannot exist without its matching modules**. If the build fails, the image is not published;
@@ -59,7 +59,7 @@ Why not on-device scripts or layering:
 
 CI means *continuous integration*: an automatic service that builds and tests the project on every change. Here it also builds the image every day.
 
-Triggers: daily, on every push, and manually. Matrix: Fedora 44 and 45 (45 stays "experimental" until its stable base exists).
+Triggers: daily, on every push, and manually. Matrix: Fedora 45 (44 dropped on 2026-11-10, the tablet runs 45).
 
 1. **detect**: reads the base digest from the registry and the kernel and libcamera versions from the Fedora repositories. If nothing changed and the patches are the same, skip.
 2. **kmods**: downloads from Koji the **exact** `kernel-devel` of the kernel in the base image (not the current repo one, which may already be newer) and the kernel SRPM,
@@ -94,7 +94,7 @@ within a set number of boots it notifies and offers rollback (`rpm-ostree rollba
 1. checks (model from DMI, Kinoite, network, space);
 2. writes the policy and key for verifying the signed image into `/etc/containers`;
 3. queues the MOK enrolment with a random password it shows on screen;
-4. `rpm-ostree rebase ostree-image-signed:docker://ghcr.io/ccccri/surface-overdrive:44`;
+4. `rpm-ostree rebase ostree-image-signed:docker://ghcr.io/ccccri/surface-overdrive:45`;
 5. reboot. Steps that need root go through `pkexec` (Plasma's password dialog), not `sudo` in a terminal.
 
 One reboot only: the blue MOK screen appears before the boot into the new image. The bootstrap is not a Flatpak: a sandboxed app cannot change the operating system.

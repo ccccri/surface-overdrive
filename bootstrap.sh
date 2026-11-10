@@ -14,7 +14,8 @@ set -euo pipefail
 
 REPO=${OVERDRIVE_REPO:-ccccri/surface-overdrive}
 RAW=https://raw.githubusercontent.com/$REPO/main
-rel=${OVERDRIVE_RELEASE:-$(. /etc/os-release && echo "$VERSION_ID")}
+# the Fedora release the image is built for (CI builds this one only); an older Kinoite moves up with the rebase
+rel=${OVERDRIVE_RELEASE:-45}
 image=${OVERDRIVE_IMAGE:-ostree-unverified-registry:ghcr.io/$REPO:$rel}
 
 say() { printf '\n== %s\n' "$*"; }
@@ -29,7 +30,7 @@ model=$(cat /sys/class/dmi/id/product_name 2>/dev/null || true)
 [ "$model" = "Surface Go" ] || printf 'warning: this is "%s", not a Surface Go (1824). The fixes are made for the Surface Go only.\n' "$model"
 if mokutil --sb-state 2>/dev/null | grep -qi 'SecureBoot enabled'; then secure=1; else secure=0; fi
 enroll=0
-echo "Fedora $rel, Secure Boot $([ $secure = 1 ] && echo on || echo off)"
+echo "Fedora $VERSION_ID (the image: Fedora $rel), Secure Boot $([ $secure = 1 ] && echo on || echo off)"
 
 if [ "$secure" = 1 ]; then
     say "Registering the signing certificate (you will confirm it at the next boot)"

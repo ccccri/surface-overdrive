@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Build the image locally with a throwaway signing key (the real key only exists in CI secrets).
-# usage: ci/local-build.sh [fedora release, default 44]
+# usage: ci/local-build.sh [fedora release, default 45]
 set -euo pipefail
 cd "$(dirname "$0")/.."
-rel=${1:-44}
+rel=${1:-45}
 eval "$(ci/detect.sh "$rel")"
 keydir=build/dev-key        # the key enrolled in the tablet; the same one is the MOK_KEY secret of the CI
 if [ ! -f "$keydir/key.pem" ]; then

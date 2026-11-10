@@ -156,6 +156,14 @@ def moonlight_touch(home, state, lib=TOUCH_LIB):
         state.write_text("1\n")
 
 
+def output(*args):
+    """What a command prints, or nothing when it cannot run (no flatpak where the tests run)."""
+    try:
+        return subprocess.run(args, capture_output=True, text=True, check=False).stdout
+    except OSError:
+        return ""
+
+
 def os_version():
     try:
         for line in open("/etc/os-release"):
@@ -182,7 +190,7 @@ def unpin_old_fedora_runtimes():
     """Kinoite's installer pins the Fedora runtimes it came with, so that "uninstall --unused" never removes them: after the
     image moved to a newer Fedora the old ones stayed, used by nothing (3.2 GB on the tablet, 2026-11-10). Unpinned here,
     they go with the other unused ones; one an app still uses stays."""
-    pins = subprocess.run(["flatpak", "pin", "--system"], capture_output=True, text=True, check=False).stdout.splitlines()
+    pins = output("flatpak", "pin", "--system").splitlines()
     for pin in old_fedora_pins(pins, os_version()):
         flatpak("pin", "--system", "--remove", pin)
 
@@ -190,8 +198,7 @@ def unpin_old_fedora_runtimes():
 def oci_remotes():
     """The enabled system remotes that are OCI registries (Fedora's): flatpak asks their authenticator for a token over
     the session bus, which a system service has not."""
-    out = subprocess.run(["flatpak", "remotes", "--system", "--columns=name,url,options"], capture_output=True, text=True,
-                         check=False).stdout
+    out = output("flatpak", "remotes", "--system", "--columns=name,url,options")
     names = []
     for line in out.splitlines():
         cols = line.split("\t")
