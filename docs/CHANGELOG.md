@@ -60,6 +60,8 @@ What was added, what broke, and what fixed it. Newest first. "Verified" means tr
   file (before it starts and before every stream).
 - Windows between the Surface and the monitor: Meta+Shift+Down/Up and a swipe in from the Surface's right edge (KWin
   script on the PC). Verified both ways.
+- Panels: with Desktop the main panel goes to the left on the Surface and back to the bottom of the monitor at the end,
+  each remembering its last position and thickness. The user's wallpaper on every screen. Verified with a Desktop session.
 
 ## 2026-11-03
 

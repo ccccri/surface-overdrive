@@ -76,6 +76,12 @@ On-screen keyboard: plasma-keyboard takes the width of the screen it starts on; 
 and on the narrower Surface its sides were cut off. For the session it does not fill the screen width (three times its
 height, about 1150 px), which fits; put back at the end.
 
+Panels and wallpaper: with Desktop the main screen's panel moves to the Surface; there it goes to the left (3:2 screen)
+and back to the bottom of the monitor at the end, each use remembering the position and thickness it was left with
+(surface-screen-panel, ~/.local/state/surface-screen/panel-*). The wallpaper is the same on every screen (set once with
+plasma-apply-wallpaperimage). Plasma's scripting interface is used for the panel; a script reading the desktops'
+wallpaper settings made plasmashell crash once (it came back by itself), so only panels are touched.
+
 Windows between the screens (KWin script `kwin/overdrive_screen_swap`, installed by install.sh): Meta+Shift+Down sends
 the active window to the Surface, Meta+Shift+Up to the monitor, and a swipe in from the right edge of the Surface sends
 it to the other screen.

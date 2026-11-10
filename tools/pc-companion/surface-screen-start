@@ -113,6 +113,9 @@ if [ "$MODE" = only ]; then
     kscreen-doctor --json | jq -r --arg o "$OUT" '.outputs[] | select(.enabled and .name != $o) | .name' > "$OFFFILE"
     args=(); while read -r o; do args+=("output.$o.disable"); done < "$OFFFILE"
     [ ${#args[@]} -gt 0 ] && kscreen-doctor "${args[@]}" >/dev/null 2>&1
+    # the main screen's panel as the user keeps it on the Surface (on the left, the first time): surface-screen-panel
+    sleep 1
+    "$here/surface-screen-panel" desktop
     # Plasma's tablet mode for the session (bigger targets, the on-screen keyboard on text fields): the Surface has no
     # keyboard. The setting it had is kept to be put back.
     printf '%s\n' "$(kreadconfig6 --file kwinrc --group Input --key TabletMode)" > "$TABLETFILE"
