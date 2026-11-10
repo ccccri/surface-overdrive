@@ -610,9 +610,12 @@ def main():
                 self.select(keys[(keys.index(self._key) + 1) % len(keys)] if self._key in keys else keys[0])
 
         def _stop_preview(self):
+            """The preview stops on a thread: when the camera service went away under it (restarted, or killed), its
+            pipewiresrc waits in negotiation and set_state blocked the window until KWin closed it as not responding
+            (seen twice on 2026-11-07, the stack in wait_negotiated)."""
             if self._preview is not None:
-                self._preview.set_state(Gst.State.NULL)
-                self._preview = None
+                pipe, self._preview = self._preview, None
+                threading.Thread(target=pipe.set_state, args=(Gst.State.NULL,), daemon=True).start()
 
         # -- preview frames, from GStreamer's streaming thread
         def _on_frame(self, pad, info):

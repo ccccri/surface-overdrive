@@ -60,6 +60,13 @@ What was added, what broke, and what fixed it. Newest first. "Verified" means tr
   file (before it starts and before every stream).
 - Windows between the Surface and the monitor: Meta+Shift+Down/Up and a swipe in from the Surface's right edge (KWin
   script on the PC). Verified both ways.
+- Camera app: the two "crashes" of 11-07 were KWin closing it as not responding: the camera service went away under the
+  preview and stopping it (set_state on the window's thread) waited in pipewiresrc's negotiation. The preview now stops
+  on a thread. Verified on the tablet: camera service killed under the app, the window kept answering.
+- Moonlight "crashed" twice during the tests: the touch library was overwritten in place while Moonlight ran (the
+  image's install writes a new file and renames it, as the tests now do).
+- Moonlight's "Optimize mouse for remote desktop" turned on on the tablet: the pen lands where it touches (taps at 25%
+  and 75% of the Surface landed at 0.250 and 0.750 on the PC).
 - Panels: with Desktop the main panel goes to the left on the Surface and back to the bottom of the monitor at the end,
   each remembering its last position and thickness. The user's wallpaper on every screen. Verified with a Desktop session.
 
