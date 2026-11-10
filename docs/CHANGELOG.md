@@ -38,6 +38,17 @@ What was added, what broke, and what fixed it. Newest first. "Verified" means tr
   PC's sound went to the Surface over Bluetooth headphones (Sunshine's sink made default: set back in Extended Display).
   tools/pc-companion/touch-test.html shows fingers the PC thinks are down.
 
+## 2026-11-10
+
+**Streaming from the PC**
+- The touch fix of 11-07 did not work: tested with a virtual touch screen on the tablet (uinput) and touch-test.html on
+  the PC, KWin sends Moonlight neither an "up" nor a cancel for the fingers it takes for a gesture (two of the three
+  reach Moonlight first), Moonlight gets no focus or visibility event when the desktop changes, and the watch was lost
+  when Moonlight restarted SDL. src/moonlight-touch now keeps the fingers that are down and lifts on the PC those gone
+  quiet: two or more quiet for half a second, any quiet for 150 ms when a new one comes, and a finger whose id comes down
+  again; the watch is put back whenever SDL starts. Verified: after a swipe to the tablet's desktop and back the PC has
+  no finger left down, taps work, a 2.5 s long press stays down.
+
 ## 2026-11-03
 
 **Fedora 45 and Plasma 6.8** (the tablet now runs the :45 image)
