@@ -571,10 +571,16 @@ def main():
                 self.start()
 
         @Slot(str)
-        def select(self, key):
+        def select(self, key, waited=0):
             if self._recorder is not None or key not in self._cameras:
                 return
             self._stop_preview()
+            # The cameras share the image processor: the other one cannot be configured while the one before still
+            # runs, so the new preview starts once the old one has stopped (looked at every 50 ms, at most 3 s).
+            stopping = getattr(self, "_preview_stopping", None)
+            if stopping is not None and stopping.is_alive() and waited < 60:
+                QTimer.singleShot(50, lambda: self._preview is None and self.select(key, waited + 1))
+                return
             self._key = key
             self._error = ""
             if key != "front" and self._light:       # the screen lights the face only: off for the rear camera
@@ -615,7 +621,8 @@ def main():
             (seen twice on 2026-11-07, the stack in wait_negotiated)."""
             if self._preview is not None:
                 pipe, self._preview = self._preview, None
-                threading.Thread(target=pipe.set_state, args=(Gst.State.NULL,), daemon=True).start()
+                self._preview_stopping = threading.Thread(target=pipe.set_state, args=(Gst.State.NULL,), daemon=True)
+                self._preview_stopping.start()
 
         # -- preview frames, from GStreamer's streaming thread
         def _on_frame(self, pad, info):
