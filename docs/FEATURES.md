@@ -10,8 +10,8 @@ What the previous project (`surface-go-kinoite`) did, and where each piece stand
 | 4 | NFC notifications (`overdrive-nfc-notify`) | **done** |
 | 5 | Volume buttons: hold to repeat, with an on/off switch (`overdrivectl volume-hold`) | **done** |
 | 6 | Pen: hide the fake 0% battery (HID-BPF), with a switch (`overdrivectl stylus-filter`) | **done** |
-| 7 | Speakers: louder (software gain on a filter-chain sink, default sink) | **done**; the equaliser is not ported yet |
-| 8 | Microphone: sane hardware level (+18 dB, boost off) | **done**; noise suppression and the enhancer are not ported yet |
+| 7 | Speakers: louder (software gain on a filter-chain sink, default sink) | **done**; the equalizer came later with row 15 |
+| 8 | Microphone: sane hardware level (+18 dB, boost off) | **done**; noise suppression and the enhancer came later with row 15 |
 | 9 | Plasma volume: up to 150%, 5% steps | **done** |
 | 10 | Plymouth scale 1, GRUB 3 s countdown | **done**: boot-time service `overdrive-bootconfig` keeps a marked block in `/boot/grub2/user.cfg` |
 | 11 | Sensors: udev rule lets the settings page raise the accelerometer/gyro rate | **done** (`61-overdrive-sensors.rules`) |
