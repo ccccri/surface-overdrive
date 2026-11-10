@@ -59,27 +59,28 @@ def loopback_device():
 
 
 class Openers:
-    """How many times apps have the device open: every open and close of it from inotify (any process, Flatpaks too),
-    less the ones this process has itself (v4l2sink opened it a second time once, and an app's open was counted for
-    good: the Surface's camera stayed on)."""
+    """How many times other processes have the device open, from /proc (Flatpak apps too: Chromium's video capture
+    process can be read). inotify's opens and closes only say when to look again: counted, they were wrong twice (an open
+    of surface-av's own taken for an app's; and inotify merges two identical events in a row, so two closes counted as
+    one), and the Surface's camera stayed on. Looked at again on every event, and every RESCAN_S anyway."""
     IN_OPEN, IN_CLOSE_WRITE, IN_CLOSE_NOWRITE = 0x20, 0x08, 0x10
+    RESCAN_S = 5.0
 
     def __init__(self, path):
-        """Made once our writer has settled (it opens the device more than once while it starts): every open there is
-        then is counted from /proc, ours included (an app that had it open already, a call going on when the Surface
-        connects again, as far as /proc can be read), and from then on the opens and closes. Scanning after the watch
-        counted an open of ours twice and kept the camera on."""
         self.path = path
-        self.total = self.open_in(None)
         libc = ctypes.CDLL(None, use_errno=True)
         self.fd = libc.inotify_init1(os.O_NONBLOCK | os.O_CLOEXEC)
         libc.inotify_add_watch(self.fd, path.encode(), self.IN_OPEN | self.IN_CLOSE_WRITE | self.IN_CLOSE_NOWRITE)
+        self.count = self.others()
+        self.at = time.monotonic()
 
-    def open_in(self, pid):
-        """Open descriptors of the device in process pid, or in every process (None)."""
-        pids = [str(pid)] if pid else filter(str.isdigit, os.listdir("/proc"))
+    def others(self):
+        """Open descriptors of the device in every process but this one."""
+        me = str(os.getpid())
         n = 0
-        for p in pids:
+        for p in filter(str.isdigit, os.listdir("/proc")):
+            if p == me:
+                continue
             try:
                 fds = os.listdir(f"/proc/{p}/fd")
             except OSError:
@@ -94,22 +95,16 @@ class Openers:
 
     def poll(self):
         try:
-            data = os.read(self.fd, 65536)
+            changed = bool(os.read(self.fd, 65536))
         except BlockingIOError:
-            data = b""
-        i = 0
-        while i + 16 <= len(data):
-            _wd, mask, _cookie, length = struct.unpack_from("iIII", data, i)
-            if mask & self.IN_OPEN:
-                self.total += 1
-            if mask & (self.IN_CLOSE_WRITE | self.IN_CLOSE_NOWRITE):
-                self.total = max(0, self.total - 1)
-            i += 16 + length
-        own = self.open_in(os.getpid())
-        if (self.total, own) != getattr(self, "last", None):
-            self.last = (self.total, own)
-            log(f"camera device: open {self.total} times, {own} by surface-av")
-        return max(0, self.total - own)
+            changed = False
+        if changed or time.monotonic() - self.at > self.RESCAN_S:
+            self.at = time.monotonic()
+            count = self.others()
+            if count != self.count:
+                log(f"camera device: open {count} times by apps")
+            self.count = count
+        return self.count
 
 
 class Camera:
