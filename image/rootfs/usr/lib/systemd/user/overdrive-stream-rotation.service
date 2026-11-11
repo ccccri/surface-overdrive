@@ -1,0 +1,12 @@
+[Unit]
+Description=Surface Overdrive: landscape only while Moonlight streams
+After=graphical-session.target
+PartOf=graphical-session.target
+
+[Service]
+ExecStart=/usr/libexec/overdrive/stream-rotation
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=graphical-session.target

@@ -22,6 +22,10 @@ What was added, what broke, and what fixed it. Newest first. "Verified" means tr
 - Sunshine unloads its sinks when a session ends and makes them again (with its own names, 5.1 and 7.1 too) when the next
   starts: sunshine-sinks also runs before every app (global prep, "session") and trims 5.1/7.1 10 s after. install.sh's
   check for a running session needed both session marks and restarted Sunshine during one again: fixed (either mark).
+- While Moonlight streams, the Surface turns only between landscape and upside-down landscape (overdrive-stream-rotation):
+  turned to portrait, KWin rotated the screen and Moonlight shrank the PC's landscape screen into it. KWin's automatic
+  rotation is off for the stream (the setting is kept on disk until put back) and the service follows the accelerometer
+  itself. Verified on the tablet with a simulated stream: policy off during it, inTabletMode back after.
 - Cameras named "Surface Front Camera" and "Surface Rear Camera" in applications and browsers (wireplumber
   92-surface-overdrive-camera-names). Verified on the tablet.
 - The Moonlight desktop goes as soon as Moonlight quits (it waited 3 s; it still waits for Moonlight's window after a
