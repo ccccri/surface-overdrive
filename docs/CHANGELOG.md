@@ -19,6 +19,9 @@ What was added, what broke, and what fixed it. Newest first. "Verified" means tr
 - PC side: one sound output for streams, "Surface Stereo Out" (sunshine-sinks makes it before Sunshine starts and unloads
   Sunshine's 5.1 and 7.1 ones after); Bazzite's "Virtual Headphone Surround" turned off (ujust setup-virtual-surround
   disable) at the owner's request, the monitor's speakers made the default again.
+- Sunshine unloads its sinks when a session ends and makes them again (with its own names, 5.1 and 7.1 too) when the next
+  starts: sunshine-sinks also runs before every app (global prep, "session") and trims 5.1/7.1 10 s after. install.sh's
+  check for a running session needed both session marks and restarted Sunshine during one again: fixed (either mark).
 - Cameras named "Surface Front Camera" and "Surface Rear Camera" in applications and browsers (wireplumber
   92-surface-overdrive-camera-names). Verified on the tablet.
 - The Moonlight desktop goes as soon as Moonlight quits (it waited 3 s; it still waits for Moonlight's window after a

@@ -28,7 +28,8 @@ prep() {  # <do command> [<undo command>]: a prep-cmd entry running them on the 
 # before every app (games, a phone's desktop): what a session of ours left behind (Sunshine stopped mid-session, a crash:
 # the monitors off, the virtual screen, output_name) is cleared; nothing is done when there is nothing
 sed -i '/^global_prep_cmd *=/d' "$conf"
-echo "global_prep_cmd = $(jq -c -n --argjson p "$(prep surface-screen-stop)" '[$p]')" >> "$conf"
+# and Sunshine's stream sound output made with its readable name (sunshine-sinks session)
+echo "global_prep_cmd = $(jq -c -n --argjson p "$(prep surface-screen-stop)" --argjson s "$(prep "sunshine-sinks session")" '[$p, $s]')" >> "$conf"
 screen=$(jq -n --argjson p "$(prep "surface-screen-start extend" surface-screen-stop)" \
     '{name: "Extended Display", cmd: "", "auto-detach": true, "wait-all": true, "exit-timeout": 5, elevated: false,
       "exclude-global-prep-cmd": false, "image-path": "", output: "", "prep-cmd": [$p]}')
@@ -66,7 +67,7 @@ systemctl --user daemon-reload
 # (a stream is on UDP: a TCP check alone missed one on 11-11; a session of ours leaves its marks in XDG_RUNTIME_DIR)
 if ss -Htn state established '( sport = :47984 or sport = :47989 or sport = :48010 )' 2>/dev/null | grep -q . ||
    ss -Hun '( sport >= :47998 and sport <= :48010 )' 2>/dev/null | grep -q . ||
-   ls "${XDG_RUNTIME_DIR:-/tmp}"/surface-screen.{off,tray} >/dev/null 2>&1; then
+   [ -e "${XDG_RUNTIME_DIR:-/tmp}/surface-screen.off" ] || [ -e "${XDG_RUNTIME_DIR:-/tmp}/surface-screen.tray" ]; then
     echo "A client is connected: restart Sunshine when it is done (systemctl --user restart app-dev.lizardbyte.app.Sunshine)"
 else
     systemctl --user restart app-dev.lizardbyte.app.Sunshine
