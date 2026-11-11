@@ -1,0 +1,15 @@
+#!/bin/bash
+# sunshine-open: Sunshine from the application menu. The menu entry of the Flatpak starts another Sunshine next to the one
+# the user service runs since login; the two clash (ports, portal sessions, restarts) and every start opens about ten
+# screen-sharing sessions to test the encoders, each one a "Started Remote Desktop" notification. Here the service is
+# started only when it is not running, and Sunshine's page opens.
+unit=app-dev.lizardbyte.app.Sunshine.service
+if ! systemctl --user is-active -q "$unit"; then
+    systemctl --user reset-failed "$unit" 2>/dev/null
+    systemctl --user start --no-block "$unit"
+    for _ in $(seq 40); do
+        ss -Hltn '( sport = :47990 )' 2>/dev/null | grep -q . && break
+        sleep 0.5
+    done
+fi
+exec xdg-open https://localhost:47990

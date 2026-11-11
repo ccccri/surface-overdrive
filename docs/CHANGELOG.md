@@ -2,6 +2,14 @@
 
 What was added, what broke, and what fixed it. Newest first. "Verified" means tried on the Surface Go itself.
 
+## 2026-11-11
+
+- PC side: opening Sunshine from the application menu started a second Sunshine next to the one the user service runs;
+  the two clashed (restarts, a lost portal grant) and every start tests the encoders with about ten screen-sharing
+  sessions, each a "Started Remote Desktop" notification. The menu entry now runs sunshine-open (starts the service only
+  when it is not running, then opens Sunshine's page), and without an NVIDIA card Sunshine goes straight to VA-API (the
+  NVENC and Vulkan tests failed anyway, two sessions fewer).
+
 ## 2026-11-07
 
 **Streaming from the PC**

@@ -5,7 +5,7 @@
 set -euo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
 for f in surface-av surface-screen-start surface-screen-stop surface-screen-restore surface-screen-map surface-screen-osk surface-screen-where surface-screen-is-surface surface-screen-token surface-screen-panel \
-         surface-desktop-start surface-desktop-stop; do
+         surface-desktop-start surface-desktop-stop sunshine-open; do
     install -Dm755 "$here/$f" "$HOME/.local/bin/$f"
 done
 dir=$HOME/.var/app/dev.lizardbyte.app.Sunshine/config/sunshine
@@ -15,6 +15,10 @@ conf=$dir/sunshine.conf apps=$dir/apps.json
 sed -i '/^capture *=/d' "$conf"; echo "capture = portal" >> "$conf"
 # the Surface's screen when it is there, the first monitor otherwise (Sunshine takes the name when a stream starts)
 sed -i '/^output_name *=/d' "$conf"; echo "output_name = Virtual-surface" >> "$conf"
+# no NVIDIA card: VA-API straight away (the NVENC and Vulkan tests fail anyway, each after a screen-sharing session)
+if [ ! -e /proc/driver/nvidia ]; then
+    sed -i '/^encoder *=/d' "$conf"; echo "encoder = vaapi" >> "$conf"
+fi
 env="--env=SUNSHINE_CLIENT_WIDTH=\${SUNSHINE_CLIENT_WIDTH} --env=SUNSHINE_CLIENT_HEIGHT=\${SUNSHINE_CLIENT_HEIGHT} --env=SUNSHINE_CLIENT_FPS=\${SUNSHINE_CLIENT_FPS}"
 session="env WAYLAND_DISPLAY=$WAYLAND_DISPLAY XDG_RUNTIME_DIR=$XDG_RUNTIME_DIR DBUS_SESSION_BUS_ADDRESS=$DBUS_SESSION_BUS_ADDRESS"
 prep() {  # <do command> [<undo command>]: a prep-cmd entry running them on the host, in the session
@@ -38,6 +42,13 @@ mkdir -p "$HOME/.config/systemd/user/app-dev.lizardbyte.app.Sunshine.service.d"
 # and the portal token is put back in step with the grant before Sunshine starts (surface-screen-token)
 printf '[Service]\nExecStartPre=-%s\nExecStopPost=-%s\n' "$HOME/.local/bin/surface-screen-token" "$HOME/.local/bin/surface-screen-stop" \
     > "$HOME/.config/systemd/user/app-dev.lizardbyte.app.Sunshine.service.d/50-surface-screen.conf"
+# Sunshine in the application menu opens the running one's page instead of starting a second Sunshine (sunshine-open)
+src=$(flatpak info -l dev.lizardbyte.app.Sunshine 2>/dev/null)/export/share/applications/dev.lizardbyte.app.Sunshine.desktop
+if [ -f "$src" ]; then
+    mkdir -p "$HOME/.local/share/applications"
+    sed "s|^Exec=.*|Exec=$HOME/.local/bin/sunshine-open|; /^X-Flatpak=/d" "$src" > "$HOME/.local/share/applications/dev.lizardbyte.app.Sunshine.desktop"
+    update-desktop-database "$HOME/.local/share/applications" 2>/dev/null || true
+fi
 # the KWin script moving windows between the Surface and the monitor (kwin/overdrive_screen_swap)
 mkdir -p "$HOME/.local/share/kwin/scripts"
 rm -rf "$HOME/.local/share/kwin/scripts/overdrive_screen_swap"

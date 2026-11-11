@@ -97,3 +97,8 @@ hands, a virtual touch screen on the Surface (uinput, as root) can tap and swipe
 
 In Discord/Vesktop: camera "OBS Virtual Camera", input "Surface Microphone". What it does goes to
 `$XDG_RUNTIME_DIR/surface-screen.log` ("av:" lines).
+
+`sunshine-open` replaces the Flatpak's menu entry (`~/.local/share/applications/dev.lizardbyte.app.Sunshine.desktop`):
+Sunshine runs as a user service from login, and the original entry started a second copy beside it. Every Sunshine start
+tests the encoders with about ten screen-sharing sessions (one "Started Remote Desktop" notification each, until KDE
+throttles them); `encoder = vaapi` (set when there is no NVIDIA card) skips the two tests that always fail here.
