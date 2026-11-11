@@ -3,8 +3,9 @@
 //
 // When Moonlight opens, a desktop "Moonlight" is added next to the current one and Moonlight goes there: a three-finger
 // swipe sideways on the touch screen (or up, for the overview) takes back to the Surface's own desktop and another swipe
-// back to the stream, which keeps running. When Moonlight closes, the desktop is removed and, if it was the one shown,
-// the desktop it came from comes back.
+// back to the stream, which keeps running. When Moonlight closes, the desktop is removed at once and, if it was the one
+// shown, the desktop it came from comes back. The desktop is known by its id, not its name: a desktop of the user's
+// called the same is never touched.
 //
 // Moonlight opened again from the menu while a stream ran on that desktop was a second Moonlight: quitting the app from it
 // cut the first one's stream ("Connection terminated", error -1) and left two windows. Now the newest Moonlight stays and
@@ -13,11 +14,13 @@
 
 const NAME = "Moonlight";
 let home = null;          // the desktop that was current when Moonlight opened
+let deskId = null;        // the id of the desktop this script made
 let newest = 0;           // the pid of the Moonlight that stays
 const seen = new Set();   // pids of every Moonlight seen
 
-// The desktop goes 3 s after the last Moonlight window: between its own window and the stream's there is a moment with
-// none, and removing and adding it again at once lost the user's last desktop once.
+// When a stream ends, its full-screen window closes a moment before Moonlight's own window comes back: then the desktop
+// waits up to 3 s for it (removing and adding it again at once lost the user's last desktop once). When Moonlight's own
+// window closes (the app quits), the desktop goes at once.
 const removal = new QTimer();
 removal.singleShot = true;
 removal.interval = 3000;
@@ -28,7 +31,7 @@ function isMoonlight(w) {
 }
 
 function streamDesktop() {
-    return workspace.desktops.find(d => d.name === NAME) || null;
+    return deskId ? workspace.desktops.find(d => d.id === deskId) || null : null;
 }
 
 function anyMoonlight(except) {
@@ -52,10 +55,12 @@ function place(w) {
     let desk = streamDesktop();
     if (!desk) {
         home = workspace.currentDesktop;
-        workspace.createDesktop(workspace.desktops.indexOf(home) + 1, NAME);
-        desk = streamDesktop();
-        if (!desk)
+        const at = workspace.desktops.indexOf(home) + 1;
+        workspace.createDesktop(at, NAME);
+        desk = workspace.desktops[at];
+        if (!desk || desk.name !== NAME)
             return;
+        deskId = desk.id;
     }
     w.desktops = [desk];
     workspace.currentDesktop = desk;
@@ -65,13 +70,18 @@ function place(w) {
 workspace.windowAdded.connect(place);
 
 workspace.windowRemoved.connect(w => {
-    if (isMoonlight(w) && streamDesktop() && !anyMoonlight(w))
+    if (!isMoonlight(w) || !streamDesktop() || anyMoonlight(w))
+        return;
+    if (w.fullScreen)
         removal.start();
+    else
+        removeDesktop(w);
 });
 
-removal.timeout.connect(() => {
+function removeDesktop(gone) {
+    removal.stop();
     const desk = streamDesktop();
-    if (!desk || anyMoonlight(null))
+    if (!desk || anyMoonlight(gone))
         return;
     if (workspace.currentDesktop === desk) {
         const back = home && workspace.desktops.indexOf(home) >= 0 ? home : workspace.desktops[0];
@@ -81,7 +91,15 @@ removal.timeout.connect(() => {
     // KWin moves the windows left on it to a neighbour.
     workspace.removeDesktop(desk);
     home = null;
-});
+    deskId = null;
+}
 
-// Moonlight already open when the script starts (login, or the script turned on).
+removal.timeout.connect(() => removeDesktop(null));
+
+// A "Moonlight" desktop left from before the script started (KWin restarted) is taken back when only Moonlight's windows
+// are on it; then Moonlight already open goes there (login, or the script turned on).
+const left = workspace.desktops.find(d => d.name === NAME &&
+    !workspace.windowList().some(o => o.normalWindow && !isMoonlight(o) && o.desktops.indexOf(d) >= 0));
+if (left)
+    deskId = left.id;
 workspace.windowList().forEach(place);

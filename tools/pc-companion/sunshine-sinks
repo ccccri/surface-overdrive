@@ -1,23 +1,31 @@
 #!/bin/bash
-# sunshine-sinks: Sunshine's three virtual sound outputs, made before Sunshine starts (ExecStartPre) with names a person can
-# read. Sunshine makes them itself as "sink-sunshine-stereo", "sink-sunshine-surround51" and "sink-sunshine-surround71",
-# shown so in every sound menu; it takes an existing sink of the same name instead (and unloads it when it quits, so they
-# are made again at every start). The arguments are Sunshine's own, but for the description.
-# Run while Sunshine is stopped: a sink Sunshine made itself and left behind (stopped with a kill, it does not unload them)
-# carries its name as description, and is replaced.
-add() {  # <name> <channels> <channel map> <description>
-    local desc
-    desc=$(pactl -f json list sinks 2>/dev/null | jq -r --arg n "$1" '.[] | select(.name == $n) | .description' | head -1)
-    [ -n "$desc" ] && [ "$desc" != "$1" ] && return
-    if [ -n "$desc" ]; then
-        pactl -f json list sinks | jq -r --arg n "$1" '.[] | select(.name == $n) | .owner_module' |
-            xargs -r -n1 pactl unload-module 2>/dev/null
-    fi
-    pactl load-module module-null-sink rate=48000 "sink_name=$1" format=float "channels=$2" "channel_map=$3" \
-        "sink_properties=device.description=\"${4// /\\ }\"" >/dev/null
+# sunshine-sinks [trim]: Sunshine's virtual sound outputs, one left and with a name a person can read.
+#
+# Sunshine makes three null sinks when it starts, "sink-sunshine-stereo", "-surround51" and "-surround71", each shown so in
+# every sound menu, and records from the one matching the client's channels, by name. It takes an existing sink of the
+# same name instead of making it.
+#   (no argument, ExecStartPre) the stereo one is made beforehand as "Surface Stereo Out"; a sink Sunshine left behind
+#     (stopped with a kill it does not unload them; it carries its name as description) is replaced.
+#   trim (ExecStartPost) the 5.1 and 7.1 ones, made by Sunshine as it starts, are unloaded: every client here streams
+#     stereo (a client asking for 5.1 or 7.1 would get no sound). Sunshine's unload of them when it quits then fails, harmlessly.
+DESC="Surface Stereo Out"
+sinks() { pactl -f json list sinks 2>/dev/null; }
+unload() {  # <sink name>: the module that made it
+    sinks | jq -r --arg n "$1" '.[] | select(.name == $n) | .owner_module' | grep -v 4294967295 |
+        xargs -r -n1 pactl unload-module 2>/dev/null
 }
-add sink-sunshine-stereo 2 front-left,front-right "Stream to Moonlight"
-add sink-sunshine-surround51 6 front-left,front-right,front-center,lfe,rear-left,rear-right "Stream to Moonlight 5.1"
-add sink-sunshine-surround71 8 front-left,front-right,front-center,lfe,rear-left,rear-right,side-left,side-right \
-    "Stream to Moonlight 7.1"
+if [ "${1:-}" = trim ]; then
+    for _ in $(seq 60); do
+        sinks | jq -e '[.[] | select(.name | test("^sink-sunshine-surround(51|71)$"))] | length == 2' >/dev/null && break
+        sleep 0.5
+    done
+    unload sink-sunshine-surround51
+    unload sink-sunshine-surround71
+    exit 0
+fi
+desc=$(sinks | jq -r '.[] | select(.name == "sink-sunshine-stereo") | .description' | head -1)
+[ "$desc" = "$DESC" ] && exit 0
+[ -n "$desc" ] && unload sink-sunshine-stereo
+pactl load-module module-null-sink rate=48000 sink_name=sink-sunshine-stereo format=float channels=2 \
+    channel_map=front-left,front-right "sink_properties=device.description=\"${DESC// /\\ }\"" >/dev/null
 exit 0

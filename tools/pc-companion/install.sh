@@ -41,8 +41,9 @@ jq --argjson screen "$screen" --argjson d "$desktop" '
 mkdir -p "$HOME/.config/systemd/user/app-dev.lizardbyte.app.Sunshine.service.d"
 # and the portal token is put back in step with the grant before Sunshine starts (surface-screen-token)
 # and Sunshine's sound outputs made beforehand with readable names (sunshine-sinks)
-printf '[Service]\nExecStartPre=-%s\nExecStartPre=-%s\nExecStopPost=-%s\n' "$HOME/.local/bin/surface-screen-token" \
-    "$HOME/.local/bin/sunshine-sinks" "$HOME/.local/bin/surface-screen-stop" \
+printf '[Service]\nExecStartPre=-%s\nExecStartPre=-%s\nExecStartPost=-%s trim\nExecStopPost=-%s\n' \
+    "$HOME/.local/bin/surface-screen-token" "$HOME/.local/bin/sunshine-sinks" "$HOME/.local/bin/sunshine-sinks" \
+    "$HOME/.local/bin/surface-screen-stop" \
     > "$HOME/.config/systemd/user/app-dev.lizardbyte.app.Sunshine.service.d/50-surface-screen.conf"
 # Sunshine in the application menu opens the running one's page instead of starting a second Sunshine (sunshine-open)
 src=$(flatpak info -l dev.lizardbyte.app.Sunshine 2>/dev/null)/export/share/applications/dev.lizardbyte.app.Sunshine.desktop

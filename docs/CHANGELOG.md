@@ -16,6 +16,15 @@ What was added, what broke, and what fixed it. Newest first. "Verified" means tr
   (sunshine-sinks), and Sunshine takes them. The Surface's microphone on the PC is "Surface Microphone" again (the
   description lost its space: "SurfacesMicrophone"). install.sh no longer restarts Sunshine during a stream (its check saw
   only TCP and ended a session on 11-11).
+- PC side: one sound output for streams, "Surface Stereo Out" (sunshine-sinks makes it before Sunshine starts and unloads
+  Sunshine's 5.1 and 7.1 ones after); Bazzite's "Virtual Headphone Surround" turned off (ujust setup-virtual-surround
+  disable) at the owner's request, the monitor's speakers made the default again.
+- Cameras named "Surface Front Camera" and "Surface Rear Camera" in applications and browsers (wireplumber
+  92-surface-overdrive-camera-names). Verified on the tablet.
+- The Moonlight desktop goes as soon as Moonlight quits (it waited 3 s; it still waits for Moonlight's window after a
+  stream's full-screen one closes) and is known by its id, so a desktop of the user's with the same name is never removed.
+  On the tablet an old test copy of this script in ~/.local/share/kwin/scripts (11-07) had been running instead of the
+  image's: moved to ~/.local/state/overdrive-old-kwin-scripts. Verified: the desktop gone 0.3 s after Moonlight quit.
 
 ## 2026-11-07
 
