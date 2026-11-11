@@ -35,6 +35,9 @@ What was added, what broke, and what fixed it. Newest first. "Verified" means tr
   completing a request, no thread is busy (a lost frame in the IPU3 pipeline's bookkeeping, our patches). Found with a
   script rewriting the profile; one change is sometimes enough. Meanwhile the Cameras page sends slider values at most every
   0.5 s and shows "Restart the cameras" when the preview gets no pictures (overdrivectl camera <cam> restart).
+- PC side: the on-screen keyboard did not show during Extended Display: the monitor had been off a moment before the
+  session and plasma-keyboard, left with no screen ("creating placeholder screen"), never showed again. surface-screen-start
+  now starts it again in Extended Display too (it already did for Desktop). Fixed on the PC during the session.
 - Cameras named "Surface Front Camera" and "Surface Rear Camera" in applications and browsers (wireplumber
   92-surface-overdrive-camera-names). Verified on the tablet.
 - The Moonlight desktop goes as soon as Moonlight quits (it waited 3 s; it still waits for Moonlight's window after a

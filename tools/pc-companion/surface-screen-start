@@ -111,6 +111,10 @@ if [ "$MODE" = extend ]; then
     # 1150 px from the monitor's height), which fits. Put back at the end (surface-screen-restore).
     printf '%s\n' "$(kreadconfig6 --file plasmakeyboardrc --group General --key panelFillScreenWidth)" > "$RUN/surface-screen.oskfill"
     kwriteconfig6 --notify --file plasmakeyboardrc --group General --key panelFillScreenWidth false
+    # and started again for the screens there are now: it stays bound to the screens it started with, and to none at all
+    # when the monitor was off a moment (plasma-keyboard: "There are no outputs - creating placeholder screen"; it then never
+    # showed again, seen 2026-11-11)
+    "$here/surface-screen-osk"
 fi
 
 if [ "$MODE" = only ]; then
