@@ -103,3 +103,12 @@ Sunshine runs as a user service from login, and the original entry started a sec
 tests the encoders with about ten screen-sharing sessions (one "Started Remote Desktop" notification each, until KDE
 throttles them): install.sh turns that popup off (`Event/remotedesktopstarted` in `xdg-desktop-portal-kde.notifyrc`,
 for every app; the owner's choice), and `encoder = vaapi` (set when there is no NVIDIA card) skips the two tests that always fail here.
+
+## Clipboard and files between the Surface and the PC
+
+KDE Connect (paired, on both) already shares the clipboard both ways: text, images (they arrive as a PNG file in a
+temporary folder, pasted as a file) and files copied in Dolphin (a copy arrives, pasted as a file). Checked 2026-11-11.
+Away from home it finds the other device through Tailscale: `customDevices` in `~/.config/kdeconnect/config` holds the
+other's Tailscale address (PC: 100.67.67.100, Surface: 100.67.70.95; port 1716 open both ways). Files are sent with
+"Send to device" (Dolphin's context menu or the KDE Connect applet); browsing the PC's folders from the Surface needs the
+PC's SSH server (`ujust toggle-ssh` on Bazzite, the owner's call) and then `sftp://` in Dolphin.
