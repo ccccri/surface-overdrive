@@ -101,4 +101,5 @@ In Discord/Vesktop: camera "OBS Virtual Camera", input "Surface Microphone". Wha
 `sunshine-open` replaces the Flatpak's menu entry (`~/.local/share/applications/dev.lizardbyte.app.Sunshine.desktop`):
 Sunshine runs as a user service from login, and the original entry started a second copy beside it. Every Sunshine start
 tests the encoders with about ten screen-sharing sessions (one "Started Remote Desktop" notification each, until KDE
-throttles them); `encoder = vaapi` (set when there is no NVIDIA card) skips the two tests that always fail here.
+throttles them): install.sh turns that popup off (`Event/remotedesktopstarted` in `xdg-desktop-portal-kde.notifyrc`,
+for every app; the owner's choice), and `encoder = vaapi` (set when there is no NVIDIA card) skips the two tests that always fail here.

@@ -49,6 +49,9 @@ if [ -f "$src" ]; then
     sed "s|^Exec=.*|Exec=$HOME/.local/bin/sunshine-open|; /^X-Flatpak=/d" "$src" > "$HOME/.local/share/applications/dev.lizardbyte.app.Sunshine.desktop"
     update-desktop-database "$HOME/.local/share/applications" 2>/dev/null || true
 fi
+# no "Remote Control Started" popup (the owner's choice): every Sunshine start tests the encoders with about eight
+# screen-sharing sessions, one popup each; the portal reads this when it starts
+kwriteconfig6 --file xdg-desktop-portal-kde.notifyrc --group "Event/remotedesktopstarted" --key Action ""
 # the KWin script moving windows between the Surface and the monitor (kwin/overdrive_screen_swap)
 mkdir -p "$HOME/.local/share/kwin/scripts"
 rm -rf "$HOME/.local/share/kwin/scripts/overdrive_screen_swap"

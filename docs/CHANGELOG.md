@@ -8,7 +8,8 @@ What was added, what broke, and what fixed it. Newest first. "Verified" means tr
   the two clashed (restarts, a lost portal grant) and every start tests the encoders with about ten screen-sharing
   sessions, each a "Started Remote Desktop" notification. The menu entry now runs sunshine-open (starts the service only
   when it is not running, then opens Sunshine's page), and without an NVIDIA card Sunshine goes straight to VA-API (the
-  NVENC and Vulkan tests failed anyway, two sessions fewer).
+  NVENC and Vulkan tests failed anyway, two sessions fewer). The "Remote Control Started" popup is off (owner's choice;
+  for every app). Verified: a Sunshine start with no notification, the grant kept.
 
 ## 2026-11-07
 
