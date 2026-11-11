@@ -100,6 +100,11 @@ apply() {  # <width> <height>
 }
 apply "$VW" "$VH"
 
+# the tray's microphone and "Remote Control" icons, lit by Sunshine for the whole session, hidden until it ends
+# (surface-screen-tray; shown again by surface-screen-restore)
+touch "$RUN/surface-screen.tray"
+"$here/surface-screen-tray" hide
+
 if [ "$MODE" = extend ]; then
     # The on-screen keyboard (plasma-keyboard) takes the width of the screen it starts on, the monitor, and KWin centres it
     # on the Surface, narrower: its sides were cut off. Not filling the screen width it is three times its height (about

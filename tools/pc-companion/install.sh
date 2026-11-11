@@ -5,7 +5,7 @@
 set -euo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
 for f in surface-av surface-screen-start surface-screen-stop surface-screen-restore surface-screen-map surface-screen-osk surface-screen-where surface-screen-is-surface surface-screen-token surface-screen-panel \
-         surface-desktop-start surface-desktop-stop sunshine-open; do
+         surface-desktop-start surface-desktop-stop sunshine-open surface-screen-tray sunshine-sinks; do
     install -Dm755 "$here/$f" "$HOME/.local/bin/$f"
 done
 dir=$HOME/.var/app/dev.lizardbyte.app.Sunshine/config/sunshine
@@ -40,7 +40,9 @@ jq --argjson screen "$screen" --argjson d "$desktop" '
 # whatever a session changed comes back also when Sunshine itself stops or restarts mid-session (no "undo" runs then)
 mkdir -p "$HOME/.config/systemd/user/app-dev.lizardbyte.app.Sunshine.service.d"
 # and the portal token is put back in step with the grant before Sunshine starts (surface-screen-token)
-printf '[Service]\nExecStartPre=-%s\nExecStopPost=-%s\n' "$HOME/.local/bin/surface-screen-token" "$HOME/.local/bin/surface-screen-stop" \
+# and Sunshine's sound outputs made beforehand with readable names (sunshine-sinks)
+printf '[Service]\nExecStartPre=-%s\nExecStartPre=-%s\nExecStopPost=-%s\n' "$HOME/.local/bin/surface-screen-token" \
+    "$HOME/.local/bin/sunshine-sinks" "$HOME/.local/bin/surface-screen-stop" \
     > "$HOME/.config/systemd/user/app-dev.lizardbyte.app.Sunshine.service.d/50-surface-screen.conf"
 # Sunshine in the application menu opens the running one's page instead of starting a second Sunshine (sunshine-open)
 src=$(flatpak info -l dev.lizardbyte.app.Sunshine 2>/dev/null)/export/share/applications/dev.lizardbyte.app.Sunshine.desktop
@@ -60,7 +62,10 @@ kwriteconfig6 --file kwinrc --group Plugins --key overdrive_screen_swapEnabled t
 qdbus6 org.kde.KWin /KWin reconfigure >/dev/null 2>&1 || busctl --user call org.kde.KWin /KWin org.kde.KWin reconfigure >/dev/null 2>&1 || true
 systemctl --user daemon-reload
 # a restart ends an open stream: put off while a client is connected
-if ss -Htn state established '( sport = :47984 or sport = :47989 or sport = :48010 )' 2>/dev/null | grep -q .; then
+# (a stream is on UDP: a TCP check alone missed one on 11-11; a session of ours leaves its marks in XDG_RUNTIME_DIR)
+if ss -Htn state established '( sport = :47984 or sport = :47989 or sport = :48010 )' 2>/dev/null | grep -q . ||
+   ss -Hun '( sport >= :47998 and sport <= :48010 )' 2>/dev/null | grep -q . ||
+   ls "${XDG_RUNTIME_DIR:-/tmp}"/surface-screen.{off,tray} >/dev/null 2>&1; then
     echo "A client is connected: restart Sunshine when it is done (systemctl --user restart app-dev.lizardbyte.app.Sunshine)"
 else
     systemctl --user restart app-dev.lizardbyte.app.Sunshine

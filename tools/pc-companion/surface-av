@@ -238,7 +238,7 @@ class Microphone:
         self.addr = surface
         res = run("pactl", "load-module", "module-tunnel-source", f"server=tcp:{surface}:{PORT}", f"source={remote[-1]}",
                   f"source_name={MIC}", "channels=1", "rate=48000", "format=s16le",
-                  "source_properties=device.description=Surface\\sMicrophone")
+                  "source_properties=device.description=\"Surface\\ Microphone\"")
         self.module = res.stdout.strip() or None
         log("microphone ready" if self.module else "microphone: tunnel failed")
 

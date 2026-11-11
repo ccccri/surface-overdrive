@@ -10,6 +10,12 @@ What was added, what broke, and what fixed it. Newest first. "Verified" means tr
   when it is not running, then opens Sunshine's page), and without an NVIDIA card Sunshine goes straight to VA-API (the
   NVENC and Vulkan tests failed anyway, two sessions fewer). The "Remote Control Started" popup is off (owner's choice;
   for every app). Verified: a Sunshine start with no notification, the grant kept.
+- PC side: the tray's microphone and "Remote Control" icons are hidden during a session from the Surface (surface-screen-tray;
+  Sunshine records the PC's sound for the whole session, which Plasma shows as the microphone in use). Sunshine's sound
+  outputs are named "Stream to Moonlight" (2.0, 5.1, 7.1) instead of sink-sunshine-*: made before Sunshine starts
+  (sunshine-sinks), and Sunshine takes them. The Surface's microphone on the PC is "Surface Microphone" again (the
+  description lost its space: "SurfacesMicrophone"). install.sh no longer restarts Sunshine during a stream (its check saw
+  only TCP and ended a session on 11-11).
 
 ## 2026-11-07
 

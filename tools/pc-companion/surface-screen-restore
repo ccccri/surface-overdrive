@@ -11,6 +11,11 @@ if [ -s "$OFFFILE" ]; then
     "$(dirname "$0")/surface-screen-panel" normal   # the panel back where the user keeps it at the monitor
 fi
 rm -f "$OFFFILE"
+TRAYFILE=${XDG_RUNTIME_DIR:-/tmp}/surface-screen.tray
+if [ -f "$TRAYFILE" ]; then
+    "$(dirname "$0")/surface-screen-tray" show
+    rm -f "$TRAYFILE"
+fi
 if [ -f "$TABLETFILE" ]; then
     old=$(cat "$TABLETFILE")
     if [ -n "$old" ]; then kwriteconfig6 --notify --file kwinrc --group Input --key TabletMode "$old"
