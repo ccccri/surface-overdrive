@@ -26,6 +26,10 @@ What was added, what broke, and what fixed it. Newest first. "Verified" means tr
   turned to portrait, KWin rotated the screen and Moonlight shrank the PC's landscape screen into it. KWin's automatic
   rotation is off for the stream (the setting is kept on disk until put back) and the service follows the accelerometer
   itself. Verified on the tablet with a simulated stream: policy off during it, inTabletMode back after.
+- The desktop enters edit mode after a 2 s hold on an empty spot instead of Qt's 0.8 s press-and-hold, which touch
+  gestures kept hitting (ci/patch_desktop_hold.py: the desktop's own trigger is Manual, its press handler starts a timer that
+  moving, lifting or a gesture's cancel stops). Context menus by touch keep 0.8 s; edit mode is still in the right-click
+  menu. Verified on the tablet with a virtual finger: 1.2 s nothing, 2.6 s edit mode, a finger moving for 2.8 s nothing.
 - Cameras named "Surface Front Camera" and "Surface Rear Camera" in applications and browsers (wireplumber
   92-surface-overdrive-camera-names). Verified on the tablet.
 - The Moonlight desktop goes as soon as Moonlight quits (it waited 3 s; it still waits for Moonlight's window after a
