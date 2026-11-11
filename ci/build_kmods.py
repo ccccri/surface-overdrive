@@ -53,6 +53,23 @@ def files_touched_by(patch_file):
     return out
 
 
+def fixed_upstream(patch, tree):
+    """The fix a patch carries, already in the kernel source written differently: <patch>.fixed-by holds lines
+    "<file in the tree>: <text>", and the patch is skipped when one of those files holds its text. (A patch taken as it is
+    is caught by git apply --reverse.)"""
+    marker = patch.with_name(patch.name + ".fixed-by")
+    if not marker.is_file():
+        return None
+    for line in marker.read_text().splitlines():
+        if not line.strip() or line.startswith("#"):
+            continue
+        path, text = line.split(": ", 1)
+        f = tree / path
+        if f.is_file() and text in f.read_text(errors="replace"):
+            return f"{path} has \"{text}\""
+    return None
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--kver", required=True)
@@ -108,7 +125,18 @@ def main():
         print(f"== {name}")
         applied, skipped = [], []
         for p in sorted((ROOT / "patches/kernel" / m["patches"]).iterdir()):
-            if sh(["git", "apply", "-p1", "--reverse", "--check", str(p)], cwd=tree, capture_output=True, check=False).returncode == 0:
+            if p.suffix == ".fixed-by":
+                continue
+            marker = fixed_upstream(p, tree)
+            if marker:
+                print(f"   {p.name}: fixed in the kernel source in its own words ({marker}), skipped")
+                skipped.append(p.name)
+                continue
+            # taken as it is: the reverse applies and the patch itself no longer does (a patch that only removes lines can
+            # also seem to apply in reverse where the context recurs: 0002-ov8865-drop-svga-mode was skipped so until 11-11)
+            if (sh(["git", "apply", "-p1", "--check", str(p)], cwd=tree, capture_output=True, check=False).returncode != 0
+                    and sh(["git", "apply", "-p1", "--reverse", "--check", str(p)], cwd=tree, capture_output=True,
+                           check=False).returncode == 0):
                 print(f"   {p.name}: already in the kernel source, skipped")
                 skipped.append(p.name)
                 continue
