@@ -25,18 +25,22 @@ Kirigami.Page {
     function cmd(tag, args) { kcm.call(tag, ["camera", cam].concat(args)) }
     function load() { cmd("load", ["describe"]) }
     function setLocal(key, value) { const o = {}; o[key] = value; d = Object.assign({}, d, { settings: Object.assign({}, d.settings, o) }) }
-    // Sliders send many values while they move. Each value is sent at once unless one is still on its way; then only the newest
-    // of each setting waits for it. (Waiting for the slider to rest, as before, changed the picture only once it was let go.)
+    // Sliders send many values while they move. A value is sent when none is on its way and the last one went at least half a
+    // second ago; meanwhile only the newest of each setting waits. (Waiting for the slider to rest, as before, changed the
+    // picture only once it was let go. Sending every value rewrote the camera's profile several times a second, and with
+    // software sharpening on that stalled the camera until its service restarted, 2026-11-11.)
     function edit(key, value) {
         if (typeof value === "number" && !isFinite(value)) return          // never send what is not a number
         setLocal(key, value); pending[key] = value
-        if (inFlight === 0) flush()
+        if (inFlight === 0 && !sendGap.running) flush()
     }
+    Timer { id: sendGap; interval: 500; onTriggered: if (root.inFlight === 0 && Object.keys(root.pending).length > 0) root.flush() }
     property var pending: ({})
     property int inFlight: 0
     function flush() {
         const p = root.pending; root.pending = ({})
         for (const k in p) { inFlight++; root.cmd("set", ["set", k, String(p[k])]) }
+        sendGap.restart()
     }
     Connections {
         target: kcm
@@ -51,7 +55,7 @@ Kirigami.Page {
                 return
             }
             if (tag !== "load" && tag !== "set" && tag !== "action") return
-            if (tag === "set" && --root.inFlight <= 0) { root.inFlight = 0; if (Object.keys(root.pending).length > 0) root.flush() }
+            if (tag === "set" && --root.inFlight <= 0) { root.inFlight = 0; if (Object.keys(root.pending).length > 0 && !sendGap.running) root.flush() }
             if (!ok) { message.text = error || i18n("The change was not applied."); return }
             let r
             try { r = JSON.parse(output) } catch (e) { return }
@@ -262,6 +266,17 @@ Kirigami.Page {
                         color: "white"
                         visible: !preview.hasFrame
                         text: preview.error.length > 0 ? preview.error : (preview.running ? i18n("Starting the camera…") : i18n("Live preview is off"))
+                    }
+                    // a camera that stopped delivering pictures comes back when its service restarts (this also stops any other
+                    // app using a camera, so it is a button and not automatic)
+                    QQC2.Button {
+                        anchors { horizontalCenter: parent.horizontalCenter; bottom: parent.bottom; margins: Kirigami.Units.largeSpacing }
+                        visible: !preview.hasFrame && preview.error.length > 0
+                        text: i18n("Restart the cameras")
+                        icon.name: "view-refresh"
+                        onClicked: { preview.stop(); root.cmd("set", ["restart"]) }
+                        QQC2.ToolTip.text: i18n("Restarts the camera service. Other apps using a camera lose it for a moment.")
+                        QQC2.ToolTip.visible: hovered
                     }
                     QQC2.RoundButton {
                         anchors { right: parent.right; bottom: parent.bottom; margins: Kirigami.Units.smallSpacing }

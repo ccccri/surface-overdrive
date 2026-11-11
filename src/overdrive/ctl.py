@@ -28,7 +28,7 @@ USAGE = """usage: overdrivectl <command>
   report                   write a report of the state and the logs for a bug report
   sensors                  battery, light sensor, motion and device facts, in JSON
   unlock [set pin|pattern | clear]   PIN or pattern that also unlocks the screen, in JSON (set: the code on standard input)
-  camera <front|rear> describe | set <key> <value> | reset [<key>] | ui <key> <value>
+  camera <front|rear> describe | set <key> <value> | reset [<key>] | ui <key> <value> | restart
          | preset save|apply|rename|delete|duplicate <args>    live camera settings, answers in JSON
 """
 LABEL = {health.OK: "ok  ", health.WARN: "warn", health.FAIL: "FAIL", health.NA: "n/a "}
@@ -77,6 +77,9 @@ def camera_command(args):
     try:
         if verb == "set" and len(rest) == 2:
             out["restart"] = camera.set_setting(cam, rest[0], float(rest[1]))
+        elif verb == "restart":
+            camera.restart_camera_service()
+            out["restart"] = True
         elif verb == "reset":
             camera.reset_setting(cam, rest[0]) if rest else camera.reset_all(cam)
         elif verb == "ui" and len(rest) == 2:
