@@ -89,7 +89,7 @@ if [ -n "$addr" ] && [ -n "$skey" ]; then
     ssh -o BatchMode=yes surface "mkdir -p ~/.ssh && touch ~/.ssh/config ~/.ssh/known_hosts && chmod 600 ~/.ssh/config &&
         { grep -q '^Host dsktp\$' ~/.ssh/config || printf '\nHost dsktp\n    HostName $addr\n    Port 2222\n' >> ~/.ssh/config; } &&
         { grep -v '^\[$addr\]:2222 ' ~/.ssh/known_hosts > ~/.ssh/known_hosts.new; echo '[$addr]:2222 $hostkey' >> ~/.ssh/known_hosts.new; mv ~/.ssh/known_hosts.new ~/.ssh/known_hosts; }" &&
-        ssh -o BatchMode=yes surface python3 - "sftp://dsktp/$HOME/" "PC (dsktp)" computer < "$here/surface-sftp/add-place"
+        ssh -o BatchMode=yes surface "python3 - $(printf '%q ' "sftp://dsktp$HOME/" "PC (dsktp)" computer)" < "$here/surface-sftp/add-place"
     python3 "$here/surface-sftp/add-place" "sftp://surface/var/home/$(ssh -o BatchMode=yes surface whoami)/" "Surface" tablet
 else
     echo "File sharing skipped: no Tailscale address or the Surface cannot be reached by ssh"
