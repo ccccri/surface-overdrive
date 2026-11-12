@@ -27,7 +27,10 @@ class DesktopHold(unittest.TestCase):
         folder = (self.dir / "FolderView.qml").read_text()
         self.assertNotIn("AfterPressAndHold", main)
         self.assertIn("interval: %d" % mod.HOLD_MS, folder)
-        self.assertEqual(folder.count("editHoldTimer.stop()"), 3)
+        # moving, lifting, a cancel, a desktop change and another app's window
+        self.assertEqual(folder.count("editHoldTimer.stop()"), 5)
+        self.assertIn("import org.kde.taskmanager as TaskManager", folder)
+        self.assertIn("TaskManager.VirtualDesktopInfo", folder)
 
     def test_twice_changes_nothing(self):
         mod.main(str(self.dir))

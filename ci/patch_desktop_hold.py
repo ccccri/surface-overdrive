@@ -6,7 +6,10 @@ press-and-hold time, 0.8 s, which is also what opens context menus by touch ever
 and ordinary use kept hitting it. The desktop's own trigger is turned off (editModeCondition Manual, for the desktop and
 the widgets on it, in main.qml) and the desktop's own press handler (FolderView.qml, which sees every press on the empty
 desktop) turns edit mode on after HOLD seconds on an empty spot: the finger moving, lifting or being taken by a gesture
-stops it. Context menus by touch keep Qt's time; edit mode is still in the desktop's right-click menu.
+stops it. A three-finger swipe to another desktop (Moonlight's) took the finger without a release or a cancel reaching the
+desktop, and edit mode came on behind the stream 2 s later (2026-11-12): the hold also stops when the virtual desktop
+changes or another app's window becomes the active one. Context menus by touch keep Qt's time; edit mode is still in the
+desktop's right-click menu.
 
 When a file has a layout this was not written for, neither is changed (Plasma's own behaviour stays) and the build says so.
 
@@ -28,6 +31,12 @@ MAIN = [
 ]
 
 FOLDER = [
+    # the virtual desktops, to stop the hold when a swipe changes desktop
+    ("""import org.kde.kquickcontrolsaddons
+""",
+     """import org.kde.kquickcontrolsaddons
+import org.kde.taskmanager as TaskManager
+"""),
     # start on a press on an empty spot of the desktop
     ("""            pressX = mouse.x;
             pressY = mouse.y;
@@ -57,7 +66,9 @@ FOLDER = [
      """        onReleased: mouse => {
             editHoldTimer.stop();
 """),
-    # and so does a cancel (a gesture took the finger); not clearPressState(): Qt's own press-and-hold calls it at 0.8 s
+    # and so does a cancel (a gesture took the finger); not clearPressState(): Qt's own press-and-hold calls it at 0.8 s.
+    # A swipe to another desktop or another app's window coming up stops it too: KWin's gestures took the finger without
+    # either reaching the desktop.
     ("""        function pressCanceled() {
 """,
      """        Timer {
@@ -66,6 +77,17 @@ FOLDER = [
             property real y0
             interval: %d
             onTriggered: if (!Plasmoid.immutable) Plasmoid.containment.corona.editMode = true
+        }
+        TaskManager.VirtualDesktopInfo {
+            onCurrentDesktopChanged: editHoldTimer.stop()
+        }
+        Connections {
+            target: Qt.application
+            function onStateChanged() {
+                if (Qt.application.state !== Qt.ApplicationActive) {
+                    editHoldTimer.stop();
+                }
+            }
         }
 
         function pressCanceled() {

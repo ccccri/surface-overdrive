@@ -37,6 +37,14 @@ class PanelTest(unittest.TestCase):
     def test_unknown_layout(self):
         self.assertIsNone(mod.patch_panel("var panel = new Panel\n"))
 
+    def test_no_pager(self):
+        text = ('var panel = new Panel\npanel.addWidget("org.kde.plasma.kickoff")\npanel.addWidget("org.kde.plasma.pager")\n'
+                'panel.addWidget("org.kde.plasma.icontasks")\n')
+        out = mod.patch_panel(text)
+        self.assertNotIn('\npanel.addWidget("org.kde.plasma.pager")', out)
+        self.assertIn('panel.addWidget("org.kde.plasma.icontasks")', out)
+        self.assertEqual(mod.patch_panel(out), out)
+
 
 class FaceTest(unittest.TestCase):
     def test_picture_hidden(self):
