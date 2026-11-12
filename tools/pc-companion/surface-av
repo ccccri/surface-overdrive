@@ -53,7 +53,7 @@ def loopback_device():
             label = open(os.path.join(base, name, "name")).read().lower()
         except OSError:
             continue
-        if "loopback" in label or "virtual" in label:
+        if "loopback" in label or "virtual" in label or "surface" in label:   # "Surface Camera" with the README's label
             return "/dev/" + name
     return None
 

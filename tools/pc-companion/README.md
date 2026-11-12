@@ -53,7 +53,9 @@ stream ends cleanly, the app keeps running on the PC): from there, the tile resu
 
 During a session from the Surface (Extended Display or Desktop) the PC has the Surface's front camera and microphone,
 used only on demand (surface-av, started and ended with the session):
-- camera: the v4l2loopback device ("OBS Virtual Camera" on Bazzite) always shows something, so that apps list it: black
+- camera: the v4l2loopback device (Bazzite's "OBS Virtual Camera", "Surface Camera" in PipeWire apps through
+  wireplumber/60-surface-camera-name.conf, and in every app after `echo 'options v4l2loopback exclusive_caps=1
+  card_label="Surface Camera"' | sudo tee /etc/modprobe.d/98-v4l2loopback.conf` and a reboot) always shows something, so that apps list it: black
   while no app has it open, the Surface's camera from a second after one opens it until 5 s after it closes it (opens are
   counted with inotify on the device, which sees Flatpak apps and needs no permissions). Only then is the Surface's camera,
   and its light, on: H.264 on its graphics chip (1280x960, 30 fps, 4 Mbit/s), through ssh to the host "surface", decoded

@@ -28,8 +28,8 @@ prep() {  # <do command> [<undo command>]: a prep-cmd entry running them on the 
 # before every app (games, a phone's desktop): what a session of ours left behind (Sunshine stopped mid-session, a crash:
 # the monitors off, the virtual screen, output_name) is cleared; nothing is done when there is nothing
 sed -i '/^global_prep_cmd *=/d' "$conf"
-# and Sunshine's stream sound output made with its readable name (sunshine-sinks session)
-echo "global_prep_cmd = $(jq -c -n --argjson p "$(prep surface-screen-stop)" --argjson s "$(prep "sunshine-sinks session")" '[$p, $s]')" >> "$conf"
+# and Sunshine's stream sound output made with its readable name for the session, gone after it (sunshine-sinks)
+echo "global_prep_cmd = $(jq -c -n --argjson p "$(prep surface-screen-stop)" --argjson s "$(prep "sunshine-sinks session" "sunshine-sinks off")" '[$p, $s]')" >> "$conf"
 screen=$(jq -n --argjson p "$(prep "surface-screen-start extend" surface-screen-stop)" \
     '{name: "Extended Display", cmd: "", "auto-detach": true, "wait-all": true, "exit-timeout": 5, elevated: false,
       "exclude-global-prep-cmd": false, "image-path": "", output: "", "prep-cmd": [$p]}')
@@ -41,10 +41,10 @@ jq --argjson screen "$screen" --argjson d "$desktop" '
 # whatever a session changed comes back also when Sunshine itself stops or restarts mid-session (no "undo" runs then)
 mkdir -p "$HOME/.config/systemd/user/app-dev.lizardbyte.app.Sunshine.service.d"
 # and the portal token is put back in step with the grant before Sunshine starts (surface-screen-token)
-# and Sunshine's sound outputs made beforehand with readable names (sunshine-sinks)
-printf '[Service]\nExecStartPre=-%s\nExecStartPre=-%s\nExecStartPost=-%s trim\nExecStopPost=-%s\n' \
-    "$HOME/.local/bin/surface-screen-token" "$HOME/.local/bin/sunshine-sinks" "$HOME/.local/bin/sunshine-sinks" \
-    "$HOME/.local/bin/surface-screen-stop" \
+# and Sunshine's sound outputs gone while nothing streams: those it makes as it starts, those left when it stops (sunshine-sinks)
+printf '[Service]\nExecStartPre=-%s\nExecStartPost=-%s off wait\nExecStopPost=-%s\nExecStopPost=-%s off\n' \
+    "$HOME/.local/bin/surface-screen-token" "$HOME/.local/bin/sunshine-sinks" \
+    "$HOME/.local/bin/surface-screen-stop" "$HOME/.local/bin/sunshine-sinks" \
     > "$HOME/.config/systemd/user/app-dev.lizardbyte.app.Sunshine.service.d/50-surface-screen.conf"
 # Sunshine in the application menu opens the running one's page instead of starting a second Sunshine (sunshine-open)
 src=$(flatpak info -l dev.lizardbyte.app.Sunshine 2>/dev/null)/export/share/applications/dev.lizardbyte.app.Sunshine.desktop
@@ -56,6 +56,20 @@ fi
 # no "Remote Control Started" popup (the owner's choice): every Sunshine start tests the encoders with about eight
 # screen-sharing sessions, one popup each; the portal reads this when it starts
 kwriteconfig6 --file xdg-desktop-portal-kde.notifyrc --group "Event/remotedesktopstarted" --key Action ""
+# the v4l2loopback camera surface-av feeds is "Surface Camera" in PipeWire; WirePlumber reads it when it starts, so it
+# is restarted only when the file is new or changed (a restart cuts the PC's sound for a moment)
+wp=$HOME/.config/wireplumber/wireplumber.conf.d
+mkdir -p "$wp"
+if ! cmp -s "$here/wireplumber/60-surface-camera-name.conf" "$wp/60-surface-camera-name.conf"; then
+    install -m644 "$here/wireplumber/60-surface-camera-name.conf" "$wp/"
+    systemctl --user restart wireplumber
+fi
+# apps opening the V4L2 device themselves (Chromium, Discord) read the kernel's label, which only root can change
+if grep -qs 'card_label="OBS Virtual Camera"' /usr/lib/modprobe.d/98-v4l2loopback.conf &&
+   [ ! -e /etc/modprobe.d/98-v4l2loopback.conf ]; then
+    echo "To call the camera \"Surface Camera\" everywhere, run once, then reboot:"
+    echo "  echo 'options v4l2loopback exclusive_caps=1 card_label=\"Surface Camera\"' | sudo tee /etc/modprobe.d/98-v4l2loopback.conf"
+fi
 # the KWin script moving windows between the Surface and the monitor (kwin/overdrive_screen_swap)
 mkdir -p "$HOME/.local/share/kwin/scripts"
 rm -rf "$HOME/.local/share/kwin/scripts/overdrive_screen_swap"
