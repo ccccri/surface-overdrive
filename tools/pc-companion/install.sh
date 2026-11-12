@@ -64,11 +64,11 @@ if ! cmp -s "$here/wireplumber/60-surface-camera-name.conf" "$wp/60-surface-came
     install -m644 "$here/wireplumber/60-surface-camera-name.conf" "$wp/"
     systemctl --user restart wireplumber
 fi
-# apps opening the V4L2 device themselves (Chromium, Discord) read the kernel's label, which only root can change
-if grep -qs 'card_label="OBS Virtual Camera"' /usr/lib/modprobe.d/98-v4l2loopback.conf &&
-   [ ! -e /etc/modprobe.d/98-v4l2loopback.conf ]; then
-    echo "To call the camera \"Surface Camera\" everywhere, run once, then reboot:"
-    echo "  echo 'options v4l2loopback exclusive_caps=1 card_label=\"Surface Camera\"' | sudo tee /etc/modprobe.d/98-v4l2loopback.conf"
+# apps opening the V4L2 device themselves (Chromium, Discord) read the kernel's label, which only root can change; and a
+# second device is needed for the rear camera
+if ! grep -qs 'Surface Rear Camera' /etc/modprobe.d/98-v4l2loopback.conf; then
+    echo "For \"Surface Front Camera\" and \"Surface Rear Camera\" in every app, run once, then reboot:"
+    echo "  echo 'options v4l2loopback devices=2 exclusive_caps=1,1 card_label=\"Surface Front Camera,Surface Rear Camera\"' | sudo tee /etc/modprobe.d/98-v4l2loopback.conf"
 fi
 # the KWin script moving windows between the Surface and the monitor (kwin/overdrive_screen_swap)
 mkdir -p "$HOME/.local/share/kwin/scripts"

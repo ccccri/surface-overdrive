@@ -24,16 +24,18 @@ algorithms:
   - Af:
   - Agc:
       relativeLuminanceTarget: [ 0, 0.20 ]
-      # Low light (patch 0031): exposure up to 30 ms, then gain up to 2; only past that the frame gets longer, up to 60 ms
-      # (about 16 fps), and only then the gain goes further. The grain of a dim room comes from the gain.
-      maxExposureTime: 60000
+      # Low light (patch 0031): exposure up to 30 ms, then gain up to 2, then 33 ms (a frame of 30 fps), and the gain
+      # goes further. Up to 2026-11-12 the frame got longer, up to 60 ms: in an evening room calls through the PC ran at
+      # 16 fps, and as the light changed between 16 and 29 (judged ridiculous and uneven). At 33 ms they stay at 30 fps
+      # as bright (mean luma 100 against 99), with more grain where the picture moves (still areas are cleaned by TNR).
+      maxExposureTime: 33000
       # In the dark (60 ms, gain 7.9) at most 2x more in the ImgU, not 3x: a darker, cleaner picture, as phones
       # show at night; digital gain brightens the grain as much as the picture. Measured with the grain removal on
       # (2026-11-04): luma 94 -> 69, flicker 7.1 -> 2.5 (1.5x: 56 and 1.3, too dark).
       maxDigitalGain: 2.0
       AeExposureModes:
         ExposureNormal:
-          exposureTime: [ 30000, 60000 ]
+          exposureTime: [ 30000, 33000 ]
           gain: [ 2.0, 4.0 ]
       AeConstraintMode:
         ConstraintNormal:

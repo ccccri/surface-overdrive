@@ -4,7 +4,7 @@
 surface-screen-start runs it for a session from the Surface (Extended Display or Desktop) and surface-screen-stop ends it
 (SIGTERM: everything is taken down, on both machines).
 
-Camera: the v4l2loopback device ("OBS Virtual Camera" on Bazzite, /dev/video0) always gets frames, so that apps list it:
+Camera: each v4l2loopback device ("OBS Virtual Camera" on Bazzite, or one per camera: README) always gets frames, so apps list it:
 black while no app has it open, the Surface's front camera while one has (opens and closes of the device are counted with
 inotify, which needs no permissions and sees apps in Flatpaks). The Surface's camera, and its light, are on only then:
 PipeWire's libcamera node there, H.264 on its graphics chip, through ssh to the host "surface", decoded on the PC's.
@@ -31,7 +31,8 @@ from gi.repository import GLib, Gst  # noqa: E402
 W, H, FPS = 1280, 960, 30
 SSH = ["ssh", "-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "-o", "ServerAliveInterval=5",
        "-o", "ServerAliveCountMax=3", "surface"]
-CAMERA = "libcamera_input.__SB_.PCI0.LNK1"   # the front camera (LNK0 is the rear one)
+FRONT = "libcamera_input.__SB_.PCI0.LNK1"    # the Surface's front camera
+REAR = "libcamera_input.__SB_.PCI0.LNK0"     # and its rear one
 MIC = "surface_mic"                          # the source apps see
 PORT = 4713
 LOG = os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/tmp"), "surface-screen.log")
@@ -46,16 +47,22 @@ def run(*args):
     return subprocess.run(args, capture_output=True, text=True, check=False)
 
 
-def loopback_device():
+def loopback_devices():
+    """[(device, Surface camera)]: the v4l2loopback devices, the one labelled "...Rear..." for the rear camera, the first
+    other one for the front camera (Bazzite's single "OBS Virtual Camera", or "Surface Front Camera" with the README's
+    labels)."""
     base = "/sys/devices/virtual/video4linux"
-    for name in sorted(os.listdir(base)) if os.path.isdir(base) else []:
+    found = []
+    for name in sorted(os.listdir(base), key=lambda n: int(n[5:]) if n[5:].isdigit() else 0) if os.path.isdir(base) else []:
         try:
             label = open(os.path.join(base, name, "name")).read().lower()
         except OSError:
             continue
-        if "loopback" in label or "virtual" in label or "surface" in label:   # "Surface Camera" with the README's label
-            return "/dev/" + name
-    return None
+        if "loopback" in label or "virtual" in label or "surface" in label:
+            found.append(("/dev/" + name, label))
+    rear = [d for d, label in found if "rear" in label][:1]
+    front = [d for d, label in found if "rear" not in label][:1]
+    return [(d, FRONT) for d in front] + [(d, REAR) for d in rear]
 
 
 class Openers:
@@ -108,8 +115,10 @@ class Openers:
 
 
 class Camera:
-    def __init__(self, device):
+    def __init__(self, device, target):
         self.device = device
+        self.target = target
+        self.name = "rear camera" if target == REAR else "camera"
         self.latest = None
         self.latest_at = 0.0
         self.started = 0.0
@@ -142,12 +151,15 @@ class Camera:
         # the stream says it is video (props and caps): as "Stream/Input/Unknown" WirePlumber's linking did not find the
         # camera ("target not found") once it had been restarted. The pid is kept to end it for sure at stop.
         self.serial = getattr(self, "serial", 0) + 1
-        self.pidfile = f"$XDG_RUNTIME_DIR/surface-av-camera.{os.getpid()}.{self.serial}.pid"   # one per start
-        remote = (f"echo $$ > {self.pidfile}; exec gst-launch-1.0 -q pipewiresrc target-object={CAMERA}"
+        self.pidfile = (f"$XDG_RUNTIME_DIR/surface-av-camera.{os.getpid()}.{os.path.basename(self.device)}"
+                        f".{self.serial}.pid")   # one per start
+        # 8 Mbit/s at the encoder's best quality (target-usage 1): at 4 Mbit/s the sensor's grain in a dim room turned
+        # into blocks; the Surface's graphics chip does it, and the network is the home's (or Tailscale's)
+        remote = (f"echo $$ > {self.pidfile}; exec gst-launch-1.0 -q pipewiresrc target-object={self.target}"
                   " stream-properties=props,media.type=Video,media.category=Capture,media.role=Camera do-timestamp=true"
                   " ! video/x-raw ! watchdog timeout=3000"
                   f" ! vapostproc ! 'video/x-raw(memory:VAMemory),format=NV12,width={W},height={H}'"
-                  " ! vah264enc rate-control=cbr bitrate=4000 key-int-max=30 ! h264parse config-interval=-1 ! mpegtsmux"
+                  " ! vah264enc rate-control=cbr bitrate=8000 target-usage=1 key-int-max=30 ! h264parse config-interval=-1 ! mpegtsmux"
                   " ! fdsink fd=1")
         self.proc = subprocess.Popen(SSH + [remote], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
         self.pipe = Gst.parse_launch(
@@ -157,7 +169,7 @@ class Camera:
         self.pipe.get_by_name("sink").connect("new-sample", self.sample)
         self.pipe.set_state(Gst.State.PLAYING)
         self.started = time.monotonic()
-        log("camera on")
+        log(f"{self.name} on")
 
     def sample(self, sink):
         s = sink.emit("pull-sample")
@@ -187,7 +199,7 @@ class Camera:
                 # the Surface's end, in case it outlived its ssh session (it would keep the camera, and its light, on)
                 if pidfile:
                     run(*SSH, f'f={pidfile}; [ -s "$f" ] && kill "$(cat "$f")" 2>/dev/null; rm -f "$f"')
-            log("camera off")
+            log(f"{self.name} off")
 
         t = threading.Thread(target=down, daemon=True)
         t.start()
@@ -266,16 +278,15 @@ class Microphone:
 
 def main():
     Gst.init(None)
-    device = loopback_device()
-    camera = Camera(device) if device else None
-    if camera:
+    cameras = [Camera(d, target) for d, target in loopback_devices()]
+    if cameras:
         # the writer settles (first frames pushed by the main loop, which is not running yet: a short loop of its own)
         ctx = GLib.MainContext.default()
         end = time.monotonic() + 1.5
         while time.monotonic() < end:
             ctx.iteration(False)
             time.sleep(0.01)
-    openers = Openers(device) if device else None
+    openers = {c: Openers(c.device) for c in cameras}
     mic = Microphone()
     stopping = threading.Event()
 
@@ -287,7 +298,7 @@ def main():
 
     mic_thread = threading.Thread(target=mic_loop, daemon=True)
     mic_thread.start()
-    log(f"ready (camera {device or 'none: no v4l2loopback'})")
+    log("ready (cameras: %s)" % (", ".join(f"{c.name} {c.device}" for c in cameras) or "none, no v4l2loopback"))
     since = {}
 
     def held(key, want, now):
@@ -299,15 +310,15 @@ def main():
 
     def tick():
         now = time.monotonic()
-        if camera:
-            want = openers.poll() > 0
-            t = held("camera", want, now)
+        for camera in cameras:
+            want = openers[camera].poll() > 0
+            t = held(camera.device, want, now)
             if want and not camera.on and t >= 1.0:           # apps probing a device open and close it at once
                 camera.start()
             elif not want and camera.on and t >= 5.0:
                 camera.stop()
             elif camera.stalled():
-                log("camera: no frames, starting again")
+                log(f"{camera.name}: no frames, starting again")
                 camera.stop()
                 camera.start()
         return True
@@ -326,7 +337,7 @@ def main():
         loop.run()
     finally:
         stopping.set()
-        if camera:
+        for camera in cameras:
             camera.close()
         mic_thread.join(10)
         mic.close()
