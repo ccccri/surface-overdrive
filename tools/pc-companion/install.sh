@@ -70,6 +70,30 @@ if ! grep -qs 'Surface Rear Camera' /etc/modprobe.d/98-v4l2loopback.conf; then
     echo "For \"Surface Front Camera\" and \"Surface Rear Camera\" in every app, run once, then reboot:"
     echo "  echo 'options v4l2loopback devices=2 exclusive_caps=1,1 card_label=\"Surface Front Camera,Surface Rear Camera\"' | sudo tee /etc/modprobe.d/98-v4l2loopback.conf"
 fi
+# the PC's files in the Surface's Dolphin and the Surface's in the PC's (surface-sftp): the Surface already has sshd; the
+# PC gets an SFTP server of the user's own, on its Tailscale address only, for the Surface's key only
+addr=$(tailscale ip -4 2>/dev/null | head -1)
+skey=$(ssh -o BatchMode=yes -o ConnectTimeout=5 surface cat .ssh/id_ed25519.pub 2>/dev/null || true)
+if [ -n "$addr" ] && [ -n "$skey" ]; then
+    sd=$HOME/.config/surface-sftp
+    mkdir -p "$sd" && chmod 700 "$sd"
+    [ -f "$sd/host_ed25519" ] || ssh-keygen -q -t ed25519 -N "" -C "surface-sftp@$(hostname)" -f "$sd/host_ed25519"
+    printf 'restrict %s\n' "$skey" > "$sd/authorized_keys" && chmod 600 "$sd/authorized_keys"
+    sed -e "s|@DIR@|$sd|g" -e "s|@ADDR@|$addr|g" "$here/surface-sftp/sshd_config.in" > "$sd/sshd_config"
+    install -Dm644 "$here/surface-sftp/surface-sftp.service" "$HOME/.config/systemd/user/surface-sftp.service"
+    systemctl --user daemon-reload
+    systemctl --user enable surface-sftp.service >/dev/null 2>&1
+    systemctl --user restart surface-sftp.service
+    # the Surface: "dsktp" in its ssh config, the PC's host key known, and the place in Dolphin
+    hostkey=$(cut -d' ' -f1,2 "$sd/host_ed25519.pub")
+    ssh -o BatchMode=yes surface "mkdir -p ~/.ssh && touch ~/.ssh/config ~/.ssh/known_hosts && chmod 600 ~/.ssh/config &&
+        { grep -q '^Host dsktp\$' ~/.ssh/config || printf '\nHost dsktp\n    HostName $addr\n    Port 2222\n' >> ~/.ssh/config; } &&
+        { grep -v '^\[$addr\]:2222 ' ~/.ssh/known_hosts > ~/.ssh/known_hosts.new; echo '[$addr]:2222 $hostkey' >> ~/.ssh/known_hosts.new; mv ~/.ssh/known_hosts.new ~/.ssh/known_hosts; }" &&
+        ssh -o BatchMode=yes surface python3 - "sftp://dsktp/$HOME/" "PC (dsktp)" computer < "$here/surface-sftp/add-place"
+    python3 "$here/surface-sftp/add-place" "sftp://surface/var/home/$(ssh -o BatchMode=yes surface whoami)/" "Surface" tablet
+else
+    echo "File sharing skipped: no Tailscale address or the Surface cannot be reached by ssh"
+fi
 # the KWin script moving windows between the Surface and the monitor (kwin/overdrive_screen_swap)
 mkdir -p "$HOME/.local/share/kwin/scripts"
 rm -rf "$HOME/.local/share/kwin/scripts/overdrive_screen_swap"

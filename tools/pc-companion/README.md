@@ -115,3 +115,10 @@ Away from home it finds the other device through Tailscale: `customDevices` in `
 other's Tailscale address (PC: 100.67.67.100, Surface: 100.67.70.95; port 1716 open both ways). Files are sent with
 "Send to device" (Dolphin's context menu or the KDE Connect applet); browsing the PC's folders from the Surface needs the
 PC's SSH server (`ujust toggle-ssh` on Bazzite, the owner's call) and then `sftp://` in Dolphin.
+
+## Files between the PC and the Surface
+
+install.sh puts "Surface" in the PC's Dolphin (sftp://surface, the Surface's own sshd) and "PC (dsktp)" in the Surface's
+(sftp://dsktp). For the latter the PC runs an SFTP server of the user's own, surface-sftp.service (the system's sshd stays
+off): it listens only on the PC's Tailscale address, port 2222, lets in only the Surface's ssh key, gives nothing but SFTP,
+and its config is in ~/.config/surface-sftp. `systemctl --user disable --now surface-sftp` turns it off.
