@@ -43,7 +43,8 @@ RUN rpm -q --qf '%{VERSION}-%{RELEASE}' libcamera > /libcamera-nvr && rpm -qa --
     && rpm -q --qf '%{VERSION}-%{RELEASE}' plasma-pa > /plasma-pa-nvr \
     && rpm -q --qf '%{VERSION}-%{RELEASE}' powerdevil > /powerdevil-nvr \
     && rpm -q --qf '%{VERSION}-%{RELEASE}' plasma-discover > /discover-nvr \
-    && rpm -q --qf '%{VERSION}-%{RELEASE}' pipewire > /pipewire-nvr
+    && rpm -q --qf '%{VERSION}-%{RELEASE}' pipewire > /pipewire-nvr \
+    && rpm -q --qf '%{VERSION}-%{RELEASE}' plasma-desktop > /plasma-desktop-nvr
 
 FROM registry.fedoraproject.org/fedora:${FEDORA} AS libcamera
 COPY --from=probe /libcamera-nvr /libcamera-packages /
@@ -60,6 +61,13 @@ COPY --from=libcamera /out/rpms /rpms
 COPY ci/build_spa_libcamera.sh /src/ci/build_spa_libcamera.sh
 COPY patches/pipewire /src/patches/pipewire
 RUN /src/ci/build_spa_libcamera.sh "$(cat /pipewire-nvr)" /src/patches/pipewire /rpms /out
+
+# ---- The task manager applet with "Force Quit" in its context menu (ci/build_taskmanager.sh); nothing comes out when the
+# patch does not fit, and the image keeps Fedora's applet
+FROM registry.fedoraproject.org/fedora:${FEDORA} AS taskmanager
+COPY --from=probe /plasma-desktop-nvr /
+COPY ci/build_taskmanager.sh ci/patch_taskmanager.py /src/ci/
+RUN /src/ci/build_taskmanager.sh "$(cat /plasma-desktop-nvr)" /out && mkdir -p /out/usr
 
 # ---- The login screen rebuilt with the PIN and pattern pad (ci/build_login.sh); nothing comes out when the patch does not fit
 FROM registry.fedoraproject.org/fedora:${FEDORA} AS login
@@ -174,6 +182,8 @@ RUN set -eux; \
     rpm -q libcamera libcamera-ipa | grep -q overdrive; \
     rm -rf /tmp/libcamera-rpms /tmp/libcamera-packages; dnf5 clean all
 COPY --from=spalibcamera /out/usr/lib64/spa-0.2/libcamera/libspa-libcamera.so /usr/lib64/spa-0.2/libcamera/libspa-libcamera.so
+# the task manager with Force Quit, when ci/build_taskmanager.sh could make it (an empty /out/usr otherwise)
+COPY --from=taskmanager /out/usr/ /usr/
 # Hardware video encoding. The HD 615 encodes H.264 and HEVC, but Fedora's libva-intel-media-driver is built without
 # those codecs (patents): only JPEG works. RPM Fusion's intel-media-driver is the same open source driver built whole; it
 # installs in /usr/lib64/dri-nonfree, which Fedora's libva searches first. The RPM Fusion repositories (signed packages,

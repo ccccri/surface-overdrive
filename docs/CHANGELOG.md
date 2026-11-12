@@ -45,6 +45,15 @@ What was added, what broke, and what fixed it. Newest first. "Verified" means tr
   On the tablet an old test copy of this script in ~/.local/share/kwin/scripts (11-07) had been running instead of the
   image's: moved to ~/.local/state/overdrive-old-kwin-scripts. Verified: the desktop gone 0.3 s after Moonlight quit.
 
+## 2026-11-12
+
+- "Force Quit" in the task manager's context menu (hold or right-click an open app's icon in the panel): ends a hung app at
+  once, where Close waits for the app to agree. The systemd unit Plasma started the app in is killed whole, so a Flatpak's
+  wrapper and sandbox go too (Xournal++ left its wrapper behind when only the app's process was killed); never anything
+  but an app- unit or the app's own process. The applet's QML is compiled into it: ci/patch_taskmanager.py and
+  ci/build_taskmanager.sh rebuild only org.kde.plasma.taskmanager.so from Fedora's plasma-desktop sources. Verified on the
+  tablet: the applet loads, and the kill of kcalc's unit took its sandbox with it; the menu itself still to be tried by touch.
+
 ## 2026-11-07
 
 **Streaming from the PC**
