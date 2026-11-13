@@ -1,9 +1,0 @@
-#!/bin/bash
-# surface-screen-osk: Plasma's on-screen keyboard started again, so that it takes the width of the screens there are now. It
-# sizes itself once, when it starts: started with the PC's monitor and shown on the Surface as the only screen, it was wider
-# than the screen and cut at both ends. KWin starts it again when its InputMethod setting changes.
-im=$(kreadconfig6 --file kwinrc --group Wayland --key InputMethod)
-[ -n "$im" ] || exit 0
-kwriteconfig6 --notify --file kwinrc --group Wayland --key InputMethod ""
-sleep 1
-kwriteconfig6 --notify --file kwinrc --group Wayland --key InputMethod "$im"

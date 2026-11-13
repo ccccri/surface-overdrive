@@ -1,10 +1,6 @@
 # Apps of the Surface Overdrive image, installed by overdrive-flatpaks.service (flatpak preinstall) from the first remote
 # that has them (Fedora's, then Flathub). An app the user removes stays removed.
 
-# Handwritten notes with the pen
-[Flatpak Preinstall com.github.xournalpp.xournalpp]
-Branch=stable
-
 # Kept from Kinoite's own set, so that a fresh install has them too
 [Flatpak Preinstall org.kde.okular]
 Branch=stable
@@ -25,8 +21,4 @@ Branch=stable
 Branch=stable
 
 [Flatpak Preinstall org.kde.skanpage]
-Branch=stable
-
-# The Surface as a screen of the PC at home, and games streamed from it (Sunshine on the PC)
-[Flatpak Preinstall com.moonlight_stream.Moonlight]
 Branch=stable

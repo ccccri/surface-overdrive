@@ -6,8 +6,8 @@ press-and-hold time, 0.8 s, which is also what opens context menus by touch ever
 and ordinary use kept hitting it. The desktop's own trigger is turned off (editModeCondition Manual, for the desktop and
 the widgets on it, in main.qml) and the desktop's own press handler (FolderView.qml, which sees every press on the empty
 desktop) turns edit mode on after HOLD seconds on an empty spot: the finger moving, lifting or being taken by a gesture
-stops it. A three-finger swipe to another desktop (Moonlight's) took the finger without a release or a cancel reaching the
-desktop, and edit mode came on behind the stream 2 s later (2026-11-12): the hold also stops when the virtual desktop
+stops it. A three-finger swipe to another desktop took the finger without a release or a cancel reaching the
+desktop, and edit mode came on behind the other desktop's window 2 s later (2026-11-12): the hold also stops when the virtual desktop
 changes or another app's window becomes the active one. Context menus by touch keep Qt's time; edit mode is still in the
 desktop's right-click menu.
 

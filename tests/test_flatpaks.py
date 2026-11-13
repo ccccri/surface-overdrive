@@ -64,53 +64,6 @@ if __name__ == "__main__":
     unittest.main()
 
 
-class MoonlightTouch(unittest.TestCase):
-    def test_library_copied_refreshed_and_preloaded_once(self):
-        with TemporaryDirectory() as d:
-            lib = Path(d, "moonlight-touch-cancel.so")
-            lib.write_bytes(b"one")
-            state = Path(d, "done")
-            with mock.patch.object(flatpaks.subprocess, "run") as run:
-                run.return_value.returncode = 0
-                flatpaks.moonlight_touch(Path(d, "home"), state, lib)
-                dest = Path(d, "home", ".var", "app", flatpaks.MOONLIGHT, "lib", lib.name)
-                self.assertEqual(dest.read_bytes(), b"one")
-                self.assertIn("--env=LD_PRELOAD=" + str(dest), run.call_args[0][0])
-                lib.write_bytes(b"two")
-                flatpaks.moonlight_touch(Path(d, "home"), state, lib)
-                self.assertEqual(dest.read_bytes(), b"two")
-                self.assertEqual(run.call_count, 1)
-
-    def test_nothing_without_the_library(self):
-        with TemporaryDirectory() as d, mock.patch.object(flatpaks.subprocess, "run") as run:
-            flatpaks.moonlight_touch(Path(d), Path(d, "done"), Path(d, "missing.so"))
-            run.assert_not_called()
-
-
-class MoonlightMouse(unittest.TestCase):
-    def test_added_to_general(self):
-        self.assertEqual(flatpaks.with_absolute_mouse("[General]\nfps=60\n[hosts]\n1\\x=1\n"),
-                         "[General]\nabsolutemousemode=true\nfps=60\n[hosts]\n1\\x=1\n")
-
-    def test_existing_value_changed(self):
-        self.assertEqual(flatpaks.with_absolute_mouse("[General]\nabsolutemousemode=false\n"),
-                         "[General]\nabsolutemousemode=true\n")
-
-    def test_new_file(self):
-        self.assertEqual(flatpaks.with_absolute_mouse(""), "[General]\nabsolutemousemode=true\n")
-
-    def test_once_and_not_while_running(self):
-        with TemporaryDirectory() as d, mock.patch.object(flatpaks.subprocess, "run") as run:
-            state = Path(d, "done")
-            run.return_value.returncode = 0          # moonlight running
-            flatpaks.moonlight_absolute_mouse(d, state)
-            self.assertFalse(state.exists())
-            run.return_value.returncode = 1
-            flatpaks.moonlight_absolute_mouse(d, state)
-            self.assertIn("absolutemousemode=true", Path(d, flatpaks.MOONLIGHT_CONF).read_text())
-            self.assertTrue(state.exists())
-
-
 class PreinstallWithoutOci(unittest.TestCase):
     def test_oci_remotes_disabled_for_the_retry_and_put_back(self):
         calls = []

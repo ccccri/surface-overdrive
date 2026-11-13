@@ -2,6 +2,19 @@
 
 What was added, what broke, and what fixed it. Newest first. "Verified" means tried on the Surface Go itself.
 
+## 2026-11-13
+
+- Streaming moved out of the image, to a project of its own: the PC side (`tools/pc-companion`), Moonlight's touch
+  library and per-user settings, the KWin script giving Moonlight its own desktop, the landscape-only rotation while
+  streaming, Moonlight itself (no longer preinstalled) and Tailscale. On an updated tablet Tailscale goes away; Moonlight
+  and its user settings stay until removed by hand. The entries below about them are kept as history.
+- Xournal++ is no longer preinstalled (owner's choice; an installed copy stays).
+- Front camera: the auto exposure stops at 33 ms, a steady 30 fps (it lengthened frames up to 60 ms, 16 fps in an evening
+  room, swinging up to 29 as the light changed). Same brightness (mean luma 100 against 99), more grain where things move.
+- Desktop: the 2 s hold for edit mode also stops when the virtual desktop changes or another app's window becomes active
+  (a three-finger swipe to another desktop took the finger with no release reaching the desktop, and edit mode came on
+  2 s later behind it). The default panel has no virtual desktop pager.
+
 ## 2026-11-11
 
 - PC side: opening Sunshine from the application menu started a second Sunshine next to the one the user service runs;

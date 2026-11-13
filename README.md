@@ -12,8 +12,6 @@ Boot on. A personal project: it is not meant for other models or other users.
 - libcamera rebuilt with our patch series and our own calibration (no Microsoft data): exposure, focus, colour, noise.
 - A camera app with hardware video encoding, a Cameras page, NFC, sound (boost, equalizer, microphone noise suppression),
   pen, sensors, PIN or pattern unlock, a health monitor (`overdrivectl status`) and update pages in System Settings.
-- The Surface as a screen of a PC (Moonlight, with the PC side in [`tools/pc-companion`](tools/pc-companion)): a second
-  screen at home or a remote desktop, touch and pen, the Surface's camera and microphone for calls on the PC.
 
 The full list, with what is still open: [`docs/FEATURES.md`](docs/FEATURES.md). What changed and why: [`docs/CHANGELOG.md`](docs/CHANGELOG.md).
 

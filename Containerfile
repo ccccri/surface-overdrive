@@ -126,11 +126,6 @@ RUN dnf5 -y install --setopt=install_weak_deps=False gcc rnnoise-devel ladspa-de
 COPY ladspa /src/ladspa
 RUN mkdir -p /out/usr/lib64/ladspa \
     && gcc -O2 -Wall -Wextra -Werror -fPIC -shared -o /out/usr/lib64/ladspa/overdrive_denoise.so /src/ladspa/overdrive_denoise.c -lrnnoise
-# Moonlight's lifted fingers when KWin takes a gesture (src/moonlight-touch): preloaded into the Flatpak by overdrive-flatpaks
-COPY src/moonlight-touch /src/moonlight-touch
-RUN mkdir -p /out/usr/lib64/surface-overdrive \
-    && gcc -O2 -Wall -Wextra -Werror -fPIC -shared -o /out/usr/lib64/surface-overdrive/moonlight-touch-cancel.so \
-        /src/moonlight-touch/touch-cancel.c -ldl
 
 # ---- The screen rotation animation: KWin's effect with two fixes (kwin-effect/rotation), built against the KWin of the base
 # image (KWin effects have no stable binary interface)
@@ -209,11 +204,6 @@ RUN set -eux; \
     else dnf5 -y --enablerepo=fedora-cisco-openh264 install openh264; fi; \
     rpm -q openh264; ! rpm -q noopenh264; \
     dnf5 clean all
-# Tailscale, so that the PC at home reaches the tablet wherever it is (ssh over the tailnet). tailscaled runs from boot;
-# signing in is the user's own step (`sudo tailscale up`).
-RUN curl -fsSL https://pkgs.tailscale.com/stable/fedora/tailscale.repo -o /etc/yum.repos.d/tailscale.repo && \
-    dnf5 -y install --setopt=install_weak_deps=False tailscale && dnf5 clean all && \
-    systemctl enable tailscaled && rpm -q tailscale
 COPY ci/patch_acp_mic.py /tmp/patch_acp_mic.py
 RUN python3 /tmp/patch_acp_mic.py && rm /tmp/patch_acp_mic.py
 # The login screen with the PIN and pattern pad, when ci/build_login.sh could make it

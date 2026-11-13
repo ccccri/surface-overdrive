@@ -9,8 +9,8 @@ It is not meant for other models or other users. Section 0 is how it is built to
 - **Image**: `Containerfile`, one multi-stage build on `quay.io/fedora-ostree-desktops/kinoite:45`. Stages: the kernel
   modules (`kmods`, signed with the MOK key), libcamera and PipeWire's libcamera plugin rebuilt from Fedora's SRPMs with
   our patches (`rpmbuild`, not mock), Plasma's login screen, plasma-pa and powerdevil rebuilt with small patches, the
-  pen's HID-BPF program, the KCMs (C++ and QML, `kcm/`), the microphone denoise LADSPA plugin and Moonlight's touch
-  library (`ladspa/`, `src/moonlight-touch`), our KWin rotation effect, the wallpapers; the last stage adds them and
+  pen's HID-BPF program, the KCMs (C++ and QML, `kcm/`), the microphone denoise LADSPA plugin
+  (`ladspa/`), our KWin rotation effect, the wallpapers; the last stage adds them and
   `image/rootfs`.
 - **Runtime**: Python, not Rust. The package `overdrive` (`src/overdrive`, in `/usr/lib/overdrive/python`) is behind
   `overdrivectl`, `overdrive-camera` and the services in `/usr/libexec/overdrive`: system units `overdrive-nfcd`,
@@ -22,7 +22,8 @@ It is not meant for other models or other users. Section 0 is how it is built to
   found, skipped when nothing changed, the image built with the module key from the secrets, pushed as `:45` and a dated
   tag, an Issue opened when it fails and closed when it works again. The image is not cosign-signed: the tablet pulls it as
   `ostree-unverified-registry` (§4.1 step 5, §5 step 4); the kernel modules are signed. There is no series-check job.
-- **PC side** (`tools/pc-companion`): Sunshine on the owner's PC streams a virtual screen to the Surface's Moonlight.
+- **Not here**: streaming to and from the owner's PC (Sunshine, Moonlight, the PC side, Tailscale) is a project of its
+  own since 2026-11-13; the image carries none of it.
 
 ## 1. Goal
 

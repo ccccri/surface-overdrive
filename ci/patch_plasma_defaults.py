@@ -2,8 +2,8 @@
 """Defaults of Plasma that the owner chose, made in the image build.
 
   panel   The panel of a new desktop: at the bottom, centred, out of the way of windows (dodge windows), translucent and
-          floating, and without the virtual desktop pager (with a Moonlight stream on a desktop of its own it showed two
-          boxes next to the launcher, and a touch on the wrong one moved the stream's window to desktop 1). Appended to Plasma's default panel template, which every global theme loads, so it also applies when the
+          floating, and without the virtual desktop pager (with a fullscreen app on a desktop of its own it showed two
+          boxes next to the launcher, and a touch on the wrong one moved the app's window to desktop 1). Appended to Plasma's default panel template, which every global theme loads, so it also applies when the
           desktop layout is reset from the global theme.
   noface  No user picture on the lock screen, the login screen and the shutdown screen: the name stays, in the same place. The
           picture is drawn by UserDelegate.qml of the module org.kde.breeze.components, which all three use. The module is
