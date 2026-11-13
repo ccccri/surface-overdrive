@@ -27,7 +27,11 @@ import threading
 import time
 
 LOG = os.path.expanduser("~/surface-overdrive-install.log")
-CANVAS_W, CANVAS_H = 96, 30            # the picture, inside its frame; the window is asked to be that size plus the frame
+# the picture, inside its frame: at least MIN (a smaller window is asked to grow to it), at most MAX (a larger one has it
+# centred); in between it fills the window. Konsole opens maximized in tablet mode: asked to shrink, it only shrank its
+# text area, into the top left corner, so it is never asked to shrink.
+MIN_W, MIN_H = 88, 26
+MAX_W, MAX_H = 124, 34
 FALLBACK_TOTAL = 3.0e9                 # bytes, when rpm-ostree does not say how much it needs
 UNITS = {"B": 1, "kB": 1e3, "KB": 1e3, "KiB": 1024, "MB": 1e6, "MiB": 1024 ** 2, "GB": 1e9, "GiB": 1024 ** 3}
 SIZE = r"([\d.]+)\s*(B|[kKMG]i?B)"
@@ -247,12 +251,19 @@ class Screen:
             return
         if x < 0:
             text, x = text[-x:], 0
-        text = text[: max(0, w - x - (1 if y == h - 1 else 0))]
-        if text:
-            try:
+        text = text[: max(0, w - x)]
+        if not text:
+            return
+        try:
+            if y == h - 1 and x + len(text) >= w:
+                # the bottom right cell: addstr there moves the cursor off the screen, insstr does not
+                if len(text) > 1:
+                    self.win.addstr(y, x, text[:-1], attr)
+                self.win.insstr(y, w - 1, text[-1], attr)
+            else:
                 self.win.addstr(y, x, text, attr)
-            except curses.error:
-                pass
+        except curses.error:
+            pass
 
     # -- the parts of the picture -----------------------------------------------------------------------------------
 
@@ -304,7 +315,7 @@ class Screen:
         hx = left + max(14, (width - house_w) // 2 + 6)
         pile_x = left + 2
         build = min(max((pct - 4) / 82, 0), 1)
-        bricks_per_row = house_w // 4
+        bricks_per_row = (house_w - 2) // 4            # the rows set off by half a brick fit too
         laid = int(build * bricks_per_row * wall_h) if stage != "intro" else 0
         # the brick pile shrinks as the house grows
         pile = max(0, 3 - int(build * 3))
@@ -500,7 +511,7 @@ class Run:
         self.lines = queue.Queue()
         self.proc = None
         self.mok_answered = False
-        self.status = "Waiting for the administrator password (a window)"
+        self.status = "A window asks for your password, to install Surface Overdrive"
         self.log = open(LOG, "a")
         self.log.write("\n==== %s install of %s\n" % (time.strftime("%F %T"), args.image or "demo"))
 
@@ -510,7 +521,8 @@ class Run:
         if self.args.demo:
             threading.Thread(target=self._demo, daemon=True).start()
             return
-        cmd = [self.args.helper_cmd, "/bin/bash", self.args.helper, self.args.cert, self.args.image]
+        # run directly (not through /bin/bash): the administrator window names it, "install-surface-overdrive"
+        cmd = [self.args.helper_cmd, self.args.helper, self.args.cert, self.args.image]
         if self.args.helper_cmd == "sudo":
             cmd.insert(1, "-n")
         self.proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
@@ -567,10 +579,12 @@ class Run:
 
     def __call__(self, win):
         self.demo_rx = 0.0
-        sys.stdout.write("\x1b[8;%d;%dt" % (CANVAS_H + 2, CANVAS_W + 2))
-        sys.stdout.flush()
-        time.sleep(0.2)
-        curses.update_lines_cols()
+        h0, w0 = win.getmaxyx()
+        if h0 < MIN_H + 2 or w0 < MIN_W + 2:
+            sys.stdout.write("\x1b[8;%d;%dt" % (max(h0, MIN_H + 2), max(w0, MIN_W + 2)))
+            sys.stdout.flush()
+            time.sleep(0.3)
+            curses.update_lines_cols()
         scr = Screen(win)
         win.nodelay(True)
         net = Net()
@@ -598,7 +612,7 @@ class Run:
                     self.mok_answered = True
                     self.status = "Choose the one-time password of the signing key (a window)"
                     threading.Thread(target=lambda: self.answer_mok(ask_mok_password()), daemon=True).start()
-                elif self.p.mok in ("enrolled", "queued", "off") and self.status.startswith(("Waiting", "Choose")):
+                elif self.p.mok in ("enrolled", "queued", "off") and self.status:
                     self.status = ""
             if self.p.failed:
                 return "failed"
@@ -620,18 +634,19 @@ class Run:
             h, w = win.getmaxyx()
             # one fixed picture, framed and centred: the same show whatever the window; a smaller window gets the
             # numbers only, with a word on the size it needs
-            fits = w >= CANVAS_W + 2 and h >= CANVAS_H + 2
-            width = CANVAS_W if fits else min(w - 2, CANVAS_W)
+            fits = w >= MIN_W + 2 and h >= MIN_H + 2
+            canvas_h = min(h - 2, MAX_H) if fits else 0
+            width = min(w - 2, MAX_W)
             left = (w - width) // 2
-            oy = (h - CANVAS_H) // 2 if fits else -1
+            oy = (h - canvas_h) // 2 if fits else -1
             if fits:
-                scr.frame(oy - 1, left - 1, CANVAS_H + 2, width + 2)
+                scr.frame(oy - 1, left - 1, canvas_h + 2, width + 2)
             title = " S U R F A C E   O V E R D R I V E "
             scr.put(oy + 1 if fits else 0, left + (width - len(title)) // 2, title, scr.c("title", True) | curses.A_REVERSE)
             panel_h = 7
-            scene_h = CANVAS_H - panel_h - 2 if fits else 0
+            scene_h = canvas_h - panel_h - 2 if fits else 0
             if not fits:
-                note = "Make this window at least %d x %d to see the show (now %d x %d)" % (CANVAS_W + 2, CANVAS_H + 2, w, h)
+                note = "Make this window at least %d x %d to see the show (now %d x %d)" % (MIN_W + 2, MIN_H + 2, w, h)
                 scr.put(2, max(0, (w - len(note)) // 2), note[:w], scr.c("sky"))
             elif build_t0 is None:
                 # the splash, neofetch style, while the administrator password is asked
@@ -641,7 +656,7 @@ class Run:
             else:
                 scr.scene(oy + 2, left, width, scene_h, pct, now - build_t0, stage)
             # the panel: what is going on, in numbers
-            y = oy + CANVAS_H - panel_h if fits else h - panel_h
+            y = oy + canvas_h - panel_h if fits else h - panel_h
             scr.put(y, left, "─" * width, scr.c("sky"))
             bar_w = width - 8
             scr.bar(y + 1, left, bar_w, pct, scr.c("brick" if pct < 100 else "ground", True))
@@ -649,7 +664,7 @@ class Run:
             step = self.status or self.p.step
             if self.p.mok == "queued" and not self.status:
                 step += "   ·   signing key: to confirm at the next start"
-            scr.put(y + 2, left, step, scr.c("sun", True))
+            scr.put(y + 2, left, step[:width], scr.c("sun", True))
             scr.put(y + 3, left, self.p.layer_text()[:width])
             if downloaded0 is not None and self.p.floor < 86:
                 total = self.p.total or FALLBACK_TOTAL
@@ -658,7 +673,7 @@ class Run:
                 nums = "%s of %s   %s/s   %s   elapsed %s" % (
                     human(got), human(total), human(net.speed), ("about %s left" % clock(left_s)) if left_s else "",
                     clock(t))
-                scr.put(y + 4, left, nums, scr.c("sky", True))
+                scr.put(y + 4, left, nums[:width], scr.c("sky", True))
             else:
                 scr.put(y + 4, left, "elapsed %s" % clock(t), scr.c("sky", True))
             scr.put(y + 5, left, ("› " + self.p.last)[:width], scr.c("text"))

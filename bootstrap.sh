@@ -40,10 +40,12 @@ if [ "$model" != "Surface Go" ]; then
     [ "$answer" = y ] || [ "$answer" = Y ] || exit 1
 fi
 
-dir=$(mktemp -d)
+# the administrator window names the program it runs, so the administrator part gets a name that says what it is
+dir=$(mktemp -d /tmp/surface-overdrive-installer.XXXX)
 trap 'rm -rf "$dir"' EXIT
 printf 'Fetching the installer...\n'
-for f in installer/install.py installer/root-step.sh ci/mok.der; do
-    curl -fsSL --retry 3 "$RAW/$f" -o "$dir/$(basename "$f")" || die "could not download $f (is the network up?)"
+for f in installer/install.py:install.py installer/root-step.sh:install-surface-overdrive ci/mok.der:surface-overdrive-key.der; do
+    curl -fsSL --retry 3 "$RAW/${f%%:*}" -o "$dir/${f#*:}" || die "could not download ${f%%:*} (is the network up?)"
 done
-python3 "$dir/install.py" --cert "$dir/mok.der" --helper "$dir/root-step.sh" --image "$image"
+chmod 755 "$dir/install-surface-overdrive"
+python3 "$dir/install.py" --cert "$dir/surface-overdrive-key.der" --helper "$dir/install-surface-overdrive" --image "$image"

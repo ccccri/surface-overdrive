@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Surface Overdrive Tour
+GenericName=Introduction to Surface Overdrive
+Comment=What Surface Overdrive adds to this tablet, with shortcuts to its settings
+Exec=/usr/libexec/overdrive/welcome --now
+Icon=input-tablet
+Categories=System;Documentation;
+Keywords=surface;overdrive;welcome;tour;introduction;help;

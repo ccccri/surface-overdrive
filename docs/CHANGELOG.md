@@ -24,6 +24,15 @@ What was added, what broke, and what fixed it. Newest first. "Verified" means tr
   started left the first session on the image without its panel and with a desktop that ignored touches (reproduced:
   pager put back, script run again, no panel window). Now `paneldefaults` writes Plasma's files before plasmashell
   starts (ExecStartPre, once per user). Verified on the reinstalled tablet: panel there, pager gone, settings applied.
+- Introduction to Surface Overdrive in Plasma's Welcome Center: three pages (what it is, with links to the project; the
+  settings it adds, one button each: PIN or pattern, cameras, camera app, sound, pen, NFC; updates, health check and
+  where to report a problem). They open once at the first login on the image (overdrive-welcome; a brand-new user gets
+  them after Plasma's own pages instead), and "Surface Overdrive Tour" in the application menu opens them again.
+- Installer: the administrator window names what it runs, "install-surface-overdrive" in a
+  surface-overdrive-installer folder (it showed /bin/bash and a temporary file; a policy file with a message of our own
+  cannot be installed before the switch). The picture fills the terminal between 88x26 and 124x34: Konsole opens
+  maximized in tablet mode, and asked for a fixed size it shrank its text area into the top left corner; it is now asked
+  to grow only when it is smaller than the minimum.
 - Installer: rpm-ostree's real output ("[n/N] Fetching ... done" per layer, then nothing until it stages the
   deployment) read right: the layer count from its "[n/N]", and after the last layer the step says the image is being
   written and the percentage creeps on instead of standing at 86%.
