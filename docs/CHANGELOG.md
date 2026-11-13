@@ -4,6 +4,18 @@ What was added, what broke, and what fixed it. Newest first. "Verified" means tr
 
 ## 2026-11-13
 
+- Installer: one administrator password, in a window (pkexec) instead of the terminal's sudo; the one-time password of
+  the module key in a window too (kdialog), asked only when the key is not enrolled. The terminal shows the machine
+  (neofetch style), then a scene following the progress (Tux sends an old window logo away and builds a house brick by
+  brick while the image comes down, the roof while it is written, fireworks at the end) above the numbers: percentage,
+  step, layer, amounts, speed, time left, rpm-ostree's last line (all of it in ~/surface-overdrive-install.log).
+  `installer/install.py --demo` plays it without installing.
+- Installer: on a machine whose key was already enrolled it still said to expect the blue MOK screen. The test ran as
+  the user, who cannot read the firmware's key list (root only), so the key looked missing; mokutil then skipped the
+  import silently. The test now runs as the administrator (installer/root-step.sh), and the import is checked.
+- Panel: the owner's settings (dodge windows, translucent, floating, no pager) also on a panel that already exists, through
+  a Plasma update script run once per user. A fresh install makes its panel at the first login, on stock Kinoite before
+  the switch to the image, so the image's panel template never applied to it.
 - Streaming moved out of the image, to a project of its own: the PC side (`tools/pc-companion`), Moonlight's touch
   library and per-user settings, the KWin script giving Moonlight its own desktop, the landscape-only rotation while
   streaming, Moonlight itself (no longer preinstalled) and Tailscale. On an updated tablet Tailscale goes away; Moonlight
