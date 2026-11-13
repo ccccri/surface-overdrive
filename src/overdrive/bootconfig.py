@@ -2,7 +2,13 @@
 
 /boot is not part of the ostree image, so a boot-time service keeps a marked block in user.cfg up to date (grub.cfg sources that
 file after its own defaults). Anything else the user wrote in the file is left alone.
+
+A fresh Fedora 45 install mounts /boot read-only (ostree's read-only sysroot): the file is then written from a mount
+namespace of this process's own, where /boot is remounted writable and back to read-only after, as ostree itself does
+for its deployments. The system's own /boot mount stays read-only throughout.
 """
+import os
+import subprocess
 import sys
 from pathlib import Path
 
@@ -33,12 +39,35 @@ def install(source=SOURCE, target=TARGET):
     return True
 
 
-def main():
+def read_only(path):
     try:
+        return bool(os.statvfs(path).f_flag & os.ST_RDONLY)
+    except OSError:
+        return False
+
+
+def writable_boot(boot="/boot"):
+    """/boot writable for this process only (a private mount namespace). Returns the remount back to read-only."""
+    os.unshare(os.CLONE_NEWNS)
+    subprocess.run(["mount", "--make-rprivate", "/"], check=True)
+    subprocess.run(["mount", "-o", "remount,rw", boot], check=True)
+    return lambda: subprocess.run(["mount", "-o", "remount,ro", boot], check=False)
+
+
+def main():
+    back = None
+    try:
+        block = SOURCE.read_text()
+        existing = TARGET.read_text() if TARGET.exists() else ""
+        if merge(existing, block) != existing and read_only(TARGET.parent):
+            back = writable_boot()
         changed = install()
-    except OSError as e:
+    except (OSError, subprocess.CalledProcessError) as e:
         print("could not install the GRUB overrides: %s" % e, file=sys.stderr)
         return 1
+    finally:
+        if back:
+            back()
     print("GRUB overrides %s" % ("installed" if changed else "already up to date"))
     return 0
 

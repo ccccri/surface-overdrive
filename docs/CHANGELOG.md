@@ -13,6 +13,11 @@ What was added, what broke, and what fixed it. Newest first. "Verified" means tr
 - Installer: on a machine whose key was already enrolled it still said to expect the blue MOK screen. The test ran as
   the user, who cannot read the firmware's key list (root only), so the key looked missing; mokutil then skipped the
   import silently. The test now runs as the administrator (installer/root-step.sh), and the import is checked.
+- Fresh Fedora 45 installs mount /boot and the system read-only (ostree's read-only sysroot, composefs). Three units
+  failed at every boot: overdrive-bootconfig (the GRUB countdown was never written: it now writes from a mount namespace
+  of its own where /boot is remounted writable, then back; the system's /boot stays read-only), systemd-remount-fs
+  (it tried to remount the composefs root by fstab's "ro"; skipped on ostree systems, where ostree-remount does that)
+  and the user unit grub-boot-success (skipped while /boot is read-only). Verified on the reinstalled tablet.
 - Panel: the owner's settings (dodge windows, translucent, floating, no pager) also on a panel that already exists, through
   a Plasma update script run once per user. A fresh install makes its panel at the first login, on stock Kinoite before
   the switch to the image, so the image's panel template never applied to it.
