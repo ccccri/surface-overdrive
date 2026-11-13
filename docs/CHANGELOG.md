@@ -18,9 +18,15 @@ What was added, what broke, and what fixed it. Newest first. "Verified" means tr
   of its own where /boot is remounted writable, then back; the system's /boot stays read-only), systemd-remount-fs
   (it tried to remount the composefs root by fstab's "ro"; skipped on ostree systems, where ostree-remount does that)
   and the user unit grub-boot-success (skipped while /boot is read-only). Verified on the reinstalled tablet.
-- Panel: the owner's settings (dodge windows, translucent, floating, no pager) also on a panel that already exists, through
-  a Plasma update script run once per user. A fresh install makes its panel at the first login, on stock Kinoite before
-  the switch to the image, so the image's panel template never applied to it.
+- Panel: the owner's settings (dodge windows, translucent, floating, no pager) also on a panel that already exists. A
+  fresh install makes its panel at the first login, on stock Kinoite before the switch to the image, so the image's panel
+  template never applied to it. First done with a Plasma update script: removing the pager from it while plasmashell
+  started left the first session on the image without its panel and with a desktop that ignored touches (reproduced:
+  pager put back, script run again, no panel window). Now `paneldefaults` writes Plasma's files before plasmashell
+  starts (ExecStartPre, once per user). Verified on the reinstalled tablet: panel there, pager gone, settings applied.
+- Installer: rpm-ostree's real output ("[n/N] Fetching ... done" per layer, then nothing until it stages the
+  deployment) read right: the layer count from its "[n/N]", and after the last layer the step says the image is being
+  written and the percentage creeps on instead of standing at 86%.
 - Streaming moved out of the image, to a project of its own: the PC side (`tools/pc-companion`), Moonlight's touch
   library and per-user settings, the KWin script giving Moonlight its own desktop, the landscape-only rotation while
   streaming, Moonlight itself (no longer preinstalled) and Tailscale. On an updated tablet Tailscale goes away; Moonlight

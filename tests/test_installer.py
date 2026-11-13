@@ -60,6 +60,22 @@ class ProgressTest(unittest.TestCase):
         self.assertEqual(p.percent(0), 100)
         self.assertTrue(p.finished)
 
+    def test_real_rpm_ostree_lines(self):
+        """The format of rpm-ostree 2026 (from a real install log): "[n/N] Fetching ... (size)...done" per layer, then
+        nothing until the deployment is staged."""
+        p = self.feed("LOG ostree chunk layers needed: 2 (300 MB)", "LOG custom layers needed: 1 (100 MB)",
+                      "LOG [1/3] Fetching ostree chunk 1d628e3a76e28b1c486 (127.8 MB)...done")
+        self.assertEqual((p.index, p.count), (1, 3))
+        self.assertIn("layer 1 of 3", p.layer_text())
+        self.assertAlmostEqual(p.fetched, 127.8e6)
+        p.feed("LOG [2/3] Fetching ostree chunk f7ad697fa64a824a610 (172.2 MB)...done")
+        p.feed("LOG [3/3] Fetching layer dcf31275c5762ce221e (100 MB)...done")
+        self.assertEqual(p.step, "Writing the image to disk")
+        self.assertGreaterEqual(p.percent(0), 86)
+        self.assertLess(p.percent(0), 94)
+        p.feed("LOG Staging deployment...done")
+        self.assertGreaterEqual(p.percent(0), 94)
+
     def test_steps_never_go_back(self):
         p = self.feed("LOG Staging deployment...done", "LOG Pulling manifest: again")
         self.assertEqual(p.step, "Getting it ready for the next start")

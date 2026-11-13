@@ -78,6 +78,9 @@ class Progress:
         self.last = ""
         self.mok = None               # enrolled, need, queued, off, failed
         self.mok_why = ""
+        self.index = 0                # rpm-ostree's own "[n/N]" in front of each layer
+        self.count = 0
+        self.write_started = None
         self.finished = False
         self.failed = None
 
@@ -108,6 +111,9 @@ class Progress:
         if m:
             self.needed_layers += int(m.group(1))
             self.total += size(m.group(2), m.group(3))
+        b = re.search(r"\[(\d+)/(\d+)\]\s*[Ff]etching", line)
+        if b:
+            self.index, self.count = int(b.group(1)), int(b.group(2))
         m = re.search(r"[Ff]etching\s+(.+?)\s*\(" + SIZE + r"\)", line)
         if m:
             name = m.group(1)
@@ -122,6 +128,11 @@ class Progress:
             if re.search(pattern, line):
                 if floor >= self.floor:
                     self.step, self.floor = step, float(floor)
+        # the last layer is in: rpm-ostree then writes the image to disk, saying nothing until it stages it
+        if self.count and self.index >= self.count and re.search(r"\bdone\b", line) and self.floor < 86:
+            self.step, self.floor = "Writing the image to disk", 86.0
+        if self.floor >= 86 and self.write_started is None:
+            self.write_started = time.monotonic()
 
     def percent(self, downloaded):
         """downloaded: bytes the network brought since the download started (an estimate between finished layers)."""
@@ -132,11 +143,18 @@ class Progress:
             total = self.total or FALLBACK_TOTAL
             got = max(self.fetched, min(downloaded, total * 0.995))
             p = max(p, 4 + 82 * min(got / total, 1.0))
+        elif 86 <= self.floor < 94 and self.write_started is not None:
+            # no output while it writes: it creeps towards 94% (half the way in a minute) so the roof keeps growing
+            p = 86 + 8 * (1 - math.exp(-(time.monotonic() - self.write_started) / 85))
         return min(p, 99.5)
 
     def layer_text(self):
+        if self.floor >= 86:
+            return "%d layers downloaded, %s" % (self.count or len(self.done_items), human(self.total or self.fetched))
+        if self.count and self.current:
+            return "layer %d of %d: %s" % (self.index, self.count, self.current)
         if self.needed_layers:
-            n = min(len(self.done_items) + (0 if self.current in ("",) else 1), self.needed_layers)
+            n = min(len(self.done_items) + (1 if self.current else 0), self.needed_layers)
             return "layer %d of %d: %s" % (max(n, 1), self.needed_layers, self.current) if self.current else \
                 "%d layers to download, %d already here" % (self.needed_layers, self.present_layers)
         return self.current
@@ -535,12 +553,11 @@ class Run:
             kind = "ostree chunk" if i < 40 else "layer"
             name = "%s %s" % (kind, "%07x" % rnd.getrandbits(28))
             mb *= scale
-            say("LOG Fetching %s (%.1f MB)..." % (name, mb))
             time.sleep(mb / self.args.demo_speed)
             self.demo_rx += mb * 1e6
-            say("LOG Fetching %s (%.1f MB)... done" % (name, mb))
-        for line, wait in (("Checking out tree 9a1f...", 4), ("Writing OSTree commit...", 4),
-                           ("Staging deployment...done", 3), ("Freed: 0 bytes", 0.5),
+            say("LOG [%d/%d] Fetching %s (%.1f MB)...done" % (i + 1, len(sizes), name, mb))
+        time.sleep(8)                              # rpm-ostree writes the image, saying nothing
+        for line, wait in (("Staging deployment...done", 3), ("Upgraded:", 0.2), ("Added:", 0.2),
                            ('Changes queued for next boot. Run "systemctl reboot" to start a reboot', 0.5)):
             say("LOG " + line)
             time.sleep(wait)
