@@ -27,6 +27,7 @@ import threading
 import time
 
 LOG = os.path.expanduser("~/surface-overdrive-install.log")
+CANVAS_W, CANVAS_H = 96, 30            # the picture, inside its frame; the window is asked to be that size plus the frame
 FALLBACK_TOTAL = 3.0e9                 # bytes, when rpm-ostree does not say how much it needs
 UNITS = {"B": 1, "kB": 1e3, "KB": 1e3, "KiB": 1024, "MB": 1e6, "MiB": 1024 ** 2, "GB": 1e9, "GiB": 1024 ** 3}
 SIZE = r"([\d.]+)\s*(B|[kKMG]i?B)"
@@ -391,6 +392,14 @@ class Screen:
                     continue
                 self.put(y + dy, x + dx, "*" if age < 1.4 else "·", self.c("fire" if a % 90 else "sun", True))
 
+    def frame(self, y, x, height, width):
+        attr = self.c("sky")
+        self.put(y, x, "╭" + "─" * (width - 2) + "╮", attr)
+        for i in range(1, height - 1):
+            self.put(y + i, x, "│", attr)
+            self.put(y + i, x + width - 1, "│", attr)
+        self.put(y + height - 1, x, "╰" + "─" * (width - 2) + "╯", attr)
+
     def bar(self, y, x, width, pct, attr):
         fill = int(width * pct / 100)
         part = "▏▎▍▌▋▊▉"[int((width * pct / 100 - fill) * 7)] if fill < width else ""
@@ -541,6 +550,10 @@ class Run:
 
     def __call__(self, win):
         self.demo_rx = 0.0
+        sys.stdout.write("\x1b[8;%d;%dt" % (CANVAS_H + 2, CANVAS_W + 2))
+        sys.stdout.flush()
+        time.sleep(0.2)
+        curses.update_lines_cols()
         scr = Screen(win)
         win.nodelay(True)
         net = Net()
@@ -588,21 +601,30 @@ class Run:
 
             win.erase()
             h, w = win.getmaxyx()
-            width = min(w - 2, 96)
-            left = max(0, (w - width) // 2)
+            # one fixed picture, framed and centred: the same show whatever the window; a smaller window gets the
+            # numbers only, with a word on the size it needs
+            fits = w >= CANVAS_W + 2 and h >= CANVAS_H + 2
+            width = CANVAS_W if fits else min(w - 2, CANVAS_W)
+            left = (w - width) // 2
+            oy = (h - CANVAS_H) // 2 if fits else -1
+            if fits:
+                scr.frame(oy - 1, left - 1, CANVAS_H + 2, width + 2)
             title = " S U R F A C E   O V E R D R I V E "
-            scr.put(0, left + (width - len(title)) // 2, title, scr.c("title", True) | curses.A_REVERSE)
+            scr.put(oy + 1 if fits else 0, left + (width - len(title)) // 2, title, scr.c("title", True) | curses.A_REVERSE)
             panel_h = 7
-            scene_h = h - panel_h - 2
-            if build_t0 is None:
+            scene_h = CANVAS_H - panel_h - 2 if fits else 0
+            if not fits:
+                note = "Make this window at least %d x %d to see the show (now %d x %d)" % (CANVAS_W + 2, CANVAS_H + 2, w, h)
+                scr.put(2, max(0, (w - len(note)) // 2), note[:w], scr.c("sky"))
+            elif build_t0 is None:
                 # the splash, neofetch style, while the administrator password is asked
-                top = 2 + max(0, (scene_h - len(LOGO)) // 2)
+                top = oy + 2 + max(0, (scene_h - len(LOGO)) // 2)
                 lx = left + max(0, (width - len(LOGO[0]) - 4 - 46) // 2)
                 scr.splash(top, lx, info, t)
-            elif scene_h >= 12 and width >= 60:
-                scr.scene(1, left, width, min(scene_h, 18) + max(0, scene_h - 18), pct, now - build_t0, stage)
+            else:
+                scr.scene(oy + 2, left, width, scene_h, pct, now - build_t0, stage)
             # the panel: what is going on, in numbers
-            y = h - panel_h
+            y = oy + CANVAS_H - panel_h if fits else h - panel_h
             scr.put(y, left, "─" * width, scr.c("sky"))
             bar_w = width - 8
             scr.bar(y + 1, left, bar_w, pct, scr.c("brick" if pct < 100 else "ground", True))
