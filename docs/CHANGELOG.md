@@ -24,6 +24,11 @@ What was added, what broke, and what fixed it. Newest first. "Verified" means tr
   started left the first session on the image without its panel and with a desktop that ignored touches (reproduced:
   pager put back, script run again, no panel window). Now `paneldefaults` writes Plasma's files before plasmashell
   starts (ExecStartPre, once per user). Verified on the reinstalled tablet: panel there, pager gone, settings applied.
+- Firefox: the voice search button sits right of the address bar again. On a new profile Firefox put it at the end of
+  the toolbar, next to the extensions menu (its manifest can only ask for the toolbar). An autoconfig file
+  (/usr/lib64/firefox/surface-overdrive.cfg) moves it once per profile, then leaves it where the user puts it. Firefox
+  160 moved CustomizableUI to moz-src:///browser/components/customizableui/; the old path is tried too. Verified on the
+  owner's profile and on a new one.
 - Introduction to Surface Overdrive in Plasma's Welcome Center: three pages (what it is, with links to the project; the
   settings it adds, one button each: PIN or pattern, cameras, camera app, sound, pen, NFC; updates, health check and
   where to report a problem). They open once at the first login on the image (overdrive-welcome; a brand-new user gets
