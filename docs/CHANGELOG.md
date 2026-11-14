@@ -2,6 +2,15 @@
 
 What was added, what broke, and what fixed it. Newest first. "Verified" means tried on the Surface Go itself.
 
+## 2026-11-14
+
+- Installer, from a full run on the tablet (the real rpm-ostree, driven in a terminal): run again on a system that is
+  already on the image it failed ("Old and new refs are equal"); it now brings the system up to date instead. Clouds no
+  longer draw over the frame (the scene is clipped to it; checked on every frame at three sizes).
+- First login on the new image, with the panel put back to stock Kinoite's first (pager, Fedora's settings): panel
+  there with the owner's settings and no pager, the introduction open once, no failed unit, health check ok, both
+  cameras at 30 fps.
+
 ## 2026-11-13
 
 - Installer: one administrator password, in a window (pkexec) instead of the terminal's sudo; the one-time password of

@@ -40,7 +40,15 @@ else
 fi
 
 # the switch to the image; every line of rpm-ostree goes to the installer
-rpm-ostree rebase "$image" 2>&1 | while IFS= read -r line; do printf 'LOG %s\n' "$line"; done
+out=$(mktemp)
+trap 'rm -f "$out"' EXIT
+rpm-ostree rebase "$image" 2>&1 | tee "$out" | while IFS= read -r line; do printf 'LOG %s\n' "$line"; done
 status=${PIPESTATUS[0]}
-if [ "$status" = 0 ]; then echo "DONE"; else echo "FAIL rpm-ostree rebase ended with status $status"; fi
+if [ "$status" != 0 ] && grep -q 'Old and new refs are equal' "$out"; then
+    # run again on a system that is already on the image: bring it up to date instead
+    rpm-ostree upgrade 2>&1 | while IFS= read -r line; do printf 'LOG %s\n' "$line"; done
+    status=${PIPESTATUS[0]}
+    what=upgrade
+fi
+if [ "$status" = 0 ]; then echo "DONE"; else echo "FAIL rpm-ostree ${what:-rebase} ended with status $status"; fi
 exit "$status"

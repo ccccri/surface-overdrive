@@ -116,8 +116,13 @@ class RootStepTest(unittest.TestCase):
                     [ "$a" = "$b" ] && [ ${#a} -ge 8 ] && echo queued > $state && echo "$a" > %s/pw;;
                 esac
                 """ % (state, "enabled" if sb else "disabled", d)))
-            Path(bin_, "rpm-ostree").write_text(
-                "#!/bin/bash\necho \"Pulling manifest: $2\"\necho 'Staging deployment...done'\nexit %d\n" % rebase_status)
+            if rebase_status == "same":
+                Path(bin_, "rpm-ostree").write_text(
+                    "#!/bin/bash\nif [ $1 = rebase ]; then echo \"error: Old and new refs are equal: $2\"; exit 1; fi\n"
+                    "echo 'Staging deployment...done'\n")
+            else:
+                Path(bin_, "rpm-ostree").write_text(
+                    "#!/bin/bash\necho \"Pulling manifest: $2\"\necho 'Staging deployment...done'\nexit %d\n" % rebase_status)
             for f in bin_.iterdir():
                 f.chmod(0o755)
             env = dict(os.environ, PATH="%s:%s" % (bin_, os.environ["PATH"]))
@@ -156,6 +161,12 @@ class RootStepTest(unittest.TestCase):
     def test_secure_boot_off_skips_the_key(self):
         code, lines, _ = self.run_step("no", sb=False)
         self.assertEqual((code, lines[0], lines[-1]), (0, "MOK off", "DONE"))
+
+    def test_already_on_the_image_upgrades_instead(self):
+        code, lines, _ = self.run_step("yes", rebase_status="same")
+        self.assertEqual(code, 0)
+        self.assertIn("LOG Staging deployment...done", lines)
+        self.assertEqual(lines[-1], "DONE")
 
     def test_a_failed_rebase_is_reported(self):
         code, lines, _ = self.run_step("yes", rebase_status=1)

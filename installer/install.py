@@ -241,6 +241,7 @@ class Screen:
                 self.colors[name] = curses.color_pair(i)
         self.fireworks = []
         self.birds = random.random() * 100
+        self.clip = None              # (first column, one past the last): the scene stays inside its frame
 
     def c(self, name, bold=False):
         return self.colors.get(name, 0) | (curses.A_BOLD if bold else 0)
@@ -249,6 +250,11 @@ class Screen:
         h, w = self.win.getmaxyx()
         if y < 0 or y >= h or x >= w:
             return
+        if self.clip:
+            x0, x1 = self.clip
+            if x < x0:
+                text, x = text[x0 - x:], x0
+            text = text[: max(0, x1 - x)]
         if x < 0:
             text, x = text[-x:], 0
         text = text[: max(0, w - x)]
@@ -654,7 +660,9 @@ class Run:
                 lx = left + max(0, (width - len(LOGO[0]) - 4 - 46) // 2)
                 scr.splash(top, lx, info, t)
             else:
+                scr.clip = (left, left + width)
                 scr.scene(oy + 2, left, width, scene_h, pct, now - build_t0, stage)
+                scr.clip = None
             # the panel: what is going on, in numbers
             y = oy + canvas_h - panel_h if fits else h - panel_h
             scr.put(y, left, "─" * width, scr.c("sky"))
