@@ -22,7 +22,7 @@ Page {
             Repeater {
                 model: [
                     ["preferences-desktop-user-password", "Unlock with a PIN or a pattern", "Screen Locking: choose a PIN or draw a pattern, for the lock screen and the login screen.", "systemsettings kcm_overdrive_screenlock", "Set up"],
-                    ["overdrive-camera", "Cameras", "Live preview, presets and fine tuning of both cameras.", "systemsettings kcm_overdrive_cameras", "Open"],
+                    ["overdrive-camera-tuning", "Embedded Cameras tuning", "The settings page: live preview, presets and fine tuning of both cameras.", "systemsettings kcm_overdrive_cameras", "Open"],
                     ["camera-photo", "Camera app", "Photos and videos with the graphics chip's encoder, a gallery, a timer and a grid.", "overdrive-camera", "Start"],
                     ["preferences-desktop-sound", "Sound and EQ", "Speaker boost, equalizer presets per output, microphone noise filter.", "systemsettings kcm_overdrive_sound", "Open"],
                     ["preferences-desktop-tablet", "Pen", "Pen buttons and pressure, with a test area to try them.", "systemsettings kcm_overdrive_tablet", "Open"],

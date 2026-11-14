@@ -246,6 +246,7 @@ RUN python3 /tmp/patch_lockscreen.py && python3 /tmp/patch_unlock_pad.py lockscr
     && python3 /tmp/patch_dimscreen.py \
     && python3 /tmp/patch_desktop_hold.py \
     && python3 /tmp/patch_plasma_defaults.py panel && python3 /tmp/patch_plasma_defaults.py noface \
+    && python3 /tmp/patch_plasma_defaults.py clock \
     && rm /tmp/patch_lockscreen.py /tmp/patch_unlock_pad.py /tmp/patch_pam.py /tmp/patch_dimscreen.py /tmp/patch_plasma_defaults.py /tmp/patch_desktop_hold.py
 # What the sound filters inside the built-in devices need (src/overdrive/audio): the limiter after the speaker boost, and the
 # library and plugin of the microphone noise suppression.

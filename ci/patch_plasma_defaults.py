@@ -10,10 +10,13 @@
           compiled into its plugin and its qmldir says to prefer the compiled files, so the edited file on disk counts only
           once that "prefer" line is gone (the other files of the module on disk are the same as the compiled ones).
           The picture can still be chosen in System Settings, and the launcher (Kickoff, compiled) still shows it.
+  clock   The big clock of the lock screen, the login screen and the shutdown screen (Clock.qml of the same module) shows
+          24-hour time, "13:45", whatever the region's format (the owner's choice: with English as the language it showed
+          "1:45 PM"). The date under it stays as the region writes it, in full. Needs "noface" (the qmldir without "prefer").
 
 When a file has a layout this was not written for, it is left as it is and the build goes on with a warning.
 
-usage: patch_plasma_defaults.py panel|noface [path]
+usage: patch_plasma_defaults.py panel|noface|clock [path]
 """
 import sys
 from pathlib import Path
@@ -84,6 +87,18 @@ def patch_face(text):
     return text
 
 
+CLOCK_OLD = "text: Qt.formatTime(timeSource.dateTime, Qt.locale(), Locale.ShortFormat)"
+CLOCK_NEW = 'text: Qt.formatTime(timeSource.dateTime, "HH:mm") %s 24-hour time whatever the region' % MARK
+
+
+def patch_clock(text):
+    if MARK in text:
+        return text
+    if text.count(CLOCK_OLD) != 1:
+        return None
+    return text.replace(CLOCK_OLD, CLOCK_NEW)
+
+
 def patch_qmldir(text):
     """Without the "prefer" line the files on disk are used (None when there is no such line to drop)."""
     lines = text.splitlines(keepends=True)
@@ -106,7 +121,7 @@ def write(path, original, patched, what):
 
 
 def main(argv):
-    if len(argv) < 2 or argv[1] not in ("panel", "noface"):
+    if len(argv) < 2 or argv[1] not in ("panel", "noface", "clock"):
         print(__doc__)
         return 2
     if argv[1] == "panel":
@@ -115,6 +130,11 @@ def main(argv):
         write(path, text, patch_panel(text), "the default panel")
         return 0
     folder = Path(argv[2] if len(argv) > 2 else FACE_DIR)
+    if argv[1] == "clock":
+        path = folder / "Clock.qml"
+        text = path.read_text()
+        write(path, text, patch_clock(text), "the lock screen's clock")
+        return 0
     delegate, qmldir = folder / "UserDelegate.qml", folder / "qmldir"
     text = delegate.read_text()
     patched = patch_face(text)

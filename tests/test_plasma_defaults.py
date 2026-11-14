@@ -46,6 +46,19 @@ class PanelTest(unittest.TestCase):
         self.assertEqual(mod.patch_panel(out), out)
 
 
+class ClockTest(unittest.TestCase):
+    def test_24_hours_and_the_date_untouched(self):
+        text = ('    Label {\n        text: Qt.formatTime(timeSource.dateTime, Qt.locale(), Locale.ShortFormat)\n    }\n'
+                '    Label {\n        text: Qt.formatDate(timeSource.dateTime, Qt.locale(), Locale.LongFormat)\n    }\n')
+        out = mod.patch_clock(text)
+        self.assertIn('Qt.formatTime(timeSource.dateTime, "HH:mm")', out)
+        self.assertIn("Qt.formatDate(timeSource.dateTime, Qt.locale(), Locale.LongFormat)", out)
+        self.assertEqual(mod.patch_clock(out), out)
+
+    def test_unknown_layout(self):
+        self.assertIsNone(mod.patch_clock("Label { text: clock.time }\n"))
+
+
 class FaceTest(unittest.TestCase):
     def test_picture_hidden(self):
         out = mod.patch_face(DELEGATE)

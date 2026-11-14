@@ -6,7 +6,7 @@ import org.kde.kirigami as Kirigami
 
 // "Drawing Tablet": the page of Plasma with our pen test next to its Pen tab (on a window wide enough for both; a narrow window
 // shows the settings of Plasma alone). The tabs of Plasma (Display, Pen, Pad) are shown by
-// our own row of buttons, which presses the hidden ones of Plasma: that is how "Pad" is left out (the Surface has none) and how we
+// our own row of buttons (Pen first), which presses the hidden ones of Plasma: that is how "Pad" is left out (the Surface has none) and how we
 // know when the Pen tab is in front. If a future Plasma builds its page differently, the row falls back to two buttons: its page,
 // and the pen test alone.
 Kirigami.Page {
@@ -53,6 +53,9 @@ Kirigami.Page {
                 list.push({ text: a.text, icon: a.icon.name, index: i })
             }
             if (list.length === 0) return
+            // the Pen tab first, and in front when the page opens: on this tablet the pen is what the page is opened for
+            // (Plasma's order is Display, Pen)
+            list.sort((a, b) => (/pen/i.test(b.text) ? 1 : 0) - (/pen/i.test(a.text) ? 1 : 0))
             // out of sight, but still laid out: hidden for real, the tab bar of Plasma loses track of its own buttons
             found.Layout.maximumHeight = 0
             found.Layout.preferredHeight = 0
@@ -60,9 +63,10 @@ Kirigami.Page {
             found.opacity = 0
             bar = found
             tabs = list
-            const pen = list.find(t => /pen/i.test(t.text))
-            stockTab = list[0].index
-            if (kcm.startTab === "pen" && pen) { first.index = pen.index; first.start() }      // once the tabs of Plasma are all there
+            const start = (kcm.startTab === "display" ? list.find(t => !/pen/i.test(t.text)) : null) || list[0]
+            stockTab = start.index
+            // Plasma's own first tab is in front until ours is pressed, once the tabs of Plasma are all there
+            if (start.index !== 0) { first.index = start.index; first.start() }
         } catch (e) {
             console.warn("Surface Control: could not take over the tabs of the Drawing Tablet page:", e)
         }

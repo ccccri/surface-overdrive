@@ -11,6 +11,12 @@ What was added, what broke, and what fixed it. Newest first. "Verified" means tr
   System Settings, the camera app, the three introduction pages, Firefox's toolbar, the installer in Konsole, the
   launcher on a swipe up from the bottom edge, no edit mode after a 1.2 s hold and edit mode after 2.6 s, Force Quit in
   a task's menu (it ended KWrite), the lock screen and its pattern pad (unlocked with the owner's pattern).
+- Introduction: the Embedded Cameras page is "Embedded Cameras tuning" with an icon of its own (a lens beside three
+  sliders, overdrive-camera-tuning): "Cameras" and "Camera app" read as the same thing, with two camera icons.
+- Drawing Tablet: the Pen tab comes first and is the one in front when the page opens (Plasma's order is Display, Pen);
+  "display" as the page's argument opens it on Display.
+- The big clock of the lock, login and shutdown screens shows 24-hour time ("14:07", it was "2:07 PM" with English as
+  the language); the date under it is unchanged (ci/patch_plasma_defaults.py clock). Seen on the tablet's lock screen.
 - Embedded Cameras opens on the front camera (it opened on the rear one); the Camera app still opens it on the camera
   in use.
 - Drawing Tablet, Pen tab: Plasma's settings next to our pen test fit the screen again, without scrolling. Plasma 6.8
