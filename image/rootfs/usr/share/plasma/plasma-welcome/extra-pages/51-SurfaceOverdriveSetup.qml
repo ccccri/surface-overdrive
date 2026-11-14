@@ -21,12 +21,12 @@ Page {
 
             Repeater {
                 model: [
-                    ["preferences-desktop-user-password", "Unlock with a PIN or a pattern", "Screen Locking: choose a PIN or draw a pattern, for the lock screen and the login screen.", "kcmshell6 kcm_overdrive_screenlock", "Set up"],
-                    ["overdrive-camera", "Cameras", "Live preview, presets and fine tuning of both cameras.", "kcmshell6 kcm_overdrive_cameras", "Open"],
+                    ["preferences-desktop-user-password", "Unlock with a PIN or a pattern", "Screen Locking: choose a PIN or draw a pattern, for the lock screen and the login screen.", "systemsettings kcm_overdrive_screenlock", "Set up"],
+                    ["overdrive-camera", "Cameras", "Live preview, presets and fine tuning of both cameras.", "systemsettings kcm_overdrive_cameras", "Open"],
                     ["camera-photo", "Camera app", "Photos and videos with the graphics chip's encoder, a gallery, a timer and a grid.", "overdrive-camera", "Start"],
-                    ["preferences-desktop-sound", "Sound and EQ", "Speaker boost, equalizer presets per output, microphone noise filter.", "kcmshell6 kcm_overdrive_sound", "Open"],
-                    ["preferences-desktop-tablet", "Pen", "Pen buttons and pressure, with a test area to try them.", "kcmshell6 kcm_overdrive_tablet", "Open"],
-                    ["overdrive-nfc", "NFC", "Hold a tag to the back of the tablet and see what it says.", "kcmshell6 kcm_overdrive_nfc", "Open"]
+                    ["preferences-desktop-sound", "Sound and EQ", "Speaker boost, equalizer presets per output, microphone noise filter.", "systemsettings kcm_overdrive_sound", "Open"],
+                    ["preferences-desktop-tablet", "Pen", "Pen buttons and pressure, with a test area to try them.", "systemsettings kcm_overdrive_tablet", "Open"],
+                    ["overdrive-nfc", "NFC", "Hold a tag to the back of the tablet and see what it says.", "systemsettings kcm_overdrive_nfc", "Open"]
                 ]
                 delegate: RowLayout {
                     required property var modelData

@@ -1,0 +1,4 @@
+# Surface Overdrive: the screen locks itself after 15 minutes without a touch, not Plasma's 5 (the owner's choice: the
+# tablet locked while it was being read or left for a moment). A user's own choice in Screen Locking still wins.
+[Daemon]
+Timeout=15

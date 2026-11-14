@@ -7,6 +7,15 @@ What was added, what broke, and what fixed it. Newest first. "Verified" means tr
 - Installer, from a full run on the tablet (the real rpm-ostree, driven in a terminal): run again on a system that is
   already on the image it failed ("Old and new refs are equal"); it now brings the system up to date instead. Clouds no
   longer draw over the frame (the scene is clipped to it; checked on every frame at three sizes).
+- Seen on the tablet's screen, one by one (screenshots; touch through a virtual finger): the eight settings pages inside
+  System Settings, the camera app, the three introduction pages, Firefox's toolbar, the installer in Konsole, the
+  launcher on a swipe up from the bottom edge, no edit mode after a 1.2 s hold and edit mode after 2.6 s, Force Quit in
+  a task's menu (it ended KWrite), the lock screen and its pattern pad (unlocked with the owner's pattern).
+- Introduction: its buttons open the pages inside System Settings (`systemsettings kcm_...`), not each page alone in a
+  small window of its own (kcmshell6) from which the other settings could not be reached.
+- The screen locks itself after 15 minutes, not 5 (/etc/xdg/kscreenlockerrc); on battery it dims after 5 and turns off
+  after 10 minutes (4 and 8 before). A user's own choices still win.
+- Installer: the picture fills a maximized Konsole (up to 156x44 characters; it stopped at 124x34 with empty margins).
 - First login on the new image, with the panel put back to stock Kinoite's first (pager, Fedora's settings): panel
   there with the owner's settings and no pager, the introduction open once, no failed unit, health check ok, both
   cameras at 30 fps.

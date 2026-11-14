@@ -25,8 +25,8 @@ Page {
 
         Repeater {
             model: [
-                ["system-software-update", "Software Update", "The fixes and their state, the images with a way back to the previous one, what changed between two images, and the export of all your Surface settings.", "kcmshell6 kcm_overdrive_updates", "Open"],
-                ["help-about", "About this System", "The tablet's firmware, and its light and motion sensors live.", "kcmshell6 kcm_overdrive_about", "Open"],
+                ["system-software-update", "Software Update", "The fixes and their state, the images with a way back to the previous one, what changed between two images, and the export of all your Surface settings.", "systemsettings kcm_overdrive_updates", "Open"],
+                ["help-about", "About this System", "The tablet's firmware, and its light and motion sensors live.", "systemsettings kcm_overdrive_about", "Open"],
                 ["utilities-terminal", "In a terminal", "overdrivectl status shows the health check with an explanation for each fix.", "konsole --noclose -e overdrivectl status", "Run it"]
             ]
             delegate: RowLayout {

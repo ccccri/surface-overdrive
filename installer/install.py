@@ -31,7 +31,7 @@ LOG = os.path.expanduser("~/surface-overdrive-install.log")
 # centred); in between it fills the window. Konsole opens maximized in tablet mode: asked to shrink, it only shrank its
 # text area, into the top left corner, so it is never asked to shrink.
 MIN_W, MIN_H = 88, 26
-MAX_W, MAX_H = 124, 34
+MAX_W, MAX_H = 156, 44
 FALLBACK_TOTAL = 3.0e9                 # bytes, when rpm-ostree does not say how much it needs
 UNITS = {"B": 1, "kB": 1e3, "KB": 1e3, "KiB": 1024, "MB": 1e6, "MiB": 1024 ** 2, "GB": 1e9, "GiB": 1024 ** 3}
 SIZE = r"([\d.]+)\s*(B|[kKMG]i?B)"

@@ -12,12 +12,12 @@ TurnOffDisplayIdleTimeoutSec=900
 AutoSuspendAction=1
 AutoSuspendIdleTimeoutSec=2700
 
-# On battery: dim after 4 minutes, screen off after 8, sleep after 20
+# On battery: dim after 5 minutes, screen off after 10, sleep after 20
 [Battery][Display]
 DimDisplayWhenIdle=true
-DimDisplayIdleTimeoutSec=240
+DimDisplayIdleTimeoutSec=300
 TurnOffDisplayWhenIdle=true
-TurnOffDisplayIdleTimeoutSec=480
+TurnOffDisplayIdleTimeoutSec=600
 
 [Battery][SuspendAndShutdown]
 AutoSuspendAction=1
