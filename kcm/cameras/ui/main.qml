@@ -12,7 +12,8 @@ Kirigami.Page {
     title: kcm.name
     padding: 0
 
-    property string cam: kcm.startTab === "front" ? "front" : "rear"   // the Camera app opens the page on the camera in use
+    // the front camera first (the one a tablet is used with most); the Camera app opens the page on the camera in use
+    property string cam: kcm.startTab === "rear" ? "rear" : "front"
     Bars { target: root }
     property var d: ({ settings: {}, controls: [], presets: [], focus: {}, sizes: [], node: "" })
     property real peak: 1

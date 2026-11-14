@@ -11,6 +11,13 @@ What was added, what broke, and what fixed it. Newest first. "Verified" means tr
   System Settings, the camera app, the three introduction pages, Firefox's toolbar, the installer in Konsole, the
   launcher on a swipe up from the bottom edge, no edit mode after a 1.2 s hold and edit mode after 2.6 s, Force Quit in
   a task's menu (it ended KWrite), the lock screen and its pattern pad (unlocked with the owner's pattern).
+- Embedded Cameras opens on the front camera (it opened on the rear one); the Camera app still opens it on the camera
+  in use.
+- Drawing Tablet, Pen tab: Plasma's settings next to our pen test fit the screen again, without scrolling. Plasma 6.8
+  builds the tab from Kirigami.FormEntry items, which our tidying did not know (it looked for FormLayout labels, and not
+  deep enough for the pressure curve): "Left-handed mode", greyed out, was back, the curve was full size and the pane
+  scrolled. Unsupported entries are hidden again, the two-line explanations under Pen and Mouse are gone, the curve is
+  7.5 grid units. Seen on the tablet: the whole pane, down to Calibrate, with no scroll bar.
 - Introduction: its buttons open the pages inside System Settings (`systemsettings kcm_...`), not each page alone in a
   small window of its own (kcmshell6) from which the other settings could not be reached.
 - The screen locks itself after 15 minutes, not 5 (/etc/xdg/kscreenlockerrc); on battery it dims after 5 and turns off

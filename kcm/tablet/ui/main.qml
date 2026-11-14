@@ -103,51 +103,61 @@ Kirigami.Page {
         }
         for (let i = 0; item.children && i < item.children.length; i++) hidePicture(item.children[i], depth + 1)
     }
-    // A setting the pen of this tablet cannot have is left out: Plasma shows it greyed out ("Left-handed mode", which is for
-    // tablets that lie on the desk and can be turned around). That is a labelled line of the form whose check box is disabled.
-    function firstCheck(item, depth) {
-        if (!item || depth > 4) return null
-        if (item.checkable !== undefined && item.checked !== undefined) return item
+    // The Pen tab of Plasma is a form of entries (Kirigami.FormEntry since Plasma 6.8: a title, a subtitle, a content item),
+    // taller than the tablet's screen next to our pen test: it scrolled. It is made to fit:
+    //  - a setting the pen of this tablet cannot have is left out: Plasma shows it greyed out ("Left-handed mode", for tablets
+    //    that lie on the desk and can be turned around; "Calibration Not Supported"). It comes back by itself should the
+    //    tablet ever support it;
+    //  - the explanations under "Pen" and "Mouse" go (two and three lines; the names say it);
+    //  - the pressure curve, a large square, gets smaller.
+    function isEntry(item) {
+        return item.title !== undefined && item.subtitle !== undefined && item.contentItem !== undefined && item.trailingItems !== undefined
+    }
+    function firstOf(item, test, depth) {
+        if (!item || depth > 6) return null
+        if (test(item)) return item
         for (let i = 0; item.children && i < item.children.length; i++) {
-            const found = firstCheck(item.children[i], depth + 1)
+            const found = firstOf(item.children[i], test, depth + 1)
             if (found) return found
         }
         return null
     }
-    function hideUnsupported(item, depth) {
-        if (!item || depth > 9) return
-        if (item.Kirigami.FormData.label.length > 0) {
-            // only an on/off setting counts (a slider that is greyed out until the pen wakes up stays), and it comes back by
-            // itself should the tablet ever support it
-            const check = firstCheck(item, 0)
-            if (check && String(check).indexOf("CheckBox") >= 0) item.visible = Qt.binding(() => check.enabled)
+    function compact(item, depth) {
+        if (!item || depth > 30) return
+        if (isEntry(item)) {
+            const content = item.contentItem
+            const type = String(content)
+            if (type.indexOf("CheckBox") >= 0 && !content.enabled) {
+                item.visible = Qt.binding(() => content.enabled)
+            } else if (type.indexOf("RadioButton") >= 0) {
+                item.subtitle = ""
+            } else {
+                const button = firstOf(content, i => i.icon !== undefined && i.icon.name === "crosshairs", 0)
+                if (button) item.visible = Qt.binding(() => button.enabled)
+            }
+        }
+        if (item.controlPoint1 !== undefined && item.controlPoint2 !== undefined && item.isDefault !== undefined) {   // PressureCurve
+            const side = Math.round(Kirigami.Units.gridUnit * 7.5)
+            if (item.implicitHeight > side) { item.implicitHeight = side; item.implicitWidth = side }
             return
         }
-        for (let i = 0; item.children && i < item.children.length; i++) hideUnsupported(item.children[i], depth + 1)
-    }
-    // The pressure curve of Plasma is a large square; a lower one lets the whole tab fit the screen of the tablet without scrolling.
-    function shrinkCurve(item, depth) {
-        if (!item || depth > 12) return
-        if (String(item).indexOf("PressureCurve") >= 0) {
-            const side = Kirigami.Units.gridUnit * 9
-            if (item.implicitHeight > side) { item.implicitHeight = side; item.Layout.maximumHeight = side }
-            return
-        }
-        for (let i = 0; item.children && i < item.children.length; i++) shrinkCurve(item.children[i], depth + 1)
+        for (let i = 0; item.children && i < item.children.length; i++) compact(item.children[i], depth + 1)
     }
     Timer { id: first; property int index: 0; interval: 500; onTriggered: wrapper.choose(index) }
     Timer {
+        // three times: the tab of Plasma builds its entries a moment after it is chosen, later on a busy tablet
         id: tidy; interval: 400
+        property int runs: 0
         onTriggered: {
+            if (runs < 2) { runs++; interval = 900; start() } else { runs = 0; interval = 400 }
             if (!wrapper.penTab) return
             try { wrapper.hidePicture(kcm.stockPage.flickable.contentItem, 0) } catch (e) {}
-            try { wrapper.shrinkCurve(kcm.stockPage.flickable.contentItem, 0) } catch (e) {}
             try {
                 const f = kcm.stockPage.flickable
                 f.boundsBehavior = Flickable.StopAtBounds
                 f.interactive = Qt.binding(() => f.contentHeight > f.height + 1)
             } catch (e) {}
-            try { wrapper.hideUnsupported(kcm.stockPage.flickable.contentItem, 0) } catch (e) { console.warn("Surface Control: could not tidy the Pen tab:", e) }
+            try { wrapper.compact(kcm.stockPage.flickable.contentItem, 0) } catch (e) { console.warn("Surface Control: could not tidy the Pen tab:", e) }
         }
     }
     onPenTabChanged: tidy.restart()
