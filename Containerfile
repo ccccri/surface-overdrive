@@ -256,6 +256,10 @@ COPY --from=ladspa /out/ /
 # Fedora lists every AirPlay receiver of the network as a sound output (a Mac shows up as speakers). Those that ask for Apple's
 # pairing cannot play, and choosing one silences the tablet: no AirPlay outputs.
 RUN dnf5 -y remove pipewire-config-raop && dnf5 clean all && ! test -e /usr/share/pipewire/pipewire.conf.d/50-raop.conf
+# Android apps (games among them) through Waydroid: the kernel already has binder (Rust) and binderfs. The Android images,
+# the ARM translation and the apps live in /var/lib/waydroid and the user's home, so they survive image updates.
+RUN dnf5 -y install --setopt=install_weak_deps=False waydroid && dnf5 clean all \
+    && test -f /usr/share/dbus-1/system.d/id.waydro.Container.conf && rpm -q waydroid-selinux
 RUN ldd /usr/lib64/ladspa/overdrive_denoise.so | grep -q "librnnoise.*=> /"
 COPY --from=hidbpf /out/ /
 COPY --from=kcm /out/ /
