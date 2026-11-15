@@ -59,6 +59,22 @@ class ClockTest(unittest.TestCase):
         self.assertIsNone(mod.patch_clock("Label { text: clock.time }\n"))
 
 
+class WallpaperTest(unittest.TestCase):
+    GRID = ("Item {\n    id: thumbnailsComponent\n    KCM.GridView {\n        id: wallpapersGrid\n    }\n\n"
+            "    KCM.SettingHighlighter {\n        target: wallpapersGrid\n        highlight: true\n    }\n}\n")
+
+    def test_outer_areas_scroll_only_with_something_to_scroll(self):
+        out = mod.patch_wallpaper(self.GRID)
+        self.assertIn("Flickable.StopAtBounds", out)
+        self.assertIn("area.contentHeight > area.height + 1", out)
+        self.assertLess(out.index("Timer {"), out.index("KCM.SettingHighlighter"))
+        self.assertEqual(out.count("{"), out.count("}"))
+        self.assertEqual(mod.patch_wallpaper(out), out)
+
+    def test_unknown_layout(self):
+        self.assertIsNone(mod.patch_wallpaper("Item { GridView { } }\n"))
+
+
 class FaceTest(unittest.TestCase):
     def test_picture_hidden(self):
         out = mod.patch_face(DELEGATE)

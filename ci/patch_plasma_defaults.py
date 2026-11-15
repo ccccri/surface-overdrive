@@ -13,10 +13,15 @@
   clock   The big clock of the lock screen, the login screen and the shutdown screen (Clock.qml of the same module) shows
           24-hour time, "13:45", whatever the region's format (the owner's choice: with English as the language it showed
           "1:45 PM"). The date under it stays as the region writes it, in full. Needs "noface" (the qmldir without "prefer").
+  wallpaper  The wallpaper pages (System Settings > Wallpaper, and the desktop's "Configure Desktop and Wallpaper") hold the
+          grid of pictures, which scrolls, inside a page that is a scrolling area too. That outer area has nothing to
+          scroll, but a finger still dragged it up and down (overshoot and bounce), and a drag that began as the page's did
+          not move the pictures. From the grid (ThumbnailsComponent.qml of the image wallpaper, a file on disk) every
+          scrolling area around it is told to stop at its ends and to take drags only when it has something to scroll.
 
 When a file has a layout this was not written for, it is left as it is and the build goes on with a warning.
 
-usage: patch_plasma_defaults.py panel|noface|clock [path]
+usage: patch_plasma_defaults.py panel|noface|clock|wallpaper [path]
 """
 import sys
 from pathlib import Path
@@ -31,6 +36,23 @@ panel.alignment = "center"
 panel.hiding = "dodgewindows"
 panel.opacity = "translucent"
 panel.floating = true
+
+""" % MARK
+
+WALLPAPER_GRID = "/usr/share/plasma/wallpapers/org.kde.image/contents/ui/ThumbnailsComponent.qml"
+WALLPAPER_ANCHOR = "    KCM.SettingHighlighter {\n        target: wallpapersGrid\n"
+WALLPAPER_LINES = """    %s only the grid of pictures scrolls; the page around it moves only when it has something to scroll
+    Timer {
+        interval: 0; running: true
+        onTriggered: {
+            for (let p = thumbnailsComponent.parent, depth = 0; p && depth < 40; p = p.parent, depth++) {
+                if (p.contentY === undefined || p.contentHeight === undefined || p.boundsBehavior === undefined) continue
+                const area = p
+                area.boundsBehavior = Flickable.StopAtBounds
+                area.interactive = Qt.binding(() => area.contentHeight > area.height + 1)
+            }
+        }
+    }
 
 """ % MARK
 
@@ -99,6 +121,14 @@ def patch_clock(text):
     return text.replace(CLOCK_OLD, CLOCK_NEW)
 
 
+def patch_wallpaper(text):
+    if MARK in text:
+        return text
+    if text.count(WALLPAPER_ANCHOR) != 1:
+        return None
+    return text.replace(WALLPAPER_ANCHOR, WALLPAPER_LINES + WALLPAPER_ANCHOR)
+
+
 def patch_qmldir(text):
     """Without the "prefer" line the files on disk are used (None when there is no such line to drop)."""
     lines = text.splitlines(keepends=True)
@@ -121,13 +151,18 @@ def write(path, original, patched, what):
 
 
 def main(argv):
-    if len(argv) < 2 or argv[1] not in ("panel", "noface", "clock"):
+    if len(argv) < 2 or argv[1] not in ("panel", "noface", "clock", "wallpaper"):
         print(__doc__)
         return 2
     if argv[1] == "panel":
         path = Path(argv[2] if len(argv) > 2 else PANEL_DEFAULT)
         text = path.read_text()
         write(path, text, patch_panel(text), "the default panel")
+        return 0
+    if argv[1] == "wallpaper":
+        path = Path(argv[2] if len(argv) > 2 else WALLPAPER_GRID)
+        text = path.read_text()
+        write(path, text, patch_wallpaper(text), "the wallpaper page's scrolling")
         return 0
     folder = Path(argv[2] if len(argv) > 2 else FACE_DIR)
     if argv[1] == "clock":

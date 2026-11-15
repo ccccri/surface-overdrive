@@ -280,6 +280,8 @@ def main(argv=None):
         print(json.dumps(sensors.nfc_info()))
         return 0
     if argv and argv[0] == "sensors":
+        if argv[1:2] == ["follow"]:
+            return sensors.follow()
         if argv[1:2] == ["rate"] and len(argv) == 3:
             sensors.set_rate(argv[2])
         print(json.dumps(sensors.describe()))

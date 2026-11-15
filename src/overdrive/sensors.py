@@ -4,8 +4,12 @@ Everything is read from sysfs and needs no privileges.
 """
 import glob
 import math
+import json
 import os
+import select
 import subprocess
+import sys
+import time
 
 
 def read(path, default=""):
@@ -90,6 +94,58 @@ def device():
 
 def describe():
     return {"battery": battery(), "lux": light(), "motion": motion(), "device": device()}
+
+
+def follow(out=sys.stdout, commands=sys.stdin, rate=50, idle_rate=10, pause=0.05, clock=time.monotonic, wait=None):
+    """The live view of "About this System": ONE process that reads the sensors again and again and prints a line of JSON
+    each time, for as long as its standard input stays open.
+
+    The page used to start `overdrivectl sensors` every 0.4 s. Each start cost a Python start-up and seven questions to
+    the sensor hub, asked one after the other (20 to 230 ms each), so it showed two values a second at best, and when
+    the hub was slow the readers queued behind it by the hundred (2026-11-15). A single reader cannot queue behind
+    itself, and without the start-up the bars move as fast as the hub answers.
+
+    Lines: the first is the whole describe(); then {"motion": ...} each round and {"lux": ...} every fifth round (the
+    light changes slowly and its reading is the slowest). Commands on standard input, one a line: "pause" (page hidden:
+    nothing is read), "go". End of input ends it. The motion sensors report `rate` times a second while it runs.
+    """
+    def default_wait(seconds):
+        """A command line, or None after `seconds`; "" at end of input."""
+        ready, _, _ = select.select([commands], [], [], seconds)
+        return commands.readline() if ready else None
+    wait = wait or default_wait
+
+    def say(obj):
+        out.write(json.dumps(obj) + "\n")
+        out.flush()
+
+    set_rate(rate)
+    try:
+        say(describe())
+        running, rounds = True, 0
+        while True:
+            line = wait(pause if running else 3600)
+            if line == "":
+                return 0
+            if line is not None:
+                word = line.strip()
+                if word == "pause" and running:
+                    running = False
+                    set_rate(idle_rate)
+                elif word == "go" and not running:
+                    running = True
+                    set_rate(rate)
+                continue
+            if not running:
+                continue
+            rounds += 1
+            say({"motion": motion()})
+            if rounds % 5 == 0:
+                say({"lux": light()})
+    except (BrokenPipeError, KeyboardInterrupt):
+        return 0
+    finally:
+        set_rate(idle_rate)
 
 
 def unit_state(unit, user=False):

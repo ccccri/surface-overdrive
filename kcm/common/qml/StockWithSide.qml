@@ -11,6 +11,7 @@ Kirigami.Page {
 
     property string stock                                   // plugin name of the Plasma page, for example "kcm_updates"
     property real sideWidth: Kirigami.Units.gridUnit * 26
+    property bool sideCentered: false                        // the panel in the middle of the height instead of at the top
     readonly property bool wide: width > Kirigami.Units.gridUnit * 50
     default property alias side: sideColumn.data
 
@@ -59,7 +60,7 @@ Kirigami.Page {
                 ColumnLayout {
                     id: sideColumn
                     x: Kirigami.Units.largeSpacing
-                    y: Kirigami.Units.largeSpacing
+                    y: wrapper.sideCentered && wrapper.wide ? Math.max(Kirigami.Units.largeSpacing, (scroll.height - implicitHeight) / 2) : Kirigami.Units.largeSpacing
                     width: parent.width - 2 * Kirigami.Units.largeSpacing
                     spacing: Kirigami.Units.largeSpacing
                 }

@@ -23,12 +23,21 @@ What was added, what broke, and what fixed it. Newest first. "Verified" means tr
   collapses it under about 32 grid units), so every label went above its value and the page was twice as long. The
   sensors take 19 grid units now: the whole page shows at once and nothing drags. The firmware line is a form entry
   again at the end of the hardware list (Plasma 6.8 no longer uses a FormLayout, so it had fallen back to the sensors'
-  box). Seen on the tablet. Still open: the serial number keeps Plasma's "Show" button (our dots with show and copy
-  buttons are not put in place on Plasma 6.8).
+  box). The serial number has its dots with the show and copy buttons again (Plasma 6.8 nests its "Show" button deeper
+  than the search went). What is left of the height is shared above and below, so the list and the sensors sit in the
+  middle of the page, and the sensors have roomier rows and a larger light value. Seen on the tablet.
 - Sensor readers piled up (found while looking at that page): the page started `overdrivectl sensors` every 0.4 s
   without waiting for the answer, each asks the sensor hub seven values one after the other, and on a slow moment they
-  queued behind the hub: 627 processes, load 570, the memory full, an empty panel. One reading at a time now, given up
-  after 10 s; the same guard on the rear camera's focus poll of the Cameras page (every 0.3 s).
+  queued behind the hub: 627 processes, load 570, the memory full, an empty panel. The page now keeps ONE reader for
+  its whole life, `overdrivectl sensors follow`, which reads again and again and answers a line each time (motion every
+  round, light every fifth; paused while the page is hidden; ends with the page). It cannot queue behind itself, and
+  without a Python start-up per reading the bars get about 8 values a second on the tablet instead of 2. The rear
+  camera's focus poll of the Cameras page (every 0.3 s) waits for its answer before the next.
+- Wallpaper page (System Settings, and the desktop's settings): the page around the grid of pictures is a scrolling
+  area with nothing to scroll, but a finger dragged it up and down and such a drag did not move the pictures. Every
+  scrolling area around the grid now stops at its ends and takes drags only when it has something to scroll
+  (`ci/patch_plasma_defaults.py wallpaper`, on the image wallpaper's ThumbnailsComponent.qml). Checked on the tablet by
+  the areas' state (outer: not interactive, grid: interactive), not yet with a finger.
 - A default Konsole window on the tablet is 110x28 characters: the show fits (88x26 at least) without resizing it.
 
 ## 2026-11-14

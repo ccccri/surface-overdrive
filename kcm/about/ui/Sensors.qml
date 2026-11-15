@@ -11,31 +11,28 @@ ColumnLayout {
     property var s: ({ lux: null, motion: null, device: {} })
     property bool live: true          // false while the page is hidden: nothing is read then
 
-    spacing: Kirigami.Units.largeSpacing
+    spacing: Kirigami.Units.gridUnit
     Layout.fillWidth: true
 
-    // One reading at a time. Each one asks the sensor hub seven values and takes 0.4 s or more; the timer used to start
-    // the next without waiting, and on a slow moment (2026-11-15, after a resume, the tablet busy) they piled up behind
-    // the hub: 627 readers, the memory full, nothing shown. A reading that never answers is given up after 10 s.
-    property bool reading: false
-    function reload() {
-        if (reading) return
-        reading = true
-        giveUp.restart()
-        kcm.call("sensors", ["sensors"])
-    }
-    Timer { id: giveUp; interval: 10000; onTriggered: root.reading = false }
-    // the motion sensors report 10 times a second by default: 50 while somebody is watching the bars
-    Component.onCompleted: { kcm.call("rate", ["sensors", "rate", "50"]); reload() }
-    Component.onDestruction: kcm.call("rate", ["sensors", "rate", "10"])
-    Timer { interval: 400; repeat: true; running: root.live && root.visible; onTriggered: root.reload() }
+    // One reader for as long as the page lives: "overdrivectl sensors follow" reads the sensors again and again and answers
+    // a line each time (the whole picture first, then the motion each round and the light every fifth). The page used to
+    // start a new overdrivectl every 0.4 s: two values a second at best, and on a slow moment (2026-11-15) the readers
+    // queued behind the sensor hub by the hundred. A single reader cannot queue, and the bars move as fast as the hub answers.
+    // It is paused while the page is hidden and started again if it ever ends.
+    readonly property bool watching: live && visible
+    function tell(word) { kcm.stream("sensors", ["sensors", "follow"], word) }
+    onWatchingChanged: tell(watching ? "go" : "pause")
+    Component.onCompleted: tell(watching ? "go" : "pause")
+    Timer { id: again; interval: 3000; onTriggered: if (root.watching) root.tell("go") }
     Connections {
         target: kcm
         function onCallFinished(tag, ok, output, error) {
             if (tag !== "sensors") return
-            root.reading = false
-            giveUp.stop()
-            if (ok) { try { root.s = JSON.parse(output) } catch (e) {} }
+            if (!ok) { again.restart(); return }
+            try {
+                const m = JSON.parse(output)
+                root.s = m.device !== undefined ? m : Object.assign({}, root.s, m)
+            } catch (e) {}
         }
     }
 
@@ -45,6 +42,7 @@ ColumnLayout {
         property real range: 10
         property string text: ""
         Layout.fillWidth: true
+        Layout.minimumHeight: Kirigami.Units.gridUnit * 1.9          // roomy rows: the panel is as tall as Plasma's list next to it
         QQC2.Label { text: parent.label; Layout.preferredWidth: Kirigami.Units.gridUnit * 1.5 }
         QQC2.ProgressBar { Layout.fillWidth: true; from: -parent.range; to: parent.range; value: parent.value }
         QQC2.Label { text: parent.text; Layout.preferredWidth: Kirigami.Units.gridUnit * 3.5; horizontalAlignment: Text.AlignRight }
@@ -61,7 +59,7 @@ ColumnLayout {
     Section {
         title: i18n("Light Sensor")
         visible: root.s.lux !== null
-        HelpLabel { text: i18n("%1 lux", root.s.lux); font.pointSize: Kirigami.Theme.defaultFont.pointSize * 1.6; help: i18n("Cover the sensor, near the front camera, or point the tablet at a lamp to see it change. Automatic brightness uses this value.") }
+        HelpLabel { text: i18n("%1 lux", root.s.lux); font.pointSize: Kirigami.Theme.defaultFont.pointSize * 2.4; help: i18n("Cover the sensor, near the front camera, or point the tablet at a lamp to see it change. Automatic brightness uses this value.") }
     }
 
     Section {
