@@ -2,6 +2,20 @@
 
 What was added, what broke, and what fixed it. Newest first. "Verified" means tried on the Surface Go itself.
 
+## 2026-11-15
+
+- Installer, first enrolment of the module key on real firmware (after `mokutil --reset`): the key was queued, then the
+  install stopped with "the certificate could not be registered". `mokutil --test-key` ends with status 1 for a key that
+  is enrolled or queued, and with pipefail the "mokutil | grep" checks failed. root-step.sh now reads mokutil's text,
+  never its status; the tests' pretend mokutil ends the same way as the real one.
+- Installer's password windows (the owner's remarks from that install). The administrator password was asked by
+  pkexec's window, which can only say "Authentication is needed to run /tmp/.../install-surface-overdrive as the super
+  user": a window of our own now says "Enter your password to install Surface Overdrive" (`installer/ask.py`, PySide6
+  from stock Kinoite; the password goes to `sudo -k -S`, checked first and asked again when wrong). polkit's window stays
+  for a user outside the wheel group, kdialog when PySide6 is missing. The one-time password of the key is one window
+  with two fields (it was two kdialog windows), each with one large "show" button and no "clear" button next to it.
+- A default Konsole window on the tablet is 110x28 characters: the show fits (88x26 at least) without resizing it.
+
 ## 2026-11-14
 
 - Installer, from a full run on the tablet (the real rpm-ostree, driven in a terminal): run again on a system that is

@@ -2,8 +2,9 @@
 """The Surface Overdrive installer's screen: a full-terminal show while Kinoite switches to the image.
 
 bootstrap.sh downloads this file, root-step.sh and the module signing certificate, then runs it. It shows the machine
-(neofetch style), asks for the administrator password ONCE in a window (pkexec; sudo in the terminal when there is no
-desktop), asks the one-time password of the certificate in a window too when the certificate is not enrolled yet, and
+(neofetch style), asks for the administrator password ONCE in a window of its own (ask.py, then sudo -S; polkit's window
+for a user who is not an administrator, the terminal when there is no desktop), asks the one-time password of the
+certificate in one window too (two fields) when the certificate is not enrolled yet, and
 while root-step.sh switches the system to the image (rpm-ostree rebase) it plays a scene that follows the progress:
 Tux sends an old window logo away, then builds a house brick by brick as the image comes down, puts the roof on as it is
 written to disk, and the day ends in fireworks. Under it: percentage, step, layer, amounts, speed, time left, the last
@@ -14,6 +15,8 @@ usage: install.py --cert <file.der> --helper <root-step.sh> --image <reference> 
 """
 import argparse
 import curses
+import grp
+import importlib.util
 import locale
 import math
 import os
@@ -454,8 +457,63 @@ def graphical():
     return bool(os.environ.get("WAYLAND_DISPLAY") or os.environ.get("DISPLAY"))
 
 
+ASK = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ask.py")
+
+
+def have_window():
+    """Our own password windows (ask.py) can be shown: a desktop, the file and PySide6 (Kinoite ships it)."""
+    return graphical() and os.path.exists(ASK) and importlib.util.find_spec("PySide6") is not None
+
+
+def ask_window(mode, *more):
+    """The password typed in ask.py's window; None when it was cancelled or could not be shown."""
+    r = subprocess.run([sys.executable, ASK, mode, *more], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
+    return r.stdout.rstrip("\n") if r.returncode == 0 else None
+
+
+def sudo_takes(pw):
+    return subprocess.run(["sudo", "-k", "-S", "-p", "", "true"], input=pw + "\n", text=True,
+                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0
+
+
+def admin_password():
+    """The administrator password from our window, asked again until sudo takes it. None when cancelled."""
+    wrong = []
+    while True:
+        pw = ask_window("admin", *wrong)
+        if pw is None or sudo_takes(pw):
+            return pw
+        wrong = ["--wrong"]
+
+
+def admin_method():
+    """How root-step.sh gets its rights: "window" (ours, then sudo -S), "pkexec" (polkit's window) or "sudo" (terminal).
+
+    Our window says what the password is for; pkexec's can only name the program it runs. It is used when the user
+    may use sudo with a password (the wheel group, the administrator of a Fedora install); otherwise polkit asks, which
+    also knows how to ask for another administrator's password."""
+    if not graphical():
+        return "sudo"
+    pkexec = "pkexec" if shutil.which("pkexec") else "sudo"
+    if not (have_window() and shutil.which("sudo")):
+        return pkexec
+    try:
+        wheel = grp.getgrnam("wheel").gr_gid in os.getgroups()
+    except KeyError:
+        wheel = False
+    if not wheel:
+        return pkexec
+    # sudo without a password (NOPASSWD): nothing to ask, and nothing to send
+    if subprocess.run(["sudo", "-k", "-n", "true"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0:
+        return "sudo"
+    return "window"
+
+
 def ask_mok_password():
-    """The one-time password of the certificate, in a window (twice, at least 8 characters). None when cancelled."""
+    """The one-time password of the certificate, in one window with two fields (at least 8 characters, typed twice).
+    None when cancelled. Without PySide6: kdialog, two windows."""
+    if have_window():
+        return ask_window("mok")
     text = ("Choose a one-time password for the Surface's signing key (at least 8 characters).\n\n"
             "You will type it once, at the next start, on a blue screen \"Perform MOK management\":\n"
             "Enroll MOK, Continue, Yes, this password, Reboot.")
@@ -527,15 +585,29 @@ class Run:
         if self.args.demo:
             threading.Thread(target=self._demo, daemon=True).start()
             return
-        # run directly (not through /bin/bash): the administrator window names it, "install-surface-overdrive"
-        cmd = [self.args.helper_cmd, self.args.helper, self.args.cert, self.args.image]
-        if self.args.helper_cmd == "sudo":
-            cmd.insert(1, "-n")
+        threading.Thread(target=self._run_helper, daemon=True).start()
+
+    def _run_helper(self):
+        # run directly (not through /bin/bash): pkexec's window names it, "install-surface-overdrive"
+        helper = [self.args.helper, self.args.cert, self.args.image]
+        pw = None
+        if self.args.helper_cmd == "window":
+            pw = admin_password()
+            if pw is None:
+                self.lines.put("FAIL the administrator password was not given (the window was closed)")
+                return
+            # -k: the password is always read, so that this line never reaches root-step.sh as the key's password
+            cmd = ["sudo", "-k", "-S", "-p", ""] + helper
+        elif self.args.helper_cmd == "sudo":
+            cmd = ["sudo", "-n"] + helper
+        else:
+            cmd = ["pkexec"] + helper
         self.proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                      text=True, bufsize=1)
-        threading.Thread(target=self._read, daemon=True).start()
-
-    def _read(self):
+        if pw is not None:
+            self.proc.stdin.write(pw + "\n")
+            self.proc.stdin.flush()
+            pw = None
         for line in self.proc.stdout:
             self.lines.put(line.rstrip("\n"))
         code = self.proc.wait()
@@ -545,7 +617,7 @@ class Run:
             self.lines.put("EXIT %d" % code)
 
     def answer_mok(self, pw):
-        if self.args.demo:
+        if self.args.demo or self.proc is None:
             return
         try:
             self.proc.stdin.write((pw or "") + "\n")
@@ -714,7 +786,7 @@ def main(argv=None):
     if not args.demo and not (args.cert and args.helper and args.image):
         ap.error("--cert, --helper and --image are needed (or --demo)")
     locale.setlocale(locale.LC_ALL, "")
-    args.helper_cmd = "pkexec" if graphical() and shutil.which("pkexec") else "sudo"
+    args.helper_cmd = "sudo" if args.demo else admin_method()
     if not args.demo and args.helper_cmd == "sudo":
         print("Administrator password (no desktop here, so in the terminal):")
         if subprocess.run(["sudo", "-v"]).returncode != 0:

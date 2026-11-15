@@ -2,9 +2,11 @@ import importlib.util
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
 import textwrap
 import unittest
+import unittest.mock
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -87,6 +89,72 @@ class ProgressTest(unittest.TestCase):
         self.assertEqual((p.mok, p.mok_why), ("failed", "no password"))
         p.feed("FAIL rpm-ostree rebase ended with status 1")
         self.assertEqual(p.failed, "rpm-ostree rebase ended with status 1")
+
+
+aspec = importlib.util.spec_from_file_location("ask", ROOT / "installer" / "ask.py")
+ask = importlib.util.module_from_spec(aspec)
+aspec.loader.exec_module(ask)
+
+
+class AskTest(unittest.TestCase):
+    def test_one_time_password_rules(self):
+        self.assertIn("8", ask.mok_problem("short", "short"))
+        self.assertIn("again", ask.mok_problem("longenough1", ""))
+        self.assertIn("differ", ask.mok_problem("longenough1", "longenough2"))
+        self.assertIn("English", ask.mok_problem("pass word1", "pass word1"))
+        self.assertIn("English", ask.mok_problem("perché123", "perché123"))
+        self.assertEqual(ask.mok_problem("longenough1", "longenough1"), "")
+
+    def test_unknown_mode_is_refused(self):
+        with open(os.devnull, "w") as null, unittest.mock.patch("sys.stderr", null):
+            self.assertEqual(ask.main(["nonsense"]), 2)
+
+    @unittest.skipUnless(importlib.util.find_spec("PySide6"), "needs PySide6")
+    def test_windows_are_built_and_grabbed(self):
+        """Both windows come up off screen: two fields for the key, one for the administrator, no clear button."""
+        with tempfile.TemporaryDirectory() as d:
+            for mode in ("admin", "mok"):
+                png = Path(d, mode + ".png")
+                env = dict(os.environ, QT_QPA_PLATFORM="offscreen", OVERDRIVE_ASK_GRAB=str(png))
+                out = subprocess.run([sys.executable, str(ROOT / "installer" / "ask.py"), mode], env=env,
+                                     capture_output=True, text=True, timeout=60)
+                self.assertEqual(out.returncode, 0, out.stderr)
+                self.assertEqual(out.stdout, "")
+                self.assertGreater(png.stat().st_size, 2000)
+
+
+class AdminMethodTest(unittest.TestCase):
+    def method(self, graphical=True, window=True, wheel=True, nopasswd=False, pkexec=True):
+        gid = 10
+        with unittest.mock.patch.object(install, "graphical", lambda: graphical), \
+             unittest.mock.patch.object(install, "have_window", lambda: window), \
+             unittest.mock.patch.object(install.shutil, "which", lambda n: "/usr/bin/" + n if (n != "pkexec" or pkexec) else None), \
+             unittest.mock.patch.object(install.grp, "getgrnam", lambda n: unittest.mock.Mock(gr_gid=gid)), \
+             unittest.mock.patch.object(install.os, "getgroups", lambda: [gid] if wheel else [1000]), \
+             unittest.mock.patch.object(install.subprocess, "run", lambda *a, **k: unittest.mock.Mock(returncode=0 if nopasswd else 1)):
+            return install.admin_method()
+
+    def test_an_administrator_gets_our_window(self):
+        self.assertEqual(self.method(), "window")
+
+    def test_other_cases(self):
+        self.assertEqual(self.method(graphical=False), "sudo")
+        self.assertEqual(self.method(window=False), "pkexec")
+        self.assertEqual(self.method(wheel=False), "pkexec")
+        self.assertEqual(self.method(nopasswd=True), "sudo")
+        self.assertEqual(self.method(window=False, pkexec=False), "sudo")
+
+    def test_a_wrong_password_is_asked_again(self):
+        asked = []
+        answers = iter(["wrong", "right"])
+        with unittest.mock.patch.object(install, "ask_window", lambda mode, *more: asked.append(more) or next(answers)), \
+             unittest.mock.patch.object(install, "sudo_takes", lambda pw: pw == "right"):
+            self.assertEqual(install.admin_password(), "right")
+        self.assertEqual(asked, [(), ("--wrong",)])
+
+    def test_a_closed_window_gives_nothing(self):
+        with unittest.mock.patch.object(install, "ask_window", lambda mode, *more: None):
+            self.assertIsNone(install.admin_password())
 
 
 @unittest.skipUnless(shutil.which("unshare") and subprocess.run(["unshare", "-r", "true"]).returncode == 0,

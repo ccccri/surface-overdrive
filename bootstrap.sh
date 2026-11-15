@@ -5,12 +5,13 @@
 #
 # What happens:
 #   1. this script checks that this is Fedora Kinoite (on a Surface Go) and fetches the installer (installer/install.py,
-#      installer/root-step.sh) and the module signing certificate;
-#   2. the installer's screen shows the machine and asks for the administrator password once, in a window (pkexec; in
-#      the terminal with sudo when there is no desktop);
-#   3. as the administrator (root-step.sh): when Secure Boot is on and the certificate is not enrolled yet, a window asks
-#      for a one-time password and the certificate is queued for enrolment (MOK); then the system switches to the image
-#      (rpm-ostree rebase), downloaded now and used at the next start. The screen follows it with a little show and the
+#      installer/ask.py, installer/root-step.sh) and the module signing certificate;
+#   2. the installer's screen shows the machine and asks for the administrator password once, in a window of its own
+#      that says what it is for (installer/ask.py, then sudo; polkit's window when the user is not an administrator, the
+#      terminal when there is no desktop);
+#   3. as the administrator (root-step.sh): when Secure Boot is on and the certificate is not enrolled yet, one window
+#      asks for a one-time password (typed twice) and the certificate is queued for enrolment (MOK); then the system
+#      switches to the image (rpm-ostree rebase), downloaded now and used at the next start. The screen follows it with a little show and the
 #      numbers (percentage, layer, amounts, speed, time left); rpm-ostree's whole output is in ~/surface-overdrive-install.log;
 #   4. you restart: only if the certificate was queued, the blue "MOK management" screen appears once (Enroll MOK, type
 #      the one-time password);
@@ -44,7 +45,8 @@ fi
 dir=$(mktemp -d /tmp/surface-overdrive-installer.XXXX)
 trap 'rm -rf "$dir"' EXIT
 printf 'Fetching the installer...\n'
-for f in installer/install.py:install.py installer/root-step.sh:install-surface-overdrive ci/mok.der:surface-overdrive-key.der; do
+for f in installer/install.py:install.py installer/ask.py:ask.py installer/root-step.sh:install-surface-overdrive \
+         ci/mok.der:surface-overdrive-key.der; do
     curl -fsSL --retry 3 "$RAW/${f%%:*}" -o "$dir/${f#*:}" || die "could not download ${f%%:*} (is the network up?)"
 done
 chmod 755 "$dir/install-surface-overdrive"

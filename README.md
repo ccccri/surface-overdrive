@@ -21,8 +21,9 @@ On a freshly installed Fedora Kinoite, as the normal user:
 
     curl -L ccccri.github.io | bash
 
-`bootstrap.sh` checks the machine and starts the installer (`installer/`): one administrator password in a window, the
-module key queued for enrolment only when it is not enrolled yet (its one-time password in a window too), and the switch
+`bootstrap.sh` checks the machine and starts the installer (`installer/`): one administrator password in a window that says
+what it is for, the module key queued for enrolment only when it is not enrolled yet (its one-time password in one
+window, typed twice), and the switch
 to the image, followed on screen by a little show and the numbers (percentage, layer, speed, time left). After one reboot
 (the blue MOK screen only the first time on a machine) the tablet runs Surface Overdrive. `python3 installer/install.py
 --demo` plays the show without installing anything.
