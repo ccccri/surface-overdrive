@@ -18,6 +18,17 @@ What was added, what broke, and what fixed it. Newest first. "Verified" means tr
   now keeps the screen on and the machine awake while it runs (`kde-inhibit --power --screenSaver` around a `tail
   --pid` of the installer: released when it ends, however it ends). Checked on Plasma: inhibition listed while the
   process lives, gone after, no process left.
+- "About this System" scrolled in two halves on a fresh install. At the 145% scale Plasma picks there the window is 1242
+  points wide; our sensors took 26 grid units and left Plasma's form too narrow for labels next to values (Kirigami 6.31
+  collapses it under about 32 grid units), so every label went above its value and the page was twice as long. The
+  sensors take 19 grid units now: the whole page shows at once and nothing drags. The firmware line is a form entry
+  again at the end of the hardware list (Plasma 6.8 no longer uses a FormLayout, so it had fallen back to the sensors'
+  box). Seen on the tablet. Still open: the serial number keeps Plasma's "Show" button (our dots with show and copy
+  buttons are not put in place on Plasma 6.8).
+- Sensor readers piled up (found while looking at that page): the page started `overdrivectl sensors` every 0.4 s
+  without waiting for the answer, each asks the sensor hub seven values one after the other, and on a slow moment they
+  queued behind the hub: 627 processes, load 570, the memory full, an empty panel. One reading at a time now, given up
+  after 10 s; the same guard on the rear camera's focus poll of the Cameras page (every 0.3 s).
 - A default Konsole window on the tablet is 110x28 characters: the show fits (88x26 at least) without resizing it.
 
 ## 2026-11-14

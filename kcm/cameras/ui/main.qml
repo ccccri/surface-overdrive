@@ -47,6 +47,8 @@ Kirigami.Page {
         target: kcm
         function onCallFinished(tag, ok, output, error) {
             if (tag === "poll") {
+                root.polling = false
+                pollGiveUp.stop()
                 if (!ok) return
                 try {
                     const r = JSON.parse(output)
@@ -86,7 +88,14 @@ Kirigami.Page {
     Timer { id: toBottom; interval: 3000; onTriggered: scroll.contentItem.contentY = Math.max(0, scroll.contentItem.contentHeight - scroll.height) }   // "--args bottom": to check the end of the list from a script
     Component.onDestruction: preview.stop()
     onVisibleChanged: if (!visible) preview.stop()
-    Timer { interval: 300; repeat: true; running: preview.running && root.cam === "rear"; onTriggered: root.cmd("poll", ["describe"]) }
+    // One poll at a time: started without waiting for the answer they pile up on a slow moment (seen with the sensors of
+    // "About this System", 2026-11-15). A poll that never answers is given up after 10 s.
+    property bool polling: false
+    Timer { id: pollGiveUp; interval: 10000; onTriggered: root.polling = false }
+    Timer {
+        interval: 300; repeat: true; running: preview.running && root.cam === "rear"
+        onTriggered: { if (root.polling) return; root.polling = true; pollGiveUp.restart(); root.cmd("poll", ["describe"]) }
+    }
 
     component NameDialog: QQC2.Dialog {
         id: nd

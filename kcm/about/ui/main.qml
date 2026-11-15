@@ -10,13 +10,63 @@ StockWithSide {
     id: page
     stock: "kcm_about-distro"
 
-    // The lists of the Plasma page are forms (label on the left, value on the right): the last one is the hardware list, and a label
-    // given to it becomes one more line. If that does not work on a future Plasma, the firmware stays in a box with the sensors.
+    // The Plasma page is a form that puts each label next to its value only when it is wide enough (about 32 grid units, Kirigami
+    // 6.31): narrower, every label goes above its value and the page gets twice as long and scrolls. The sensors do with less, so
+    // that on the tablet (1242 points wide at the 145% scale a fresh install picks) the whole page shows at once, nothing to scroll.
+    sideWidth: Kirigami.Units.gridUnit * 19
+
+    // The lists of the Plasma page are form groups made of entries (Kirigami.FormEntry since Plasma 6.8, a FormLayout before): one
+    // more entry after the last one of the hardware list shows the firmware. If that does not work on a future Plasma, the firmware
+    // stays in a box with the sensors.
     function forms(item, depth, found) {
         if (!item || depth > 10) return found
         if (String(item).indexOf("FormLayout") >= 0) found.push(item)
         for (let i = 0; item.children && i < item.children.length; i++) forms(item.children[i], depth + 1, found)
         return found
+    }
+    function entries(item, depth, found) {
+        if (!item || depth > 30) return found
+        if (item.contentItem !== undefined && item.subtitle !== undefined && item.leadingItems !== undefined && item.trailingItems !== undefined) {
+            found.push(item)
+            return found
+        }
+        for (let i = 0; item.children && i < item.children.length; i++) entries(item.children[i], depth + 1, found)
+        return found
+    }
+    property bool firmwareAdded: false
+    property int seenEntries: -1
+    function addFirmware() {
+        if (firmwareAdded || !kcm.stockPage) return
+        try {
+            const content = kcm.stockPage.flickable.contentItem
+            const found = forms(content, 0, [])
+            if (found.length > 0) {
+                firmwareLine.createObject(found[found.length - 1])
+            } else {
+                // Plasma adds lines for a moment after the page opens (the machine's names come from a helper): ours goes in
+                // once their number has stopped changing, so that it is the last one
+                const list = entries(content, 0, [])
+                if (list.length === 0 || list.length !== seenEntries) { seenEntries = list.length; return }
+                const last = list[list.length - 1]
+                const entry = Qt.createQmlObject('import QtQuick.Controls as QQC2\nimport org.kde.kirigami as Kirigami\n'
+                    + 'Kirigami.FormEntry { id: e; property string value; visible: value.length > 0; contentItem: QQC2.Label { text: e.value } }', last.parent)
+                entry.title = i18n("Firmware Version:")
+                entry.value = Qt.binding(() => sensors.s.device.firmware ? sensors.s.device.firmware + " (" + (sensors.s.device.firmware_date || "") + ")" : "")
+            }
+            firmwareAdded = true
+            sensors.showFirmware = false
+        } catch (e) {
+            firmwareAdded = true                              // once: the box with the sensors keeps it
+            console.warn("Surface Control: could not add the firmware to the hardware list:", e)
+        }
+    }
+    // Nothing to drag when everything shows: the page stays still.
+    function still() {
+        try {
+            const f = kcm.stockPage.flickable
+            f.boundsBehavior = Flickable.StopAtBounds
+            f.interactive = Qt.binding(() => f.contentHeight > f.height + 1)
+        } catch (e) {}
     }
     // Hidden entries of the Plasma page (the serial number) come with a "Show" button that opens a dialog, placed off centre inside
     // our page. Each of them gets instead two small buttons on its own line: show or hide the value in place, and copy it. Every
@@ -46,17 +96,8 @@ StockWithSide {
             hiddenControls.createObject(row, { label: label, sign: button })
         }
     }
-    Timer { interval: 1000; repeat: true; running: page.visible; triggeredOnStart: true; onTriggered: page.reworkHidden() }
-    onLoaded: stockPage => {
-        try {
-            const found = forms(stockPage.flickable.contentItem, 0, [])
-            if (found.length === 0) return
-            firmwareLine.createObject(found[found.length - 1])
-            sensors.showFirmware = false
-        } catch (e) {
-            console.warn("Surface Control: could not add the firmware to the hardware list:", e)
-        }
-    }
+    Timer { interval: 1000; repeat: true; running: page.visible; triggeredOnStart: true; onTriggered: { page.reworkHidden(); page.addFirmware() } }
+    onLoaded: stockPage => { page.still(); page.addFirmware() }
 
     Sensors { id: sensors; live: page.visible }
     Component {
