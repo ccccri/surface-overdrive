@@ -25,7 +25,8 @@ What was added, what broke, and what fixed it. Newest first. "Verified" means tr
   again at the end of the hardware list (Plasma 6.8 no longer uses a FormLayout, so it had fallen back to the sensors'
   box). The serial number has its dots with the show and copy buttons again (Plasma 6.8 nests its "Show" button deeper
   than the search went). What is left of the height is shared above and below, so the list and the sensors sit in the
-  middle of the page, and the sensors have roomier rows and a larger light value. Seen on the tablet.
+  middle of the page, and the sensors have roomier rows and a larger light value. The sensors panel no longer drags up
+  and down when it shows whole (it bounced under the finger). Seen on the tablet.
 - Sensor readers piled up (found while looking at that page): the page started `overdrivectl sensors` every 0.4 s
   without waiting for the answer, each asks the sensor hub seven values one after the other, and on a slow moment they
   queued behind the hub: 627 processes, load 570, the memory full, an empty panel. The page now keeps ONE reader for

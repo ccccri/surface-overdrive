@@ -54,6 +54,12 @@ Kirigami.Page {
             Layout.preferredHeight: wrapper.wide ? -1 : wrapper.height * 0.5
             contentWidth: availableWidth
             QQC2.ScrollBar.horizontal.policy: QQC2.ScrollBar.AlwaysOff
+            // nothing to drag when the whole panel shows (it moved up and down under the finger, overshoot and bounce)
+            Component.onCompleted: {
+                const area = scroll.contentItem
+                area.boundsBehavior = Flickable.StopAtBounds
+                area.interactive = Qt.binding(() => area.contentHeight > area.height + 1)
+            }
             Item {
                 width: scroll.availableWidth
                 implicitHeight: sideColumn.implicitHeight + 2 * Kirigami.Units.largeSpacing
