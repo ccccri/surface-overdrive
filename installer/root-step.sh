@@ -12,9 +12,14 @@ cert=${1:?usage: root-step.sh <cert> <image>}
 image=${2:?}
 [ "$(id -u)" = 0 ] || { echo "FAIL not run as the administrator"; exit 1; }
 
-if mokutil --sb-state 2>/dev/null | grep -qi 'SecureBoot enabled'; then
+# mokutil --test-key ends with status 1 when the key is enrolled or queued (seen on mokutil 0.7.2, 2026-11-15: with
+# pipefail a "mokutil | grep" then failed although the key had been queued), so its text is read, never its status
+key_state() { mokutil --test-key "$cert" 2>&1 || true; }
+key_known() { grep -qi -E 'already in the enrollment request|already enrolled' <<<"$(key_state)"; }
+
+if grep -qi 'SecureBoot enabled' <<<"$(mokutil --sb-state 2>/dev/null || true)"; then
     # as the administrator: MokListRT is readable by root only (as a user the test failed and the key was asked again)
-    test=$(mokutil --test-key "$cert" 2>&1)
+    test=$(key_state)
     if grep -qi 'already enrolled' <<<"$test"; then
         echo "MOK enrolled"
     elif grep -qi 'already in the enrollment request' <<<"$test"; then
@@ -24,16 +29,17 @@ if mokutil --sb-state 2>/dev/null | grep -qi 'SecureBoot enabled'; then
         IFS= read -r pw || pw=""
         if [ "${#pw}" -lt 8 ]; then
             echo "MOK failed no password of at least 8 characters"
-        elif out=$(printf '%s\n%s\n' "$pw" "$pw" | mokutil --import "$cert" 2>&1) &&
-             mokutil --test-key "$cert" 2>&1 | grep -qi -E 'already in the enrollment request|already enrolled'; then
-            echo "MOK queued"
         else
-            echo "MOK failed $(tr '\n' ' ' <<<"$out" | cut -c1-200)"
+            out=$(printf '%s\n%s\n' "$pw" "$pw" | mokutil --import "$cert" 2>&1) || true
+            if key_known; then
+                echo "MOK queued"
+            else
+                echo "MOK failed $(tr '\n' ' ' <<<"$out" | cut -c1-200)"
+            fi
         fi
         unset pw
         # without the certificate the image's kernel modules would not load: stop before switching
-        mokutil --test-key "$cert" 2>&1 | grep -qi -E 'already in the enrollment request|already enrolled' ||
-            { echo "FAIL the certificate could not be registered"; exit 1; }
+        key_known || { echo "FAIL the certificate could not be registered"; exit 1; }
     fi
 else
     echo "MOK off"

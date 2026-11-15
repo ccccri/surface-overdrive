@@ -92,7 +92,8 @@ class ProgressTest(unittest.TestCase):
 @unittest.skipUnless(shutil.which("unshare") and subprocess.run(["unshare", "-r", "true"]).returncode == 0,
                      "needs user namespaces (unshare -r) to run root-step.sh as a pretend root")
 class RootStepTest(unittest.TestCase):
-    """root-step.sh with a pretend mokutil and rpm-ostree on PATH, run as root of a user namespace."""
+    """root-step.sh with a pretend mokutil and rpm-ostree on PATH, run as root of a user namespace. The pretend
+    mokutil ends --test-key with status 1 for a known key, as the real one does."""
 
     def run_step(self, enrolled, password="", sb=True, rebase_status=0):
         with tempfile.TemporaryDirectory() as d:
@@ -107,8 +108,8 @@ class RootStepTest(unittest.TestCase):
                   --sb-state) echo "SecureBoot %s";;
                   --test-key)
                     case "$(cat $state)" in
-                      yes) echo "$2 is already enrolled";;
-                      queued) echo "$2 is already in the enrollment request";;
+                      yes) echo "$2 is already enrolled"; exit 1;;
+                      queued) echo "$2 is already in the enrollment request"; exit 1;;
                       *) echo "$2 is not enrolled";;
                     esac;;
                   --import)
