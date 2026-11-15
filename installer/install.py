@@ -453,6 +453,21 @@ def fy_safe(ground):
 # The run
 
 
+def keep_awake():
+    """The screen stays on and the machine awake until this program ends (Fedora dims and locks after a few minutes,
+    and a suspend would cut the download). KDE's own kde-inhibit holds the inhibition for as long as its command
+    runs: that command is a tail which waits for our process to end, so nothing is left behind however we stop.
+    (Plasma lists the inhibition five seconds after it was asked.)"""
+    if not (graphical() and shutil.which("kde-inhibit")):
+        return None
+    try:
+        return subprocess.Popen(["kde-inhibit", "--power", "--screenSaver", "tail", "--pid=%d" % os.getpid(), "-f", "/dev/null"],
+                                stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                start_new_session=True)
+    except OSError:
+        return None
+
+
 def graphical():
     return bool(os.environ.get("WAYLAND_DISPLAY") or os.environ.get("DISPLAY"))
 
@@ -791,6 +806,7 @@ def main(argv=None):
         print("Administrator password (no desktop here, so in the terminal):")
         if subprocess.run(["sudo", "-v"]).returncode != 0:
             return 1
+    awake = keep_awake()      # kept in a name: the inhibition lasts as long as this program
     run = Run(args)
     try:
         result = curses.wrapper(run)

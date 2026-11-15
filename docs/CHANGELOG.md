@@ -14,6 +14,10 @@ What was added, what broke, and what fixed it. Newest first. "Verified" means tr
   from stock Kinoite; the password goes to `sudo -k -S`, checked first and asked again when wrong). polkit's window stays
   for a user outside the wheel group, kdialog when PySide6 is missing. The one-time password of the key is one window
   with two fields (it was two kdialog windows), each with one large "show" button and no "clear" button next to it.
+- Installer: the screen went off during the install (stock Fedora dims and locks after a few minutes). The installer
+  now keeps the screen on and the machine awake while it runs (`kde-inhibit --power --screenSaver` around a `tail
+  --pid` of the installer: released when it ends, however it ends). Checked on Plasma: inhibition listed while the
+  process lives, gone after, no process left.
 - A default Konsole window on the tablet is 110x28 characters: the show fits (88x26 at least) without resizing it.
 
 ## 2026-11-14

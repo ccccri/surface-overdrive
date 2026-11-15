@@ -157,6 +157,24 @@ class AdminMethodTest(unittest.TestCase):
             self.assertIsNone(install.admin_password())
 
 
+class KeepAwakeTest(unittest.TestCase):
+    def test_inhibitor_follows_this_process(self):
+        started = []
+        with unittest.mock.patch.object(install, "graphical", lambda: True), \
+             unittest.mock.patch.object(install.shutil, "which", lambda n: "/usr/bin/" + n), \
+             unittest.mock.patch.object(install.subprocess, "Popen", lambda cmd, **k: started.append(cmd) or "proc"):
+            self.assertEqual(install.keep_awake(), "proc")
+        self.assertEqual(started[0][:3], ["kde-inhibit", "--power", "--screenSaver"])
+        self.assertIn("--pid=%d" % os.getpid(), started[0])
+
+    def test_nothing_without_a_desktop_or_the_tool(self):
+        with unittest.mock.patch.object(install, "graphical", lambda: False):
+            self.assertIsNone(install.keep_awake())
+        with unittest.mock.patch.object(install, "graphical", lambda: True), \
+             unittest.mock.patch.object(install.shutil, "which", lambda n: None):
+            self.assertIsNone(install.keep_awake())
+
+
 @unittest.skipUnless(shutil.which("unshare") and subprocess.run(["unshare", "-r", "true"]).returncode == 0,
                      "needs user namespaces (unshare -r) to run root-step.sh as a pretend root")
 class RootStepTest(unittest.TestCase):
