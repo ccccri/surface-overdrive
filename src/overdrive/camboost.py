@@ -8,7 +8,9 @@ power-profiles-daemon's HoldProfile (tuned-ppd on Fedora), the way games do; the
 when this service ends: the daemon drops the holds of a connection that goes away). The profile the user chose comes
 back by itself.
 """
+import codecs
 import json
+import os
 import subprocess
 import sys
 
@@ -28,10 +30,12 @@ class CameraWatch:
         self._buffer = ""
 
     def feed(self, text):
-        """Add output of pw-dump (a line or more); returns True when a camera streams. The text is decoded only when a
-        line closes a top-level array ("]" alone, as pw-dump writes it): the first dump is large."""
+        """Add output of pw-dump (any piece of it); returns True when a camera streams. The text is decoded only when a
+        line closes a top-level array ("]" at the start of a line, as pw-dump writes it): the first dump is large."""
         self._buffer += text
-        if not any(line.rstrip() == "]" for line in text.splitlines()):
+        # the text may be any piece of the output, cut anywhere: the closing line is looked for where it can have arrived
+        tail = self._buffer[-(len(text) + 2):]
+        if not (tail.startswith("]") or "\n]" in tail):
             return bool(self.running)
         while True:
             start = self._buffer.find("[")
@@ -106,14 +110,23 @@ def main():
     bus.signal_subscribe(BUS_NAME, BUS_NAME, "ProfileReleased", OBJECT, None, Gio.DBusSignalFlags.NONE, on_released)
 
     watch = CameraWatch()
-    proc = subprocess.Popen(["pw-dump", "--monitor", "--no-colors"], stdout=subprocess.PIPE, text=True, bufsize=1)
+    # Everything pw-dump has written is taken at each wake-up, straight from the pipe. Reading one line per wake-up
+    # through Python's buffered file left the rest of a chunk in that buffer, unseen until PipeWire said something else:
+    # the profile was then held or released one event late (found reading the code, 2026-11-15).
+    proc = subprocess.Popen(["pw-dump", "--monitor", "--no-colors"], stdout=subprocess.PIPE)
+    fd = proc.stdout.fileno()
+    os.set_blocking(fd, False)
+    decode = codecs.getincrementaldecoder("utf-8")("replace").decode
 
     def on_output(_source, _condition):
-        line = proc.stdout.readline()
-        if not line:
+        try:
+            data = os.read(fd, 1 << 16)
+        except BlockingIOError:
+            return True
+        if not data:
             loop.quit()                  # PipeWire went away: systemd starts the service again
             return False
-        running = watch.feed(line)
+        running = watch.feed(decode(data))
         if running and state["cookie"] is None:
             hold()
         elif not running and state["cookie"] is not None:
@@ -121,7 +134,7 @@ def main():
         return True
 
     loop = GLib.MainLoop()
-    GLib.io_add_watch(proc.stdout, GLib.PRIORITY_DEFAULT, GLib.IO_IN | GLib.IO_HUP | GLib.IO_ERR, on_output)
+    GLib.io_add_watch(fd, GLib.PRIORITY_DEFAULT, GLib.IO_IN | GLib.IO_HUP | GLib.IO_ERR, on_output)
     try:
         loop.run()
     finally:

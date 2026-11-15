@@ -37,5 +37,20 @@ class CameraWatchTest(unittest.TestCase):
         self.assertTrue(w.feed(lines[-1]))
 
 
+    def test_output_cut_anywhere(self):
+        """The service feeds whatever the pipe gave, cut at any byte: every cut of two dumps gives the same answer."""
+        text = dump([node(5, "libcamera_input.__SB_.PCI0.LNK1", "suspended")]) + \
+            dump([{"id": 5, "type": "PipeWire:Interface:Node", "info": {"state": "running"}}])
+        for cut in range(1, len(text)):
+            w = camboost.CameraWatch()
+            w.feed(text[:cut])
+            self.assertTrue(w.feed(text[cut:]), "cut at %d" % cut)
+        for size in (1, 7, 64):
+            w = camboost.CameraWatch()
+            for i in range(0, len(text), size):
+                last = w.feed(text[i:i + size])
+            self.assertTrue(last, "pieces of %d" % size)
+
+
 if __name__ == "__main__":
     unittest.main()

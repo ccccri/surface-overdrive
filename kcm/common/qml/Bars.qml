@@ -4,13 +4,18 @@ import QtQuick.Controls as QQC2
 import QtQuick.Window
 import org.kde.kirigami as Kirigami
 
-// Two touch-screen fixes for every page, ours and the pages of Plasma inside them, under `target`:
+// Three touch-screen fixes for every page, ours and the pages of Plasma inside them, under `target`:
 //  - Scroll bars that stay in sight. On a touch screen Plasma's bars show only while one scrolls and then fade: here every
 //    vertical bar stays for as long as there is something to scroll, like the one of the sidebar of System Settings.
 //  - Drop-down lists that keep a stray touch. The list of a ComboBox is not modal: a touch outside it closes it and also
 //    goes on to whatever lies under it, so a finger that misses the list (or taps beside it to close it) moved the slider
 //    underneath, and it took several taps to get anything done. Made modal (without dimming), a touch outside only closes it;
 //    a touch on the list's own button closes it too, as before.
+//  - Areas that stay still when they have nothing to scroll. A scrolling area follows the finger past its ends and bounces
+//    back even when everything in it shows, so pages that fit moved up and down under the finger, and a drag taken by such
+//    an area did not reach the list inside it (seen on "About this System" and on Plasma's Wallpaper page, 2026-11-15).
+//    Every area stops at its ends and takes drags only while its content is larger than itself. One that the page itself
+//    had switched off is left alone.
 // Pages of Plasma build their parts a moment after they load and make rows again when a device comes or goes, so the page is
 // looked through a few times at first and then every couple of seconds while its window is in front.
 Item {
@@ -19,8 +24,17 @@ Item {
     property Item target: null
     visible: false
 
+    property var stilled: new WeakSet()
     function style(item, depth) {
         if (!item || depth > 40) return
+        if (item.contentHeight !== undefined && item.contentWidth !== undefined && item.boundsBehavior !== undefined
+                && item.interactive !== undefined && !stilled.has(item)) {
+            stilled.add(item)
+            if (item.interactive) {
+                item.boundsBehavior = Flickable.StopAtBounds
+                item.interactive = Qt.binding(() => item.contentHeight > item.height + 1 || item.contentWidth > item.width + 1)
+            }
+        }
         if (item.policy !== undefined && item.size !== undefined && item.orientation !== undefined) {
             if (item.orientation === Qt.Vertical && item.objectName !== "overdriveBar") {
                 item.objectName = "overdriveBar"

@@ -395,20 +395,78 @@ def mtimes():
     return out
 
 
+class ConfigWatch:
+    """Waits until one of the wallpaper settings files is written, asleep in the kernel meanwhile (inotify on the
+    configuration folder: Plasma saves by writing a new file and renaming it over the old one, so the folder is watched,
+    not the files). Before, the files' dates were looked at every 4 seconds for the whole session; this wakes up only
+    when something in the folder is saved. Without inotify (it cannot be set up) it falls back to those looks."""
+
+    IN_CLOSE_WRITE, IN_MOVED_TO, IN_CREATE = 0x8, 0x80, 0x100
+
+    def __init__(self, folder, names):
+        self.folder, self.names, self.fd = folder, set(names), -1
+        try:
+            import ctypes
+            libc = ctypes.CDLL(None, use_errno=True)
+            fd = libc.inotify_init1(os.O_CLOEXEC)
+            if fd >= 0:
+                mask = self.IN_CLOSE_WRITE | self.IN_MOVED_TO | self.IN_CREATE
+                if libc.inotify_add_watch(fd, os.fsencode(folder), mask) >= 0:
+                    self.fd = fd
+                else:
+                    os.close(fd)
+        except (OSError, AttributeError):
+            pass
+
+    @staticmethod
+    def names_in(data):
+        """File names of the events in what was read from inotify."""
+        import struct
+        found, at = [], 0
+        while at + 16 <= len(data):
+            _wd, _mask, _cookie, length = struct.unpack_from("iIII", data, at)
+            found.append(os.fsdecode(data[at + 16:at + 16 + length].split(b"\0", 1)[0]))
+            at += 16 + length
+        return found
+
+    def wait(self):
+        """Returns once a watched file may have changed."""
+        if self.fd < 0:
+            time.sleep(4)
+            return
+        while True:
+            try:
+                data = os.read(self.fd, 65536)
+            except InterruptedError:
+                continue
+            except OSError:
+                os.close(self.fd)
+                self.fd = -1                             # from now on: the looks every few seconds
+                return
+            if self.names & set(self.names_in(data)):
+                return
+
+
 def main():
-    """Check now, then every time the wallpaper settings are saved (polling their files every few seconds costs nothing)."""
+    """Check now, then every time the wallpaper settings are saved."""
     from PySide6.QtGui import QGuiApplication           # image plugins (JPEG XL, HEIC...) need an application object
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-    app = QGuiApplication(sys.argv[:1])                  # noqa: F841 (kept alive)
+    app = QGuiApplication(sys.argv[:1])                  # it must live as long as the pictures are read (used by the loop below)
     for _ in range(30):                                  # Plasma may still be starting
         if plasma("print(1)") is not None:
             break
         time.sleep(2)
+    watch = ConfigWatch(config_dir(), (APPLETS, LOCKER))
     last = None
-    while True:
+    while app is not None:
         now = mtimes()
         if now != last:
             time.sleep(1)                                # let the settings finish writing
             check_once()
             last = mtimes()
-        time.sleep(4)
+            continue                                     # what was saved meanwhile (our own changes too) is looked at first
+        watch.wait()
+
+
+if __name__ == "__main__":
+    sys.exit(main())

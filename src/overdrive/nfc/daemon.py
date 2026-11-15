@@ -142,7 +142,9 @@ def run():
             polling, poll_started = True, time.monotonic()
 
         saver = profile.saver()
-        if not adapter.nl.wait_targets(SAVER_WINDOW_S if saver else 2.0):
+        # with no tag the daemon sleeps until the next re-arm (it woke every 2 s for nothing; the kernel wakes it for a tag)
+        idle_wait = max(0.5, REARM_S - (time.monotonic() - poll_started))
+        if not adapter.nl.wait_targets(SAVER_WINDOW_S if saver else idle_wait):
             if saver:                                 # window over and no tag: switch the reader off for a while
                 adapter.stop_poll()
                 polling = False

@@ -39,6 +39,28 @@ What was added, what broke, and what fixed it. Newest first. "Verified" means tr
   scrolling area around the grid now stops at its ends and takes drags only when it has something to scroll
   (`ci/patch_plasma_defaults.py wallpaper`, on the image wallpaper's ThumbnailsComponent.qml). Checked on the tablet by
   the areas' state (outer: not interactive, grid: interactive), not yet with a finger.
+- Review of the whole project while the image built (static checks: pyflakes on all Python, ShellCheck on all scripts,
+  both clean but for unused names; then the always-running services and the pages read for the faults found today):
+  - Camera boost (the "performance" profile while a camera streams) read one line of `pw-dump --monitor` per wake-up
+    through Python's buffered file: the rest of a chunk stayed in that buffer until PipeWire said something else, so
+    the profile could be held or released one event late. It now takes everything the pipe has at each wake-up, and the
+    watcher accepts output cut anywhere (tested at every cut).
+  - Every scrolling area of our pages, and of the Plasma pages inside them, stays still when it has nothing to scroll
+    (`Bars.qml`, which already walks each page): the fault of "About this System" and of the Wallpaper page was the
+    same everywhere a page fits. The tour's "Make it yours" page too.
+  - Wallpaper fitting service: asleep in the kernel until a wallpaper settings file is saved (inotify on the
+    configuration folder) instead of looking at the files' dates every 4 s for the whole session.
+  - NFC daemon: with no tag it sleeps until the next re-arm of the reader (10 s) instead of waking every 2 s.
+  - Sound page: "Settings for" did not follow the output being edited. Its binding named the box's own list
+    (`outputs`) from inside a Binding, where that is not in scope: "ReferenceError: outputs is not defined" at every
+    open of the page (found by opening every page and reading what they logged).
+  On the tablet, measured after 4 h 52 min: our services together used 14 s of processor (NFC daemon 6.8 s, camera
+  boost 4.2 s, wallpaper 1.6 s, the others under 1 s each), no failed unit of ours, health check all ok. Tried there:
+  the wallpaper service uses 0 ms while idle and wakes on a save; the camera boost holds "performance" when the camera
+  app opens and releases it when it closes; all eight pages open without an error of ours in the log. Not seen: the
+  pages' pictures (the screen was locked and off), so the stillness of the scrolling areas is checked only on "About".
+  Not ours, left alone: three kioworker (thumbnail) crashes at exit when System Settings was killed by these tests,
+  two "binding loop" warnings of Plasma's own sound page, drkonqi's pickup service timing out.
 - A default Konsole window on the tablet is 110x28 characters: the show fits (88x26 at least) without resizing it.
 
 ## 2026-11-14

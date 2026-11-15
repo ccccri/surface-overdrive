@@ -208,7 +208,7 @@ ColumnLayout {
                     enabled: !root.d.eq.sync
                     // set once the list is in (the list changes with the port in use, see the selector of the band type)
                     Binding on currentIndex {
-                        value: Math.max(0, outputs.indexOf(root.editing))
+                        value: Math.max(0, outputBox.outputs.indexOf(root.editing))      // by id: inside a Binding the box's own properties are not in scope
                         delayed: true; restoreMode: Binding.RestoreNone
                     }
                     onActivated: i => root.editing = outputs[i]

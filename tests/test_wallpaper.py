@@ -147,3 +147,25 @@ class ScreenSize(unittest.TestCase):
             self.make(root, "card1-HDMI-A-1", "connected", "1920x1080\n")
             self.assertEqual(wallpaper.screen_size(root), wallpaper.DEFAULT_SCREEN)
             self.assertEqual(wallpaper.screen_size(os.path.join(root, "missing")), wallpaper.DEFAULT_SCREEN)
+
+
+class ConfigWatchTest(unittest.TestCase):
+    def test_wakes_on_a_save_of_a_watched_file_only(self):
+        import threading
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as d:
+            watch = wallpaper.ConfigWatch(d, ("kscreenlockerrc",))
+            if watch.fd < 0:
+                self.skipTest("no inotify here")
+            done = threading.Event()
+            threading.Thread(target=lambda: (watch.wait(), done.set()), daemon=True).start()
+            Path(d, "otherrc").write_text("x")           # not ours: still asleep
+            self.assertFalse(done.wait(0.3))
+            Path(d, "kscreenlockerrc.new").write_text("x")
+            os.rename(Path(d, "kscreenlockerrc.new"), Path(d, "kscreenlockerrc"))   # the way Plasma saves
+            self.assertTrue(done.wait(3))
+
+    def test_event_names(self):
+        import struct
+        data = struct.pack("iIII", 1, 0x80, 0, 16) + b"kscreenlockerrc\0" + struct.pack("iIII", 1, 0x8, 0, 0)
+        self.assertEqual(wallpaper.ConfigWatch.names_in(data), ["kscreenlockerrc", ""])

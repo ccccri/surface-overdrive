@@ -12,8 +12,15 @@ Page {
     description: "Everything Surface Overdrive adds lives in System Settings, next to Plasma's own pages. A few to start with:"
 
     QQC2.ScrollView {
+        id: scroll
         anchors.fill: parent
         contentWidth: availableWidth
+        // still when the whole list shows: a scrolling area follows the finger and bounces even with nothing to scroll
+        Component.onCompleted: {
+            const area = scroll.contentItem
+            area.boundsBehavior = Flickable.StopAtBounds
+            area.interactive = Qt.binding(() => area.contentHeight > area.height + 1)
+        }
 
         ColumnLayout {
             width: parent.width
