@@ -70,6 +70,9 @@ What was added, what broke, and what fixed it. Newest first. "Verified" means tr
     follow-focus`, five readings a second, paused without a preview) instead of a new overdrivectl every 0.3 s that
     described the whole camera (controls, every preset read twice) to give one number (found reading `camera.py`;
     compiled and tested off the tablet, not yet run on it).
+  - Camera app, read in full: a photo asked for just as the preview stopped (a camera switch, a stall) left its empty
+    file in the gallery, and the first frame of the next preview was saved into it; the empty file is now removed and
+    the request dropped. Applying a preset deleted meanwhile in Settings raised an error instead of doing nothing.
   - Read in full and found sound: the equalizer and the camera settings module.
   On the tablet, measured after 4 h 52 min: our services together used 14 s of processor (NFC daemon 6.8 s, camera
   boost 4.2 s, wallpaper 1.6 s, the others under 1 s each), no failed unit of ours, health check all ok. Tried there:

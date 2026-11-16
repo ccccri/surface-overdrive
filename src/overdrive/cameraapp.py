@@ -476,7 +476,7 @@ def main():
                 return
             try:
                 size_changes = cs._preset_profile(cam, pid).get("min_width") != cs.read_profile(cam).get("min_width")
-            except (ValueError, OSError):
+            except (ValueError, OSError, AttributeError):    # AttributeError: the preset is gone (deleted in Settings meanwhile)
                 return
             if not size_changes:
                 cs.apply_preset(cam, pid)
@@ -642,6 +642,15 @@ def main():
             """The preview stops on a thread: when the camera service went away under it (restarted, or killed), its
             pipewiresrc waits in negotiation and set_state blocked the window until KWin closed it as not responding
             (seen twice on 2026-11-07, the stack in wait_negotiated)."""
+            # a photo asked for and not taken yet will not come from this preview: its empty file (the name was taken at
+            # the tap) stayed in the gallery, and the next preview's first frame was saved into it, a photo nobody took
+            wanted, self._photo_wanted = self._photo_wanted, ""
+            if wanted:
+                try:
+                    if os.path.getsize(wanted) == 0:
+                        os.remove(wanted)
+                except OSError:
+                    pass
             if self._preview is not None:
                 pipe, self._preview = self._preview, None
                 self._preview_stopping = threading.Thread(target=pipe.set_state, args=(Gst.State.NULL,), daemon=True)
