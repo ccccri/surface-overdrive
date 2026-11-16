@@ -4,6 +4,13 @@ What was added, what broke, and what fixed it. Newest first. "Verified" means tr
 
 ## 2026-11-16
 
+- The floating keyboard prototype is removed (`src/overdrive/osk/`, `overdrive-osk`, its menu entry). Two reasons. The
+  owner tried it and wants Plasma's own keyboard with the additions instead (being made: see the next entries). And
+  its package `overdrive/osk/` hid the module `overdrive/osk.py` of the lock-screen keyboard guard: in the images of
+  a7f07c8, b748cba and 69e75cc `overdrive-osk-guard` dies at its start ("cannot import name 'main'"), so the keyboard
+  switched off in the panel does not come back on the lock screen and the PIN pad is not reset at an unlock. Found by
+  reading, before any of those images was started on the Surface. `tests/test_launchers.py` now imports what every
+  launcher of the image names and refuses a package beside a module of the same name.
 - The image 45.20261116.0 had no PySide6: Fedora's base image dropped `python3-pyside6` with Plasma 6.8.3, and the
   camera app and the floating keyboard did not start ("No module named 'PySide6'"; seen on the Surface after its
   restart). The Containerfile now installs it by name, with `python3-gobject` and `gstreamer1-plugins-good-qt6`, and the
