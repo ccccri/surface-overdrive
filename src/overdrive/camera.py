@@ -8,7 +8,9 @@ import glob
 import json
 import os
 import re
+import select
 import subprocess
+import sys
 import time
 
 from . import userconfig
@@ -154,7 +156,6 @@ def _default(cam, key):
 
 def focus_state(cam):
     """Lens position and sharpness the autofocus last reported (the patched libcamera writes them while a camera is open)."""
-    import time
     path = os.path.join(STATE_DIR, "surface-camera-%s.state" % SENSORS[cam])
     out = {}
     try:
@@ -166,6 +167,32 @@ def focus_state(cam):
     except (OSError, ValueError):
         pass
     return out
+
+
+def follow_focus(cam, out=sys.stdout, commands=sys.stdin, period=0.2, wait=None):
+    """The focus meter of the Cameras page: ONE process that prints {"focus": {...}} five times a second while its
+    standard input stays open. The page used to start `overdrivectl camera rear describe` every 0.3 s for it: a Python
+    start-up each time, and the whole description (controls, every preset read twice) to take one number out of it.
+    Commands, one a line: "pause" (no preview: nothing is read), "go". End of input ends it."""
+    def default_wait(seconds):
+        ready, _, _ = select.select([commands], [], [], seconds)
+        return commands.readline() if ready else None
+    wait = wait or default_wait
+    running = True
+    try:
+        while True:
+            line = wait(period if running else 3600)
+            if line == "":
+                return 0
+            if line is not None:
+                word = line.strip()
+                running = False if word == "pause" else True if word == "go" else running
+                continue
+            if running:
+                out.write(json.dumps({"focus": focus_state(cam)}) + "\n")
+                out.flush()
+    except (BrokenPipeError, KeyboardInterrupt):
+        return 0
 
 
 def settings(cam):

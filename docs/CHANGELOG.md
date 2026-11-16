@@ -66,6 +66,11 @@ What was added, what broke, and what fixed it. Newest first. "Verified" means tr
     the contents are left out (found reading `maintenance.py`; tested with a Wi-Fi tag's lines).
   - Camera preview of the settings page: of several frames arriving together only the newest is copied, and the page
     is told "there is a picture" once, not at each of the 30 frames a second (compiled; not yet run on the tablet).
+  - Cameras page, focus meter of the rear camera: one reader for the life of the page (`overdrivectl camera rear
+    follow-focus`, five readings a second, paused without a preview) instead of a new overdrivectl every 0.3 s that
+    described the whole camera (controls, every preset read twice) to give one number (found reading `camera.py`;
+    compiled and tested off the tablet, not yet run on it).
+  - Read in full and found sound: the equalizer and the camera settings module.
   On the tablet, measured after 4 h 52 min: our services together used 14 s of processor (NFC daemon 6.8 s, camera
   boost 4.2 s, wallpaper 1.6 s, the others under 1 s each), no failed unit of ours, health check all ok. Tried there:
   the wallpaper service uses 0 ms while idle and wakes on a save; the camera boost holds "performance" when the camera

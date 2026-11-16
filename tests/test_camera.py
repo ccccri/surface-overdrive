@@ -1,3 +1,4 @@
+import json
 import os
 import tempfile
 import unittest
@@ -128,6 +129,26 @@ class CameraRobustness(unittest.TestCase):
     def test_unknown_setting(self):
         with self.assertRaises(KeyError):
             camera.reset_setting("rear", "bogus")
+
+
+class FollowFocus(unittest.TestCase):
+    def test_readings_while_running_none_while_paused(self):
+        import io
+        from unittest import mock
+        out, steps = io.StringIO(), iter([None, None, "pause\n", None, "go\n", None, ""])
+        with mock.patch.object(camera, "focus_state", lambda cam: {"focus": 512.0, "sharpness": 7.0}):
+            code = camera.follow_focus("rear", out=out, wait=lambda seconds: next(steps))
+        lines = [json.loads(line) for line in out.getvalue().splitlines()]
+        self.assertEqual(code, 0)
+        self.assertEqual(lines, [{"focus": {"focus": 512.0, "sharpness": 7.0}}] * 3)
+
+    def test_a_closed_reader_ends_it_quietly(self):
+        import io
+
+        class Closed(io.StringIO):
+            def write(self, text):
+                raise BrokenPipeError
+        self.assertEqual(camera.follow_focus("rear", out=Closed(), wait=lambda s: None), 0)
 
 
 if __name__ == "__main__":

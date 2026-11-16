@@ -47,13 +47,12 @@ Kirigami.Page {
         target: kcm
         function onCallFinished(tag, ok, output, error) {
             if (tag === "poll") {
-                root.polling = false
-                pollGiveUp.stop()
-                if (!ok) return
+                if (!ok) { pollAgain.restart(); return }
                 try {
                     const r = JSON.parse(output)
                     root.d = Object.assign({}, root.d, { focus: r.focus })
-                    if (r.focus.sharpness !== undefined) root.peak = Math.max(root.peak * 0.995, r.focus.sharpness)
+                    // five readings a second (three before): the peak fades at the same speed as it did
+                    if (r.focus.sharpness !== undefined) root.peak = Math.max(root.peak * 0.997, r.focus.sharpness)
                 } catch (e) {}
                 return
             }
@@ -88,14 +87,14 @@ Kirigami.Page {
     Timer { id: toBottom; interval: 3000; onTriggered: scroll.contentItem.contentY = Math.max(0, scroll.contentItem.contentHeight - scroll.height) }   // "--args bottom": to check the end of the list from a script
     Component.onDestruction: preview.stop()
     onVisibleChanged: if (!visible) preview.stop()
-    // One poll at a time: started without waiting for the answer they pile up on a slow moment (seen with the sensors of
-    // "About this System", 2026-11-15). A poll that never answers is given up after 10 s.
-    property bool polling: false
-    Timer { id: pollGiveUp; interval: 10000; onTriggered: root.polling = false }
-    Timer {
-        interval: 300; repeat: true; running: preview.running && root.cam === "rear"
-        onTriggered: { if (root.polling) return; root.polling = true; pollGiveUp.restart(); root.cmd("poll", ["describe"]) }
-    }
+    // The focus meter of the rear camera: one reader for the life of the page ("overdrivectl camera rear follow-focus",
+    // five readings a second), told to pause while there is no preview. Before, a new overdrivectl every 0.3 s that
+    // described the whole camera to give one number.
+    readonly property bool metering: preview.running && root.cam === "rear"
+    function meter(word) { kcm.stream("poll", ["camera", "rear", "follow-focus"], word) }
+    property bool meterStarted: false
+    onMeteringChanged: if (metering || meterStarted) { meterStarted = true; meter(metering ? "go" : "pause") }
+    Timer { id: pollAgain; interval: 3000; onTriggered: if (root.metering) root.meter("go") }
 
     component NameDialog: QQC2.Dialog {
         id: nd

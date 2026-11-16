@@ -73,6 +73,8 @@ def camera_command(args):
         print(USAGE, file=sys.stderr)
         return 2
     cam, verb, rest = args[0], args[1], args[2:]
+    if verb == "follow-focus":
+        return camera.follow_focus(cam)
     out = {}
     try:
         if verb == "set" and len(rest) == 2:
