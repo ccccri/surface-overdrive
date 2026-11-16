@@ -144,6 +144,21 @@ class Report(unittest.TestCase):
         self.assertNotIn("fd33", text)
         self.assertIn("6.7.5", text)
 
+    def test_scrub_leaves_out_what_nfc_tags_held(self):
+        log = ("Nov 15 18:33:18 tablet overdrive-nfcd[886]: tag 04:a1:b2:c3:d4:e5:f6 type2 "
+               '[{"type": "wifi", "ssid": "HomeNet", "key": "hunter2secret"}] (212 ms)\n'
+               "Nov 15 18:33:18 tablet overdrive-nfc-notify[2490]: event 04:a1:b2:c3:d4:e5:f6: Wi-Fi HomeNet | hunter2secret (delivered in 9 ms)\n"
+               "Nov 15 18:33:19 tablet overdrive-nfcd[886]: tag 04:a1:b2:c3 type2 []\n"
+               "Nov 15 18:33:20 tablet overdrive-nfcd[886]: resting tag found again 310 ms after polling started\n")
+        with mock.patch.dict(os.environ, {"USER": "cristian"}):
+            text = maintenance._scrub(log)
+        for secret in ("hunter2secret", "HomeNet", "04:a1", "c3:d4"):
+            self.assertNotIn(secret, text)
+        self.assertIn("tag <tag> type2 <contents left out> (212 ms)", text)
+        self.assertIn("event <tag>: <contents left out> (delivered in 9 ms)", text)
+        self.assertIn("resting tag found again 310 ms", text)
+        self.assertEqual(text.count("\n"), 4)
+
 
 
 

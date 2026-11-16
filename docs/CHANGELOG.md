@@ -60,6 +60,12 @@ What was added, what broke, and what fixed it. Newest first. "Verified" means tr
   - Read in full and found sound: the privileged helper (two fixed actions, fixed arguments), the PIN and pattern
     unlock (hash, tries, block, PAM entry point), the on-screen keyboard guard, the sound routing service, the NFC
     daemon and notifier, the health watcher.
+  - The report for a bug report held what NFC tags had said: both NFC services log every tag with its number and its
+    contents (a web address, a contact, the password of a Wi-Fi network), their log is part of the report, and the
+    report is attached to a public issue. Those lines keep the time, the kind of tag and the duration; the number and
+    the contents are left out (found reading `maintenance.py`; tested with a Wi-Fi tag's lines).
+  - Camera preview of the settings page: of several frames arriving together only the newest is copied, and the page
+    is told "there is a picture" once, not at each of the 30 frames a second (compiled; not yet run on the tablet).
   On the tablet, measured after 4 h 52 min: our services together used 14 s of processor (NFC daemon 6.8 s, camera
   boost 4.2 s, wallpaper 1.6 s, the others under 1 s each), no failed unit of ours, health check all ok. Tried there:
   the wallpaper service uses 0 ms while idle and wakes on a save; the camera boost holds "performance" when the camera

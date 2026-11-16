@@ -156,20 +156,22 @@ void PreviewItem::stopProcess()
 void PreviewItem::onReadyRead()
 {
     m_buffer += m_process->readAllStandardOutput();
-    bool got = false;
-    // keep only the newest complete frame
-    while (m_buffer.size() >= kFrameBytes) {
-        m_frame = QImage(reinterpret_cast<const uchar *>(m_buffer.constData()), kWidth, kHeight, kWidth * 3, QImage::Format_RGB888).copy();
-        m_buffer.remove(0, kFrameBytes);
-        got = true;
-    }
-    if (got) {
-        m_retries = 0;
-        m_watchdog->start();
-        setError({});
-        update();
+    // Only the newest complete frame is shown: older ones that arrived in the same read are dropped without being copied.
+    const qsizetype frames = m_buffer.size() / kFrameBytes;
+    if (frames == 0)
+        return;
+    if (frames > 1)
+        m_buffer.remove(0, (frames - 1) * kFrameBytes);
+    const bool first = m_frame.isNull();
+    m_frame = QImage(reinterpret_cast<const uchar *>(m_buffer.constData()), kWidth, kHeight, kWidth * 3, QImage::Format_RGB888).copy();
+    m_buffer.remove(0, kFrameBytes);
+    m_retries = 0;
+    m_watchdog->start();
+    setError({});
+    update();
+    // the page asks "is there a picture" through this signal: said once, at the first frame, not thirty times a second
+    if (first)
         Q_EMIT runningChanged();
-    }
 }
 
 void PreviewItem::paint(QPainter *painter)

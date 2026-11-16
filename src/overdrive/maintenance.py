@@ -346,7 +346,12 @@ def cancel_next(run=subprocess.run):
 
 # ---- report for a bug report ----
 def _scrub(text):
-    """Take out what identifies the person or the network: the user name, the host name, addresses, serial-like numbers."""
+    """Take out what identifies the person or the network (the user name, the host name, addresses) and what the NFC tags
+    held. The NFC services log every tag with its number and its contents, which can be a web address, a contact or the
+    password of a Wi-Fi network, and their log is part of the report, which is then attached to a public issue: the lines
+    stay (when, which kind of tag, how long it took), the number and the contents go."""
+    text = re.sub(r"(: tag )(?:[0-9A-Fa-f]{2}:)*[0-9A-Fa-f]{2} (\S+) .*?( \(\d+ ms\))?$", r"\1<tag> \2 <contents left out>\3", text, flags=re.M)
+    text = re.sub(r"(: event )\S+: .*?( \(delivered in \d+ ms\))?$", r"\1<tag>: <contents left out>\2", text, flags=re.M)
     user = os.environ.get("USER") or ""
     host = os.uname().nodename
     for word, mark in ((user, "<user>"), (host, "<host>")):
