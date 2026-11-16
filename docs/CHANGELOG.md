@@ -54,6 +54,12 @@ What was added, what broke, and what fixed it. Newest first. "Verified" means tr
   - Sound page: "Settings for" did not follow the output being edited. Its binding named the box's own list
     (`outputs`) from inside a Binding, where that is not in scope: "ReferenceError: outputs is not defined" at every
     open of the page (found by opening every page and reading what they logged).
+  - Settings pages' backend: at most 12 `overdrivectl` calls running at once; past that a call is refused and answered
+    as failed. The pages wait for their answers now, and this makes a pile of readers impossible whatever a page does
+    (compiled; not yet run on the tablet).
+  - Read in full and found sound: the privileged helper (two fixed actions, fixed arguments), the PIN and pattern
+    unlock (hash, tries, block, PAM entry point), the on-screen keyboard guard, the sound routing service, the NFC
+    daemon and notifier, the health watcher.
   On the tablet, measured after 4 h 52 min: our services together used 14 s of processor (NFC daemon 6.8 s, camera
   boost 4.2 s, wallpaper 1.6 s, the others under 1 s each), no failed unit of ours, health check all ok. Tried there:
   the wallpaper service uses 0 ms while idle and wakes on a save; the camera boost holds "performance" when the camera
