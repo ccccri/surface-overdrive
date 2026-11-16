@@ -2,6 +2,26 @@
 
 What was added, what broke, and what fixed it. Newest first. "Verified" means tried on the Surface Go itself.
 
+## 2026-11-17
+
+- Camera sharpening made cheap (libcamera patch 0049). The unsharp mask behind "sharpness" in the Cameras page went
+  over the picture one pixel after the other on the thread that also hands the buffers on: 30 ms for a 2560x1920 frame
+  on the tablet's processor, a whole frame's time at 30 fps (measured with the same loop outside libcamera,
+  `tools/dev/sharpen_bench.cpp`). It is now split over the processors and done sixteen pixels at a time: 2.7 ms, the
+  same picture byte for byte (the bench compares the two on noise, flat and extreme pictures, odd sizes, every
+  strength, and fails on one differing byte). This is the suspected trigger of the camera that stops after a change
+  of the profile with sharpness above zero at 2560x1920 (open since 2026-11-11). **Not tried on a camera**: written at
+  night with the tablet in a dark bedroom and the cameras left off. The reproduction of that night is now
+  `tools/dev/camera_sharp_stall.sh`; whether the stall is gone has to be seen with it. Why one late frame can stop the
+  camera for good, rather than cost a frame, is still not explained.
+- Plasma 6.8.3 (the image of 2026-11-16): seven of the eight settings pages opened on the tablet (About, NFC, Power,
+  Screen Locking, Sound, Drawing Tablet, Software Update): all drawn, no error of ours in their logs. The Cameras page
+  was left out (it turns a camera on). Still to look at by eye on 6.8.3: the patched parts of Plasma itself (lock
+  screen, desktop hold, task manager's Force Quit, the Brightness popup, Discover).
+- The two new repairs were run on the tablet as the administrator (`udevadm trigger --action=add
+  --subsystem-match=hid --settle`, `modprobe intel_hid`): both end with status 0 in a fraction of a second, the
+  touchscreen stays, no fake battery appears, the volume hold stays on.
+
 ## 2026-11-16
 
 - **On-screen keyboard: Plasma's own, with additions** (`patches/plasma-keyboard/0001-overdrive-keyboard.patch`,
