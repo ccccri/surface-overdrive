@@ -27,6 +27,7 @@ USAGE = """usage: overdrivectl <command>
   image [changes|go-back|cancel]   the system images on the disk, what differs, start the previous one next time
   report                   write a report of the state and the logs for a bug report
   sensors                  battery, light sensor, motion and device facts, in JSON
+  brightness auto [on|off|status|dry]   (beta) screen brightness from the light sensor; dry: say what it would do
   unlock [set pin|pattern | clear]   PIN or pattern that also unlocks the screen, in JSON (set: the code on standard input)
   camera <front|rear> describe | set <key> <value> | reset [<key>] | ui <key> <value> | restart
          | preset save|apply|rename|delete|duplicate <args>    live camera settings, answers in JSON
@@ -292,6 +293,13 @@ def main(argv=None):
         return audio_command(argv[1:])
     if argv and argv[0] in ("settings", "repair", "image", "report"):
         return maintenance_command(argv)
+    if argv and argv[:2] == ["brightness", "auto"]:
+        from . import autobrightness
+        out = autobrightness.command(argv[2:])
+        if isinstance(out, dict):
+            print(json.dumps(out))
+            return 1 if "error" in out else 0
+        return out
     if argv and argv[0] == "pen":
         print(json.dumps(pen.describe(read_state("stylus-filter"))))
         return 0

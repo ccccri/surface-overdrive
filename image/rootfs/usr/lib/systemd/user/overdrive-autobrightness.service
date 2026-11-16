@@ -1,0 +1,13 @@
+[Unit]
+Description=Surface Overdrive automatic screen brightness from the light sensor (beta; off until `overdrivectl brightness auto on`)
+After=graphical-session.target plasma-powerdevil.service
+PartOf=graphical-session.target
+
+[Service]
+ExecStart=/usr/libexec/overdrive/auto-brightness
+Restart=on-failure
+RestartSec=10
+Nice=5
+
+[Install]
+WantedBy=graphical-session.target
