@@ -4,6 +4,23 @@ What was added, what broke, and what fixed it. Newest first. "Verified" means tr
 
 ## 2026-11-16
 
+- Floating on-screen keyboard, a prototype (`overdrive-osk`, "Floating Keyboard" in the menu; `src/overdrive/osk`). What
+  the owner asked for: a keyboard that leaves the bottom edge and goes anywhere, with the clipboard history on it. It
+  is one transparent window over the screen (layer shell, overlay layer, never takes the keyboard focus) of which only
+  the keyboard's rectangle takes touches; keys go out through a virtual keyboard device (/dev/uinput, which Fedora KDE
+  already opens to the user at the screen), so every application gets them. On it: floating or docked, moved by its
+  grip, three sizes steps and three opacities, a number row, accents on a long press (slide to choose), the cursor
+  moved by sliding on the space bar, backspace that repeats, shift and caps lock, a row of Esc/Tab/Ctrl/Alt/arrows/
+  Home/End/Del and Undo/Cut/Copy/Paste/All, a symbols page, an emoji page, word suggestions (the user's own words
+  first, learnt as they are typed; two spaces make a full stop; a capital after one), the clipboard history of Klipper
+  as chips that paste. Characters the keyboard layout cannot type (accents, emoji) go through the clipboard, marked
+  sensitive so that the history skips them, and the clipboard gets its contents back.
+  Limits, by design of a prototype: it is not an input method, so it does not come up by itself when a text field is
+  touched (its tab at the screen's edge, or the menu entry, shows it) and Plasma's own keyboard still does; the key
+  table is for the "us" layout; pasting uses Ctrl+V, which a terminal does not take.
+  Tried on the PC (the same Plasma 6.8.2 and layout; the tablet's screen was locked) with a virtual finger into KWrite:
+  typing, a suggestion, "è" by long press, "ô" by long press and slide, the cursor by the space bar, Ctrl then "a"
+  then backspace, a capital, two emoji.
 - Camera app: the camera is let go while nobody can see the picture. The preview stops when the screen is locked or the
   window has been out of sight for three seconds (minimized, another desktop, the screen off) and starts again when it
   is back; never while a video is recorded. An app left open kept the sensor, the image processor and the

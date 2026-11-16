@@ -1,25 +1,130 @@
+import json
+import os
+import tempfile
 import unittest
 
-from overdrive import osk
+from overdrive.osk import app, keys, words
 
 
-class OskGuard(unittest.TestCase):
-    def test_lock_switches_it_on_and_unlock_puts_it_back(self):
-        self.assertEqual(osk.decide(True, osk.OFF, False), (osk.TOUCH, True))
-        self.assertEqual(osk.decide(False, osk.TOUCH, True), (osk.OFF, False))
+class Plan(unittest.TestCase):
+    def test_plain_text_is_keys_with_shift_where_needed(self):
+        self.assertEqual(keys.plan("aA1!"), [("key", 30, False), ("key", 30, True), ("key", 2, False), ("key", 2, True)])
+        self.assertEqual(keys.plan(" \n"), [("key", 57, False), ("key", 28, False)])
 
-    def test_leaves_alone_a_keyboard_that_is_on(self):
-        self.assertEqual(osk.decide(True, osk.TOUCH, False), (None, False))
-        self.assertEqual(osk.decide(False, osk.TOUCH, False), (None, False))
-        self.assertEqual(osk.decide(True, 2, False), (None, False))
+    def test_what_the_layout_lacks_is_pasted_in_one_piece(self):
+        self.assertEqual(keys.plan("caffè 😀👍!"), [("key", 46, False), ("key", 30, False), ("key", 33, False), ("key", 33, False),
+                                                   ("paste", "è"), ("key", 57, False), ("paste", "😀👍"), ("key", 2, True)])
 
-    def test_keeps_a_change_made_while_locked(self):
-        self.assertEqual(osk.decide(False, 2, True), (None, False))
+    def test_every_printable_ascii_character_has_a_key(self):
+        for code in range(32, 127):
+            self.assertIn(chr(code), keys.US, repr(chr(code)))
 
-    def test_parse(self):
-        self.assertIs(osk.parse("/ScreenSaver: org.freedesktop.ScreenSaver.ActiveChanged (true,)"), True)
-        self.assertIs(osk.parse("/ScreenSaver: org.freedesktop.ScreenSaver.ActiveChanged (false,)"), False)
-        self.assertIsNone(osk.parse("/ScreenSaver: org.freedesktop.ScreenSaver.Other (true,)"))
+    def test_chord(self):
+        self.assertEqual(keys.chord(("ctrl", "shift", "v")), [29, 42, 47])
+        self.assertEqual(keys.chord(("alt", "tab")), [56, 15])
+        with self.assertRaises(KeyError):
+            keys.chord(("ctrl", "è"))
+
+
+class FakeClipboard:
+    def __init__(self, held="before"):
+        self.held, self.log = held, []
+
+    def get(self):
+        return self.held
+
+    def set(self, text, sensitive=False):
+        self.held = text
+        self.log.append((text, sensitive))
+
+
+class Sending(unittest.TestCase):
+    def keyboard(self):
+        kb = keys.Keyboard(clipboard=FakeClipboard(), pause=lambda s: None)
+        kb.sent = []
+        kb.key = lambda code, down: kb.sent.append((code, down))
+        return kb
+
+    def test_shift_goes_down_around_the_key(self):
+        kb = self.keyboard()
+        kb.type("A")
+        self.assertEqual(kb.sent, [(42, True), (30, True), (30, False), (42, False)])
+
+    def test_latched_modifiers_wrap_every_key(self):
+        kb = self.keyboard()
+        kb.type("c", held=("ctrl",))
+        self.assertEqual(kb.sent, [(29, True), (46, True), (46, False), (29, False)])
+
+    def test_a_pasted_character_is_kept_out_of_the_history_and_the_clipboard_comes_back(self):
+        kb = self.keyboard()
+        kb.type("è")
+        self.assertEqual(kb.clipboard.log, [("è", True), ("before", False)])
+        self.assertEqual(kb.sent, [(29, True), (47, True), (47, False), (29, False)])
+        self.assertEqual(kb.clipboard.held, "before")
+
+    def test_a_history_entry_becomes_the_clipboard(self):
+        kb = self.keyboard()
+        kb.paste_kept("an address")
+        self.assertEqual(kb.clipboard.held, "an address")
+
+
+class Suggest(unittest.TestCase):
+    def words(self, d):
+        listed = os.path.join(d, "words")
+        with open(listed, "w") as f:
+            f.write("hello\nhelp\nhelmet\nHelen\nhe\nworld\n")
+        return words.Words(os.path.join(d, "mine.json"), lists=(listed,))
+
+    def test_own_words_first_then_the_list_short_ones_first(self):
+        with tempfile.TemporaryDirectory() as d:
+            w = self.words(d)
+            self.assertEqual(w.suggest("he"), ["help", "hello", "helmet"])
+            self.assertEqual(w.suggest("h"), [])
+            for _ in range(2):
+                w.learn("helmet")
+            self.assertEqual(w.suggest("he")[0], "helmet")
+            self.assertEqual(w.suggest("He")[0], "Helmet")
+            w.save()
+            with open(os.path.join(d, "mine.json")) as f:
+                self.assertEqual(json.load(f), {"helmet": 2})
+            self.assertEqual(words.Words(os.path.join(d, "mine.json"), lists=()).suggest("hel"), ["helmet"])
+
+    def test_typing_follows_the_word(self):
+        with tempfile.TemporaryDirectory() as d:
+            t = words.Typing(self.words(d))
+            self.assertTrue(t.sentence_start)
+            t.text("h"), t.text("e")
+            self.assertEqual(t.word, "he")
+            self.assertEqual(t.suggestions(), ["help", "hello", "helmet"])
+            self.assertEqual(t.pick("hello"), [("back", 2), ("text", "hello ")])
+            self.assertEqual(t.word, "")
+            # a second space after a word: a full stop, and a sentence starts
+            self.assertEqual(t.text(" "), [("back", 1), ("text", ". ")])
+            self.assertTrue(t.sentence_start)
+            t.text("w")
+            t.backspace()
+            self.assertEqual(t.word, "")
+            t.text("ok")
+            t.forget()
+            self.assertEqual((t.word, t.last_space), ("", False))
+
+    def test_two_spaces_without_a_word_stay_two_spaces(self):
+        with tempfile.TemporaryDirectory() as d:
+            t = words.Typing(self.words(d))
+            self.assertEqual(t.text(" ") + t.text(" "), [("text", " "), ("text", " ")])
+
+
+class Settings(unittest.TestCase):
+    def test_defaults_bad_values_and_round_trip(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "sub", "osk.json")
+            self.assertEqual(app.load_settings(path), app.DEFAULTS)
+            app.save_settings(dict(app.DEFAULTS, floating=False, x=120, scale=9, opacity="thick"), path)
+            got = app.load_settings(path)
+            self.assertEqual((got["floating"], got["x"], got["scale"], got["opacity"]), (False, 120, 1.6, app.DEFAULTS["opacity"]))
+            with open(path, "w") as f:
+                f.write("not json")
+            self.assertEqual(app.load_settings(path), app.DEFAULTS)
 
 
 if __name__ == "__main__":
