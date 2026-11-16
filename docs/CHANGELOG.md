@@ -4,6 +4,15 @@ What was added, what broke, and what fixed it. Newest first. "Verified" means tr
 
 ## 2026-11-17
 
+- **Beta, on the branch `beta/auto-brightness` only: automatic screen brightness** from the tablet's light sensor
+  (`src/overdrive/autobrightness.py`, user service `overdrive-autobrightness`, off until `overdrivectl brightness auto
+  on`; `... auto dry` says what it would set and sets nothing). Plasma has none. It follows a curve from the light in
+  the room through Plasma's own brightness, slowly (smoothed, 2 s before going brighter, 5 s before going darker, small
+  steps), and never fights the user: a brightness it did not set (the slider, Plasma dimming an idle screen) is left
+  alone until the light changes by half or by double, and how far from the curve the user went is kept as their
+  taste. The decisions are tested (`tests/test_autobrightness.py`); on the tablet only the say-only mode was run (0
+  lux in a dark room: "would set 2%"). To see by day before it goes to main: the curve against real rooms, Plasma's
+  dimming (the code assumes it shows as a changed brightness and leaves it alone), a switch in the settings.
 - Camera sharpening made cheap (libcamera patch 0049). The unsharp mask behind "sharpness" in the Cameras page went
   over the picture one pixel after the other on the thread that also hands the buffers on: 30 ms for a 2560x1920 frame
   on the tablet's processor, a whole frame's time at 30 fps (measured with the same loop outside libcamera,
