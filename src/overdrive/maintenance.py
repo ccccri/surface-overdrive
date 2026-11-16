@@ -195,6 +195,10 @@ REPAIRS = {
     "audio": ("restarts the service that loads the boost and equalizer", ["systemctl", "--user", "restart", "overdrive-audio-route.service"], False),
     "cameras": ("restarts the camera service of the desktop", ["systemctl", "--user", "restart", "wireplumber@video-capture.service"], False),
     "nfc": ("restarts the NFC reader service", ["systemctl", "restart", "overdrive-nfcd.service"], True),
+    # the filter is a program attached to the digitizer when it appears: its appearing is played again
+    "pen-battery": ("attaches the pen battery filter to the touchscreen again", ["udevadm", "trigger", "--action=add", "--subsystem-match=hid", "--settle"], True),
+    # helps when the module was unloaded; the stock module in its place (no "volume_hold") is not something a button mends
+    "volume-hold": ("loads the module of the volume buttons", ["modprobe", "intel_hid"], True),
 }
 
 

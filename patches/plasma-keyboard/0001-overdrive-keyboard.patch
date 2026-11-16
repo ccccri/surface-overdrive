@@ -1,0 +1,2396 @@
+diff --git a/src/CMakeLists.txt b/src/CMakeLists.txt
+index 8114b89..46928f4 100644
+--- a/src/CMakeLists.txt
++++ b/src/CMakeLists.txt
+@@ -25,6 +25,12 @@ target_sources(plasma-keyboard PRIVATE
+     inputpanelwindow.h
+     inputplugin.cpp
+     inputplugin.h
++    extrakeys.cpp
++    extrakeys.h
++    clipboardhistory.cpp
++    clipboardhistory.h
++    screenlock.cpp
++    screenlock.h
+     qwaylandinputpanelshellintegration.cpp
+     qwaylandinputpanelshellintegration_p.h
+     qwaylandinputpanelsurface.cpp
+@@ -86,6 +92,11 @@ ecm_target_qml_sources(plasma-keyboard SOURCES
+     qml/LanguagePopupDelegate.qml
+     qml/DiacriticsOverlay.qml
+     qml/OverlayWindow.qml
++    qml/ExtraKeyRow.qml
++    qml/KeyboardMenu.qml
++    qml/ClipboardList.qml
++    qml/EmojiGrid.qml
++    qml/SpaceGesture.qml
+ )
+ ecm_finalize_qml_module(plasma-keyboard)
+ 
+diff --git a/src/clipboardhistory.cpp b/src/clipboardhistory.cpp
+new file mode 100644
+index 0000000..fb7a358
+--- /dev/null
++++ b/src/clipboardhistory.cpp
+@@ -0,0 +1,41 @@
++/*
++    SPDX-FileCopyrightText: 2026 Surface Overdrive
++    SPDX-License-Identifier: GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
++*/
++
++#include "clipboardhistory.h"
++
++#include <QDBusConnection>
++#include <QDBusMessage>
++#include <QDBusReply>
++
++ClipboardHistory::ClipboardHistory(QObject *parent)
++    : QObject(parent)
++{
++}
++
++QStringList ClipboardHistory::entries(int limit) const
++{
++    QDBusMessage call = QDBusMessage::createMethodCall(QStringLiteral("org.kde.klipper"),
++                                                       QStringLiteral("/klipper"),
++                                                       QStringLiteral("org.kde.klipper.klipper"),
++                                                       QStringLiteral("getClipboardHistoryMenu"));
++    // short: the keyboard must not hang on a busy shell
++    const QDBusReply<QStringList> reply = QDBusConnection::sessionBus().call(call, QDBus::Block, 400);
++    QStringList out;
++    if (!reply.isValid()) {
++        return out;
++    }
++    for (const QString &entry : reply.value()) {
++        if (entry.trimmed().isEmpty() || out.contains(entry)) {
++            continue;
++        }
++        out.append(entry);
++        if (out.size() >= limit) {
++            break;
++        }
++    }
++    return out;
++}
++
++#include "moc_clipboardhistory.cpp"
+diff --git a/src/clipboardhistory.h b/src/clipboardhistory.h
+new file mode 100644
+index 0000000..1c0ce7b
+--- /dev/null
++++ b/src/clipboardhistory.h
+@@ -0,0 +1,26 @@
++/*
++    SPDX-FileCopyrightText: 2026 Surface Overdrive
++    SPDX-License-Identifier: GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
++*/
++
++#pragma once
++
++#include <QObject>
++#include <QStringList>
++#include <qqmlintegration.h>
++
++/**
++ * The last texts of Plasma's clipboard (Klipper, in plasmashell), for the keyboard's clipboard list.
++ * Nothing is kept here: the list is asked for whenever it is shown.
++ */
++class ClipboardHistory : public QObject
++{
++    Q_OBJECT
++    QML_ELEMENT
++
++public:
++    explicit ClipboardHistory(QObject *parent = nullptr);
++
++    /** Up to `limit` entries, the newest first; empty when Klipper does not answer. */
++    Q_INVOKABLE QStringList entries(int limit = 8) const;
++};
+diff --git a/src/extrakeys.cpp b/src/extrakeys.cpp
+new file mode 100644
+index 0000000..c1fff09
+--- /dev/null
++++ b/src/extrakeys.cpp
+@@ -0,0 +1,225 @@
++/*
++    SPDX-FileCopyrightText: 2026 Surface Overdrive
++    SPDX-License-Identifier: GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
++*/
++
++#include "extrakeys.h"
++
++#include "logging.h"
++
++#include <QDateTime>
++#include <QHash>
++#include <QThread>
++
++#include <cstring>
++#include <fcntl.h>
++#include <linux/uinput.h>
++#include <sys/ioctl.h>
++#include <unistd.h>
++
++// The compositor needs a moment to take a new keyboard in: keys sent sooner are lost
++static const int SETTLE_MS = 350;
++
++static const QHash<QString, int> &names()
++{
++    static const QHash<QString, int> table = {
++        {QStringLiteral("esc"), KEY_ESC},          {QStringLiteral("tab"), KEY_TAB},
++        {QStringLiteral("left"), KEY_LEFT},        {QStringLiteral("right"), KEY_RIGHT},
++        {QStringLiteral("up"), KEY_UP},            {QStringLiteral("down"), KEY_DOWN},
++        {QStringLiteral("home"), KEY_HOME},        {QStringLiteral("end"), KEY_END},
++        {QStringLiteral("pgup"), KEY_PAGEUP},      {QStringLiteral("pgdn"), KEY_PAGEDOWN},
++        {QStringLiteral("del"), KEY_DELETE},       {QStringLiteral("ins"), KEY_INSERT},
++        {QStringLiteral("enter"), KEY_ENTER},      {QStringLiteral("backspace"), KEY_BACKSPACE},
++        {QStringLiteral("space"), KEY_SPACE},      {QStringLiteral("print"), KEY_SYSRQ},
++        {QStringLiteral("f1"), KEY_F1},            {QStringLiteral("f2"), KEY_F2},
++        {QStringLiteral("f3"), KEY_F3},            {QStringLiteral("f4"), KEY_F4},
++        {QStringLiteral("f5"), KEY_F5},            {QStringLiteral("f6"), KEY_F6},
++        {QStringLiteral("f7"), KEY_F7},            {QStringLiteral("f8"), KEY_F8},
++        {QStringLiteral("f9"), KEY_F9},            {QStringLiteral("f10"), KEY_F10},
++        {QStringLiteral("f11"), KEY_F11},          {QStringLiteral("f12"), KEY_F12},
++        {QStringLiteral("a"), KEY_A}, {QStringLiteral("b"), KEY_B}, {QStringLiteral("c"), KEY_C}, {QStringLiteral("d"), KEY_D},
++        {QStringLiteral("e"), KEY_E}, {QStringLiteral("f"), KEY_F}, {QStringLiteral("g"), KEY_G}, {QStringLiteral("h"), KEY_H},
++        {QStringLiteral("i"), KEY_I}, {QStringLiteral("j"), KEY_J}, {QStringLiteral("k"), KEY_K}, {QStringLiteral("l"), KEY_L},
++        {QStringLiteral("m"), KEY_M}, {QStringLiteral("n"), KEY_N}, {QStringLiteral("o"), KEY_O}, {QStringLiteral("p"), KEY_P},
++        {QStringLiteral("q"), KEY_Q}, {QStringLiteral("r"), KEY_R}, {QStringLiteral("s"), KEY_S}, {QStringLiteral("t"), KEY_T},
++        {QStringLiteral("u"), KEY_U}, {QStringLiteral("v"), KEY_V}, {QStringLiteral("w"), KEY_W}, {QStringLiteral("x"), KEY_X},
++        {QStringLiteral("y"), KEY_Y}, {QStringLiteral("z"), KEY_Z},
++        {QStringLiteral("1"), KEY_1}, {QStringLiteral("2"), KEY_2}, {QStringLiteral("3"), KEY_3}, {QStringLiteral("4"), KEY_4},
++        {QStringLiteral("5"), KEY_5}, {QStringLiteral("6"), KEY_6}, {QStringLiteral("7"), KEY_7}, {QStringLiteral("8"), KEY_8},
++        {QStringLiteral("9"), KEY_9}, {QStringLiteral("0"), KEY_0},
++        {QStringLiteral(" "), KEY_SPACE},          {QStringLiteral("\n"), KEY_ENTER},
++    };
++    return table;
++}
++
++ExtraKeys::ExtraKeys(QObject *parent)
++    : QObject(parent)
++{
++}
++
++ExtraKeys::~ExtraKeys()
++{
++    if (m_fd >= 0) {
++        ioctl(m_fd, UI_DEV_DESTROY);
++        close(m_fd);
++    }
++}
++
++bool ExtraKeys::open()
++{
++    if (m_fd >= 0) {
++        return true;
++    }
++    if (m_failed) {
++        return false;
++    }
++    int fd = ::open("/dev/uinput", O_WRONLY | O_NONBLOCK | O_CLOEXEC);
++    if (fd < 0) {
++        qCWarning(PlasmaKeyboard) << "No extra keys: /dev/uinput cannot be opened:" << strerror(errno);
++        m_failed = true;
++        Q_EMIT availableChanged();
++        return false;
++    }
++    bool ok = ioctl(fd, UI_SET_EVBIT, EV_KEY) >= 0;
++    for (int key = KEY_ESC; ok && key <= KEY_F24; ++key) {
++        ok = ioctl(fd, UI_SET_KEYBIT, key) >= 0;
++    }
++    struct uinput_setup setup;
++    memset(&setup, 0, sizeof(setup));
++    setup.id.bustype = BUS_VIRTUAL;
++    setup.id.vendor = 0x1d6b;
++    setup.id.product = 0x0104;
++    strncpy(setup.name, "Plasma Keyboard extra keys", UINPUT_MAX_NAME_SIZE - 1);
++    ok = ok && ioctl(fd, UI_DEV_SETUP, &setup) >= 0 && ioctl(fd, UI_DEV_CREATE) >= 0;
++    if (!ok) {
++        qCWarning(PlasmaKeyboard) << "No extra keys: the keyboard device cannot be made:" << strerror(errno);
++        close(fd);
++        m_failed = true;
++        Q_EMIT availableChanged();
++        return false;
++    }
++    m_fd = fd;
++    m_readyAt = QDateTime::currentMSecsSinceEpoch() + SETTLE_MS;
++    return true;
++}
++
++bool ExtraKeys::available()
++{
++    return !m_failed;
++}
++
++void ExtraKeys::prepare()
++{
++    open();
++}
++
++void ExtraKeys::emitKey(int key, int value)
++{
++    struct input_event event;
++    memset(&event, 0, sizeof(event));
++    event.type = EV_KEY;
++    event.code = key;
++    event.value = value;
++    if (write(m_fd, &event, sizeof(event)) != sizeof(event)) {
++        qCWarning(PlasmaKeyboard) << "An extra key was not written:" << strerror(errno);
++    }
++    sync();
++}
++
++void ExtraKeys::sync()
++{
++    struct input_event event;
++    memset(&event, 0, sizeof(event));
++    event.type = EV_SYN;
++    event.code = SYN_REPORT;
++    (void)!write(m_fd, &event, sizeof(event));
++}
++
++void ExtraKeys::tap(int key)
++{
++    if (key <= 0 || !open()) {
++        return;
++    }
++    // only the very first key after the device was made waits
++    const qint64 wait = m_readyAt - QDateTime::currentMSecsSinceEpoch();
++    if (wait > 0) {
++        QThread::msleep(wait);
++    }
++    const int held[] = {m_ctrl ? KEY_LEFTCTRL : 0, m_alt ? KEY_LEFTALT : 0, m_meta ? KEY_LEFTMETA : 0, m_shift ? KEY_LEFTSHIFT : 0};
++    for (int modifier : held) {
++        if (modifier) {
++            emitKey(modifier, 1);
++        }
++    }
++    emitKey(key, 1);
++    emitKey(key, 0);
++    for (int modifier : held) {
++        if (modifier) {
++            emitKey(modifier, 0);
++        }
++    }
++    clearModifiers();
++}
++
++int ExtraKeys::code(const QString &name) const
++{
++    return names().value(name.toLower(), 0);
++}
++
++bool ExtraKeys::typeWithModifiers(const QString &text)
++{
++    if (!anyArmed()) {
++        return false;
++    }
++    const int key = code(text);
++    if (!key || !open()) {
++        // nothing to hold the modifiers with: they are dropped, the text goes on as text
++        clearModifiers();
++        return false;
++    }
++    tap(key);
++    return true;
++}
++
++void ExtraKeys::clearModifiers()
++{
++    if (!anyArmed()) {
++        return;
++    }
++    m_ctrl = m_alt = m_meta = m_shift = false;
++    Q_EMIT modifiersChanged();
++}
++
++void ExtraKeys::setCtrl(bool on)
++{
++    if (m_ctrl != on) {
++        m_ctrl = on;
++        Q_EMIT modifiersChanged();
++    }
++}
++
++void ExtraKeys::setAlt(bool on)
++{
++    if (m_alt != on) {
++        m_alt = on;
++        Q_EMIT modifiersChanged();
++    }
++}
++
++void ExtraKeys::setMeta(bool on)
++{
++    if (m_meta != on) {
++        m_meta = on;
++        Q_EMIT modifiersChanged();
++    }
++}
++
++void ExtraKeys::setShift(bool on)
++{
++    if (m_shift != on) {
++        m_shift = on;
++        Q_EMIT modifiersChanged();
++    }
++}
++
++#include "moc_extrakeys.cpp"
+diff --git a/src/extrakeys.h b/src/extrakeys.h
+new file mode 100644
+index 0000000..cd0e8bc
+--- /dev/null
++++ b/src/extrakeys.h
+@@ -0,0 +1,76 @@
++/*
++    SPDX-FileCopyrightText: 2026 Surface Overdrive
++    SPDX-License-Identifier: GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
++*/
++
++#pragma once
++
++#include <QObject>
++#include <QString>
++#include <qqmlintegration.h>
++
++/**
++ * Keys that text input cannot carry: Esc, Tab, arrows, function keys, and Ctrl, Alt and Meta held with another key.
++ *
++ * An input method can only hand text and bare key symbols to the compositor (KWin drops the modifiers of a key symbol
++ * for most applications), so these keys are typed on a keyboard device of our own (/dev/uinput, which the desktop user
++ * of the seat may open). The device is made at the first use.
++ *
++ * Ctrl, Alt, Meta and Shift are "armed" by a tap and held for the next key only, whichever keyboard it comes from: the
++ * key row above the letters (tap()) or a letter of the keyboard itself (typeWithModifiers(), asked by
++ * InputListenerItem before it commits text).
++ */
++class ExtraKeys : public QObject
++{
++    Q_OBJECT
++    QML_ELEMENT
++
++    Q_PROPERTY(bool ctrl READ ctrl WRITE setCtrl NOTIFY modifiersChanged)
++    Q_PROPERTY(bool alt READ alt WRITE setAlt NOTIFY modifiersChanged)
++    Q_PROPERTY(bool meta READ meta WRITE setMeta NOTIFY modifiersChanged)
++    Q_PROPERTY(bool shift READ shift WRITE setShift NOTIFY modifiersChanged)
++    /** False when the device could not be made (no /dev/uinput, or not ours to open). */
++    Q_PROPERTY(bool available READ available NOTIFY availableChanged)
++
++public:
++    explicit ExtraKeys(QObject *parent = nullptr);
++    ~ExtraKeys() override;
++
++    bool ctrl() const { return m_ctrl; }
++    bool alt() const { return m_alt; }
++    bool meta() const { return m_meta; }
++    bool shift() const { return m_shift; }
++    void setCtrl(bool on);
++    void setAlt(bool on);
++    void setMeta(bool on);
++    void setShift(bool on);
++    bool anyArmed() const { return m_ctrl || m_alt || m_meta || m_shift; }
++    bool available();
++
++    /** Makes the device ahead of the first key, so that the compositor knows it by then. */
++    Q_INVOKABLE void prepare();
++    /** One key (a Linux key code, KEY_*) with the armed modifiers, which are then released. */
++    Q_INVOKABLE void tap(int key);
++    /** The key code of a name of the key row ("esc", "left", "f5", "c"...), 0 when unknown. */
++    Q_INVOKABLE int code(const QString &name) const;
++    /** Types `text` (one letter or digit) with the armed modifiers; false when nothing is armed or it has no key. */
++    bool typeWithModifiers(const QString &text);
++
++Q_SIGNALS:
++    void modifiersChanged();
++    void availableChanged();
++
++private:
++    bool open();
++    void emitKey(int key, int value);
++    void sync();
++    void clearModifiers();
++
++    int m_fd = -1;
++    bool m_failed = false;
++    qint64 m_readyAt = 0;
++    bool m_ctrl = false;
++    bool m_alt = false;
++    bool m_meta = false;
++    bool m_shift = false;
++};
+diff --git a/src/inputlisteneritem.cpp b/src/inputlisteneritem.cpp
+index ca6bb6a..7c39d80 100644
+--- a/src/inputlisteneritem.cpp
++++ b/src/inputlisteneritem.cpp
+@@ -7,6 +7,7 @@
+ */
+ 
+ #include "inputlisteneritem.h"
++#include "extrakeys.h"
+ #include "inputmethod_p.h"
+ #include "logging.h"
+ #include "plasmakeyboardsettings.h"
+@@ -187,6 +188,13 @@ OverlayController *InputListenerItem::overlayController() const
+     return m_overlayController;
+ }
+ 
++void InputListenerItem::commitText(const QString &text)
++{
++    if (!text.isEmpty() && m_input.hasContext()) {
++        m_input.commit(text);
++    }
++}
++
+ void InputListenerItem::setEngine(QVirtualKeyboardInputEngine * /*engine*/)
+ {
+     // TODO: hook into engine events if necessary?
+@@ -356,6 +364,8 @@ void InputListenerItem::keyReleaseEvent(QKeyEvent *event)
+         if (event->text().isEmpty() || key == XKB_KEY_Return) { // (return is technically "\n")
+             // Simulate the keyboard press for non textual keys
+             m_input.keysym(QDateTime::currentMSecsSinceEpoch(), key, InputPlugin::Released, 0);
++        } else if (m_extraKeys && m_extraKeys->typeWithModifiers(event->text())) {
++            // Ctrl, Alt or Meta of the key row was armed: the letter went out as a key with it
+         } else {
+             // If we have text coming as a key event, use it to commit the string
+             m_input.commit(event->text());
+@@ -394,6 +404,11 @@ void InputListenerItem::inputMethodEvent(QInputMethodEvent *event)
+         }
+     }
+ 
++    // A single letter while Ctrl, Alt or Meta of the key row is armed goes out as a key with it
++    if (!needsReplacement && preedit.isEmpty() && commit.size() == 1 && m_extraKeys && m_extraKeys->typeWithModifiers(commit)) {
++        return;
++    }
++
+     // Commit string if there is something to commit, or we did a replacement
+     if (needsReplacement || !commit.isEmpty()) {
+         m_input.commit(commit);
+diff --git a/src/inputlisteneritem.h b/src/inputlisteneritem.h
+index 1478c67..05fe8f7 100644
+--- a/src/inputlisteneritem.h
++++ b/src/inputlisteneritem.h
+@@ -17,6 +17,7 @@
+ 
+ #include "inputplugin.h"
+ 
++class ExtraKeys;
+ class OverlayController;
+ 
+ class InputListenerItem : public QQuickItem
+@@ -34,6 +35,12 @@ class InputListenerItem : public QQuickItem
+      */
+     Q_PROPERTY(OverlayController *overlayController READ overlayController CONSTANT)
+ 
++    /**
++     * The keyboard device of the key row. When one of its modifiers is armed, the next letter typed on the keyboard
++     * is sent as a key with it (Ctrl+C) rather than as text.
++     */
++    Q_PROPERTY(ExtraKeys *extraKeys MEMBER m_extraKeys)
++
+ public:
+     InputListenerItem();
+ 
+@@ -50,6 +57,11 @@ public:
+      */
+     OverlayController *overlayController() const;
+ 
++    /**
++     * Text straight into the focused field (the clipboard list, the emoji), past Qt Virtual Keyboard.
++     */
++    Q_INVOKABLE void commitText(const QString &text);
++
+ Q_SIGNALS:
+     void keyNavigationPressed(int key);
+     void keyNavigationReleased(int key);
+@@ -58,4 +70,5 @@ private:
+     InputPlugin m_input;
+     OverlayController *m_overlayController = nullptr;
+     bool m_keyboardNavigationActive = false;
++    ExtraKeys *m_extraKeys = nullptr;
+ };
+diff --git a/src/inputpanelwindow.cpp b/src/inputpanelwindow.cpp
+index 098fd69..6c91e12 100644
+--- a/src/inputpanelwindow.cpp
++++ b/src/inputpanelwindow.cpp
+@@ -8,6 +8,7 @@
+ #include "inputpanelwindow.h"
+ 
+ #include "inputpanelintegration.h"
++#include "plasmakeyboardsettings.h"
+ 
+ #include <KSandbox>
+ #include <QDesktopServices>
+@@ -37,6 +38,21 @@ void InputPanelWindow::setInteractiveRegion(QRect interactiveRegion)
+     setMask(QRegion(m_interactiveRegion));
+ }
+ 
++bool InputPanelWindow::shown() const
++{
++    return m_shown;
++}
++
++void InputPanelWindow::exposeEvent(QExposeEvent *event)
++{
++    QQuickWindow::exposeEvent(event);
++    const bool shown = isExposed();
++    if (shown != m_shown) {
++        m_shown = shown;
++        Q_EMIT shownChanged();
++    }
++}
++
+ void InputPanelWindow::showSettings()
+ {
+     if (KSandbox::isInside()) {
+@@ -46,6 +62,11 @@ void InputPanelWindow::showSettings()
+     }
+ }
+ 
++void InputPanelWindow::saveSettings()
++{
++    PlasmaKeyboardSettings::self()->save();
++}
++
+ bool InputPanelWindow::initInputPanel(InputPanelRole::Role role)
+ {
+     return initInputPanelIntegration(this, role);
+diff --git a/src/inputpanelwindow.h b/src/inputpanelwindow.h
+index 79cc5ce..28b5011 100644
+--- a/src/inputpanelwindow.h
++++ b/src/inputpanelwindow.h
+@@ -20,6 +20,13 @@ class InputPanelWindow : public QQuickWindow
+ 
+     Q_PROPERTY(QRect interactiveRegion READ interactiveRegion WRITE setInteractiveRegion NOTIFY interactiveRegionChanged)
+ 
++    /**
++     * Whether the compositor shows this window. An input panel can be "visible" and still not shown: KWin keeps it
++     * back while the last input came from a mouse or a keyboard. The floating keyboard, in a window of its own,
++     * follows this.
++     */
++    Q_PROPERTY(bool shown READ shown NOTIFY shownChanged)
++
+ public:
+     explicit InputPanelWindow(QWindow *parent = nullptr);
+ 
+@@ -29,8 +36,16 @@ public:
+     QRect interactiveRegion() const;
+     void setInteractiveRegion(QRect interactiveRegion);
+ 
++    bool shown() const;
++
+     Q_INVOKABLE void showSettings();
+ 
++    /**
++     * Writes the settings the keyboard changed itself (floating, its place and size, split, the extra keys) to its
++     * configuration file.
++     */
++    Q_INVOKABLE void saveSettings();
++
+     /**
+      * Initialize this window as an input panel for the compositor.
+      *
+@@ -41,7 +56,12 @@ public:
+ 
+ Q_SIGNALS:
+     void interactiveRegionChanged();
++    void shownChanged();
++
++protected:
++    void exposeEvent(QExposeEvent *event) override;
+ 
+ private:
+     QRect m_interactiveRegion;
++    bool m_shown = false;
+ };
+diff --git a/src/layouts/fallback/main.qml b/src/layouts/fallback/main.qml
+index 48502fe..e1d18cc 100644
+--- a/src/layouts/fallback/main.qml
++++ b/src/layouts/fallback/main.qml
+@@ -6,9 +6,15 @@ import QtQuick.VirtualKeyboard
+ import QtQuick.VirtualKeyboard.Components
+ import QtQuick.Layouts
+ 
++import org.kde.plasma.keyboard
++import org.kde.plasma.keyboard.lib as PlasmaKeyboard
++
+ KeyboardLayout {
+     inputMode: InputEngine.InputMode.Latin
+     keyWeight: 160
++    // Split in two halves, one for each thumb, when the docked keyboard is asked to be (a gap in every row)
++    readonly property bool split: PlasmaKeyboardSettings.splitLayout && !PlasmaKeyboard.BreezeConstants.floating
++    readonly property real gapWeight: keyWeight * 5
+     readonly property real normalKeyWidth: normalKey.width
+     readonly property real functionKeyWidth: mapFromItem(normalKey, normalKey.width / 2, 0).x
+     KeyboardRow {
+@@ -23,14 +29,14 @@ KeyboardLayout {
+             id: normalKey
+             key: Qt.Key_W
+             text: "w"
+-            alternativeKeys: "w2"
++            alternativeKeys: "w2ŵ"
+             smallText: "2"
+             smallTextVisible: true
+         }
+         Key {
+             key: Qt.Key_E
+             text: "e"
+-            alternativeKeys: "êe3ëèé"
++            alternativeKeys: "êe3ëèéēęė€"
+             smallText: "3"
+             smallTextVisible: true
+         }
+@@ -44,14 +50,18 @@ KeyboardLayout {
+         Key {
+             key: Qt.Key_T
+             text: "t"
+-            alternativeKeys: "ţt5ŧť"
++            alternativeKeys: "ţt5ŧťþ"
+             smallText: "5"
+             smallTextVisible: true
+         }
++        FillerKey {
++            visible: split
++            weight: gapWeight
++        }
+         Key {
+             key: Qt.Key_Y
+             text: "y"
+-            alternativeKeys: "ÿy6ýŷ"
++            alternativeKeys: "ÿy6ýŷ¥"
+             smallText: "6"
+             smallTextVisible: true
+         }
+@@ -65,21 +75,21 @@ KeyboardLayout {
+         Key {
+             key: Qt.Key_I
+             text: "i"
+-            alternativeKeys: "îïīĩi8ìí"
++            alternativeKeys: "îïīĩi8ìíį"
+             smallText: "8"
+             smallTextVisible: true
+         }
+         Key {
+             key: Qt.Key_O
+             text: "o"
+-            alternativeKeys: "œøõôöòóo9"
++            alternativeKeys: "œøõôöòóo9ōº"
+             smallText: "9"
+             smallTextVisible: true
+         }
+         Key {
+             key: Qt.Key_P
+             text: "p"
+-            alternativeKeys: "p0"
++            alternativeKeys: "p0¶"
+             smallText: "0"
+             smallTextVisible: true
+         }
+@@ -93,7 +103,9 @@ KeyboardLayout {
+             Key {
+                 key: Qt.Key_A
+                 text: "a"
+-                alternativeKeys: "aäåãâàá"
++                alternativeKeys: "aäåãâàáāąæ@"
++                smallText: "@"
++                smallTextVisible: true
+                 weight: normalKeyWidth
+                 Layout.fillWidth: false
+             }
+@@ -101,33 +113,55 @@ KeyboardLayout {
+         Key {
+             key: Qt.Key_S
+             text: "s"
+-            alternativeKeys: "šsşś"
++            alternativeKeys: "šsşśß#"
++            smallText: "#"
++            smallTextVisible: true
+         }
+         Key {
+             key: Qt.Key_D
+             text: "d"
+-            alternativeKeys: "dđď"
++            alternativeKeys: "dđď$"
++            smallText: "$"
++            smallTextVisible: true
+         }
+         Key {
+             key: Qt.Key_F
+             text: "f"
++            alternativeKeys: "f%"
++            smallText: "%"
++            smallTextVisible: true
+         }
+         Key {
+             key: Qt.Key_G
+             text: "g"
+-            alternativeKeys: "ġgģĝğ"
++            alternativeKeys: "ġgģĝğ&"
++            smallText: "&"
++            smallTextVisible: true
++        }
++        FillerKey {
++            visible: split
++            weight: gapWeight
+         }
+         Key {
+             key: Qt.Key_H
+             text: "h"
++            alternativeKeys: "hĥ-"
++            smallText: "-"
++            smallTextVisible: true
+         }
+         Key {
+             key: Qt.Key_J
+             text: "j"
++            alternativeKeys: "jĵ+"
++            smallText: "+"
++            smallTextVisible: true
+         }
+         Key {
+             key: Qt.Key_K
+             text: "k"
++            alternativeKeys: "kķ("
++            smallText: "("
++            smallTextVisible: true
+         }
+         KeyboardRow {
+             Layout.preferredWidth: functionKeyWidth
+@@ -135,7 +169,9 @@ KeyboardLayout {
+             Key {
+                 key: Qt.Key_L
+                 text: "l"
+-                alternativeKeys: "ĺŀłļľl"
++                alternativeKeys: "ĺŀłļľl)"
++                smallText: ")"
++                smallTextVisible: true
+                 weight: normalKeyWidth
+                 Layout.fillWidth: false
+             }
+@@ -151,33 +187,55 @@ KeyboardLayout {
+         Key {
+             key: Qt.Key_Z
+             text: "z"
+-            alternativeKeys: "zžż"
++            alternativeKeys: "zžżź*"
++            smallText: "*"
++            smallTextVisible: true
+         }
+         Key {
+             key: Qt.Key_X
+             text: "x"
++            alternativeKeys: "x\""
++            smallText: "\""
++            smallTextVisible: true
+         }
+         Key {
+             key: Qt.Key_C
+             text: "c"
+-            alternativeKeys: "çcċčć"
++            alternativeKeys: "çcċčć'"
++            smallText: "'"
++            smallTextVisible: true
+         }
+         Key {
+             key: Qt.Key_V
+             text: "v"
++            alternativeKeys: "v:"
++            smallText: ":"
++            smallTextVisible: true
++        }
++        FillerKey {
++            visible: split
++            weight: gapWeight
+         }
+         Key {
+             key: Qt.Key_B
+             text: "b"
++            alternativeKeys: "b;"
++            smallText: ";"
++            smallTextVisible: true
+         }
+         Key {
+             key: Qt.Key_N
+             text: "n"
+-            alternativeKeys: "ņńnň"
++            alternativeKeys: "ņńnňñ!"
++            smallText: "!"
++            smallTextVisible: true
+         }
+         Key {
+             key: Qt.Key_M
+             text: "m"
++            alternativeKeys: "mµ?"
++            smallText: "?"
++            smallTextVisible: true
+         }
+         BackspaceKey {
+             weight: functionKeyWidth
+@@ -204,12 +262,19 @@ KeyboardLayout {
+         }
+         SpaceKey {
+         }
++        FillerKey {
++            visible: split
++            weight: gapWeight
++        }
++        SpaceKey {
++            visible: split
++        }
+         Key {
+             key: Qt.Key_Period
+             weight: normalKeyWidth
+             Layout.fillWidth: false
+             text: "."
+-            alternativeKeys: "!.?"
++            alternativeKeys: "!.?…:;"
+             smallText: "!?"
+             smallTextVisible: true
+             highlighted: true
+diff --git a/src/layouts/it_IT/main.qml b/src/layouts/it_IT/main.qml
+index 54cacad..e26eed1 100644
+--- a/src/layouts/it_IT/main.qml
++++ b/src/layouts/it_IT/main.qml
+@@ -6,56 +6,92 @@ import QtQuick.VirtualKeyboard
+ import QtQuick.VirtualKeyboard.Components
+ import QtQuick.Layouts
+ 
++import org.kde.plasma.keyboard
++import org.kde.plasma.keyboard.lib as PlasmaKeyboard
++
+ KeyboardLayout {
+     inputMode: InputEngine.InputMode.Latin
+     keyWeight: 160
++    // Split in two halves, one for each thumb, when the docked keyboard is asked to be (a gap in every row)
++    readonly property bool split: PlasmaKeyboardSettings.splitLayout && !PlasmaKeyboard.BreezeConstants.floating
++    readonly property real gapWeight: keyWeight * 5
+     readonly property real normalKeyWidth: normalKey.width
+     readonly property real functionKeyWidth: mapFromItem(normalKey, normalKey.width / 2, 0).x
+     KeyboardRow {
+         Key {
+             key: Qt.Key_Q
+             text: "q"
++            alternativeKeys: "q1"
++            smallText: "1"
++            smallTextVisible: true
+         }
+         Key {
+             id: normalKey
+             key: Qt.Key_W
+             text: "w"
++            alternativeKeys: "w2"
++            smallText: "2"
++            smallTextVisible: true
+         }
+         Key {
+             key: Qt.Key_E
+             text: "e"
+-            alternativeKeys: "eèé"
++            alternativeKeys: "eèé3êë€"
++            smallText: "3"
++            smallTextVisible: true
+         }
+         Key {
+             key: Qt.Key_R
+             text: "r"
++            alternativeKeys: "r4"
++            smallText: "4"
++            smallTextVisible: true
+         }
+         Key {
+             key: Qt.Key_T
+             text: "t"
++            alternativeKeys: "t5"
++            smallText: "5"
++            smallTextVisible: true
++        }
++        FillerKey {
++            visible: split
++            weight: gapWeight
+         }
+         Key {
+             key: Qt.Key_Y
+             text: "y"
++            alternativeKeys: "y6"
++            smallText: "6"
++            smallTextVisible: true
+         }
+         Key {
+             key: Qt.Key_U
+             text: "u"
+-            alternativeKeys: "uùú"
++            alternativeKeys: "uùú7üû"
++            smallText: "7"
++            smallTextVisible: true
+         }
+         Key {
+             key: Qt.Key_I
+             text: "i"
+-            alternativeKeys: "iìí"
++            alternativeKeys: "iìí8îï"
++            smallText: "8"
++            smallTextVisible: true
+         }
+         Key {
+             key: Qt.Key_O
+             text: "o"
+-            alternativeKeys: "oòó"
++            alternativeKeys: "oòó9ôöº"
++            smallText: "9"
++            smallTextVisible: true
+         }
+         Key {
+             key: Qt.Key_P
+             text: "p"
++            alternativeKeys: "p0"
++            smallText: "0"
++            smallTextVisible: true
+         }
+     }
+     KeyboardRow {
+@@ -67,7 +103,9 @@ KeyboardLayout {
+             Key {
+                 key: Qt.Key_A
+                 text: "a"
+-                alternativeKeys: "aàá"
++                alternativeKeys: "aàá@äâª"
++                smallText: "@"
++                smallTextVisible: true
+                 weight: normalKeyWidth
+                 Layout.fillWidth: false
+             }
+@@ -75,30 +113,55 @@ KeyboardLayout {
+         Key {
+             key: Qt.Key_S
+             text: "s"
++            alternativeKeys: "sß#"
++            smallText: "#"
++            smallTextVisible: true
+         }
+         Key {
+             key: Qt.Key_D
+             text: "d"
++            alternativeKeys: "d$"
++            smallText: "$"
++            smallTextVisible: true
+         }
+         Key {
+             key: Qt.Key_F
+             text: "f"
++            alternativeKeys: "f%"
++            smallText: "%"
++            smallTextVisible: true
+         }
+         Key {
+             key: Qt.Key_G
+             text: "g"
++            alternativeKeys: "g&"
++            smallText: "&"
++            smallTextVisible: true
++        }
++        FillerKey {
++            visible: split
++            weight: gapWeight
+         }
+         Key {
+             key: Qt.Key_H
+             text: "h"
++            alternativeKeys: "h-"
++            smallText: "-"
++            smallTextVisible: true
+         }
+         Key {
+             key: Qt.Key_J
+             text: "j"
++            alternativeKeys: "j+"
++            smallText: "+"
++            smallTextVisible: true
+         }
+         Key {
+             key: Qt.Key_K
+             text: "k"
++            alternativeKeys: "k("
++            smallText: "("
++            smallTextVisible: true
+         }
+         KeyboardRow {
+             Layout.preferredWidth: functionKeyWidth
+@@ -106,6 +169,9 @@ KeyboardLayout {
+             Key {
+                 key: Qt.Key_L
+                 text: "l"
++                alternativeKeys: "l)"
++                smallText: ")"
++                smallTextVisible: true
+                 weight: normalKeyWidth
+                 Layout.fillWidth: false
+             }
+@@ -121,30 +187,55 @@ KeyboardLayout {
+         Key {
+             key: Qt.Key_Z
+             text: "z"
++            alternativeKeys: "z*"
++            smallText: "*"
++            smallTextVisible: true
+         }
+         Key {
+             key: Qt.Key_X
+             text: "x"
++            alternativeKeys: "x\""
++            smallText: "\""
++            smallTextVisible: true
+         }
+         Key {
+             key: Qt.Key_C
+             text: "c"
++            alternativeKeys: "cç'"
++            smallText: "'"
++            smallTextVisible: true
+         }
+         Key {
+             key: Qt.Key_V
+             text: "v"
++            alternativeKeys: "v:"
++            smallText: ":"
++            smallTextVisible: true
++        }
++        FillerKey {
++            visible: split
++            weight: gapWeight
+         }
+         Key {
+             key: Qt.Key_B
+             text: "b"
++            alternativeKeys: "b;"
++            smallText: ";"
++            smallTextVisible: true
+         }
+         Key {
+             key: Qt.Key_N
+             text: "n"
++            alternativeKeys: "nñ!"
++            smallText: "!"
++            smallTextVisible: true
+         }
+         Key {
+             key: Qt.Key_M
+             text: "m"
++            alternativeKeys: "m?"
++            smallText: "?"
++            smallTextVisible: true
+         }
+         BackspaceKey {
+             weight: functionKeyWidth
+@@ -171,12 +262,19 @@ KeyboardLayout {
+         }
+         SpaceKey {
+         }
++        FillerKey {
++            visible: split
++            weight: gapWeight
++        }
++        SpaceKey {
++            visible: split
++        }
+         Key {
+             key: Qt.Key_Period
+             weight: normalKeyWidth
+             Layout.fillWidth: false
+             text: "."
+-            alternativeKeys: "!.?"
++            alternativeKeys: "!.?…:;"
+             smallText: "!?"
+             smallTextVisible: true
+             highlighted: true
+diff --git a/src/plasmakeyboardsettings.kcfg b/src/plasmakeyboardsettings.kcfg
+index 74a5b3b..c42a8be 100644
+--- a/src/plasmakeyboardsettings.kcfg
++++ b/src/plasmakeyboardsettings.kcfg
+@@ -43,5 +43,33 @@
+             <max>1500</max>
+             <default>600</default>
+         </entry>
++        <entry key="floating" type="Bool">
++            <label>Whether the keyboard floats over the screen and can be moved, rather than sitting at the bottom edge.</label>
++            <default>false</default>
++        </entry>
++        <entry key="floatX" type="Int">
++            <label>Left edge of the floating keyboard (-1: centered).</label>
++            <default>-1</default>
++        </entry>
++        <entry key="floatY" type="Int">
++            <label>Top edge of the floating keyboard (-1: above the bottom edge).</label>
++            <default>-1</default>
++        </entry>
++        <entry key="floatWidth" type="Int">
++            <label>Width of the floating keyboard (0: the default).</label>
++            <default>0</default>
++        </entry>
++        <entry key="floatHeight" type="Int">
++            <label>Height of the keys of the floating keyboard (0: the default).</label>
++            <default>0</default>
++        </entry>
++        <entry key="splitLayout" type="Bool">
++            <label>Whether the docked keyboard is split in two halves, one for each thumb.</label>
++            <default>false</default>
++        </entry>
++        <entry key="extraKeysVisible" type="Bool">
++            <label>Whether the row of extra keys (Esc, Tab, Ctrl, arrows, function keys) is shown.</label>
++            <default>false</default>
++        </entry>
+     </group>
+ </kcfg>
+diff --git a/src/qml/ClipboardList.qml b/src/qml/ClipboardList.qml
+new file mode 100644
+index 0000000..c27b690
+--- /dev/null
++++ b/src/qml/ClipboardList.qml
+@@ -0,0 +1,105 @@
++/*
++    SPDX-FileCopyrightText: 2026 Surface Overdrive
++    SPDX-License-Identifier: GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
++*/
++
++import QtQuick
++import QtQuick.Controls as QQC2
++
++import org.kde.kirigami as Kirigami
++import org.kde.plasma.keyboard.lib as PlasmaKeyboard
++
++// The last texts of Plasma's clipboard, above the keyboard: a tap types one into the focused field.
++Item {
++    id: list
++
++    property var entries: []
++
++    signal chosen(string text)
++    signal closeRequested()
++
++    readonly property var theme: PlasmaKeyboard.BreezeConstants
++    readonly property real rowHeight: Kirigami.Units.gridUnit * 2.2
++
++    implicitHeight: Math.max(1, Math.min(entries.length, 5)) * rowHeight + header.height + Kirigami.Units.smallSpacing * 3
++
++    PlasmaKeyboard.BreezePopup {
++        anchors.fill: parent
++        theme: list.theme
++    }
++
++    Item {
++        id: header
++        anchors { top: parent.top; left: parent.left; right: parent.right; margins: Kirigami.Units.smallSpacing }
++        height: Kirigami.Units.gridUnit * 1.8
++
++        QQC2.Label {
++            anchors { left: parent.left; leftMargin: Kirigami.Units.largeSpacing; verticalCenter: parent.verticalCenter }
++            text: i18n("Clipboard")
++            color: list.theme.popupTextColor
++            font.family: list.theme.fontFamily
++            font.bold: true
++        }
++        Item {
++            anchors { right: parent.right; top: parent.top; bottom: parent.bottom }
++            width: height * 1.4
++
++            Kirigami.Icon {
++                anchors.centerIn: parent
++                source: "window-close"
++                width: Kirigami.Units.iconSizes.small
++                height: width
++                color: list.theme.popupTextColor
++            }
++            MouseArea {
++                anchors.fill: parent
++                onClicked: list.closeRequested()
++            }
++        }
++    }
++
++    QQC2.Label {
++        anchors.centerIn: view
++        visible: list.entries.length === 0
++        text: i18n("Nothing was copied yet")
++        color: list.theme.popupTextColor
++        opacity: 0.7
++        font.family: list.theme.fontFamily
++    }
++
++    ListView {
++        id: view
++        anchors { top: header.bottom; left: parent.left; right: parent.right; bottom: parent.bottom; margins: Kirigami.Units.smallSpacing }
++        clip: true
++        boundsBehavior: Flickable.StopAtBounds
++        model: list.entries
++
++        delegate: Item {
++            id: entry
++            required property string modelData
++            width: view.width
++            height: list.rowHeight
++
++            Rectangle {
++                anchors.fill: parent
++                anchors.margins: 1
++                radius: list.theme.buttonRadius
++                color: entryArea.pressed ? list.theme.popupHighlightColor : "transparent"
++            }
++            QQC2.Label {
++                anchors { left: parent.left; right: parent.right; verticalCenter: parent.verticalCenter; margins: Kirigami.Units.largeSpacing }
++                // one line of it: what is typed is the whole text
++                text: entry.modelData.replace(/\s+/g, " ").trim()
++                elide: Text.ElideRight
++                maximumLineCount: 1
++                color: list.theme.popupTextColor
++                font.family: list.theme.fontFamily
++            }
++            MouseArea {
++                id: entryArea
++                anchors.fill: parent
++                onClicked: list.chosen(entry.modelData)
++            }
++        }
++    }
++}
+diff --git a/src/qml/EmojiGrid.qml b/src/qml/EmojiGrid.qml
+new file mode 100644
+index 0000000..0b8aa99
+--- /dev/null
++++ b/src/qml/EmojiGrid.qml
+@@ -0,0 +1,104 @@
++/*
++    SPDX-FileCopyrightText: 2026 Surface Overdrive
++    SPDX-License-Identifier: GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
++*/
++
++import QtQuick
++import QtQuick.Controls as QQC2
++
++import org.kde.kirigami as Kirigami
++import org.kde.plasma.keyboard.lib as PlasmaKeyboard
++
++// A grid of the common emoji, above the keyboard: a tap types one, the grid stays for the next.
++Item {
++    id: grid
++
++    signal chosen(string text)
++    signal closeRequested()
++
++    readonly property var theme: PlasmaKeyboard.BreezeConstants
++    readonly property real cell: Kirigami.Units.gridUnit * 2.4
++
++    readonly property var emoji: [
++        "😀", "😃", "😄", "😁", "😆", "😅", "🤣", "😂", "🙂", "🙃", "😉", "😊", "😇", "🥰", "😍", "🤩",
++        "😘", "😗", "😋", "😛", "😜", "🤪", "🤨", "🧐", "🤓", "😎", "🥳", "😏", "😒", "😞", "😔", "😟",
++        "😕", "🙁", "😣", "😖", "😫", "😩", "🥺", "😢", "😭", "😤", "😠", "😡", "🤬", "🤯", "😳", "🥵",
++        "🥶", "😱", "😨", "😰", "😥", "🤗", "🤔", "🤭", "🤫", "🤥", "😶", "😐", "😑", "😬", "🙄", "😯",
++        "😴", "🤤", "😪", "😵", "🤐", "🥴", "🤢", "🤮", "🤧", "😷", "🤒", "🤕", "🤑", "🤠", "😈", "👻",
++        "💀", "👽", "🤖", "💩", "👍", "👎", "👌", "✌️", "🤞", "🤟", "🤘", "👋", "🙏", "👏", "🙌", "💪",
++        "🤝", "👀", "❤️", "🧡", "💛", "💚", "💙", "💜", "🖤", "💔", "💕", "💯", "🔥", "✨", "⭐", "🎉",
++        "🎂", "🎁", "☀️", "🌙", "☁️", "🌧️", "❄️", "🌈", "🍕", "🍔", "🍝", "☕", "🍺", "🍷", "⚽", "🎵",
++        "📷", "💻", "📱", "🚗", "✈️", "🏠", "⏰", "✅", "❌", "❓", "❗", "⚠️"
++    ]
++
++    implicitHeight: cell * 3 + header.height + Kirigami.Units.smallSpacing * 3
++
++    PlasmaKeyboard.BreezePopup {
++        anchors.fill: parent
++        theme: grid.theme
++    }
++
++    Item {
++        id: header
++        anchors { top: parent.top; left: parent.left; right: parent.right; margins: Kirigami.Units.smallSpacing }
++        height: Kirigami.Units.gridUnit * 1.8
++
++        QQC2.Label {
++            anchors { left: parent.left; leftMargin: Kirigami.Units.largeSpacing; verticalCenter: parent.verticalCenter }
++            text: i18n("Emoji")
++            color: grid.theme.popupTextColor
++            font.family: grid.theme.fontFamily
++            font.bold: true
++        }
++        Item {
++            anchors { right: parent.right; top: parent.top; bottom: parent.bottom }
++            width: height * 1.4
++
++            Kirigami.Icon {
++                anchors.centerIn: parent
++                source: "window-close"
++                width: Kirigami.Units.iconSizes.small
++                height: width
++                color: grid.theme.popupTextColor
++            }
++            MouseArea {
++                anchors.fill: parent
++                onClicked: grid.closeRequested()
++            }
++        }
++    }
++
++    GridView {
++        id: view
++        anchors { top: header.bottom; left: parent.left; right: parent.right; bottom: parent.bottom; margins: Kirigami.Units.smallSpacing }
++        clip: true
++        boundsBehavior: Flickable.StopAtBounds
++        cellWidth: Math.floor(width / Math.max(1, Math.floor(width / grid.cell)))
++        cellHeight: grid.cell
++        model: grid.emoji
++
++        delegate: Item {
++            id: entry
++            required property string modelData
++            width: view.cellWidth
++            height: view.cellHeight
++
++            Rectangle {
++                anchors.fill: parent
++                anchors.margins: 1
++                radius: grid.theme.buttonRadius
++                color: entryArea.pressed ? grid.theme.popupHighlightColor : "transparent"
++            }
++            Text {
++                anchors.centerIn: parent
++                text: entry.modelData
++                font.pixelSize: grid.cell * 0.55
++            }
++            MouseArea {
++                id: entryArea
++                anchors.fill: parent
++                onClicked: grid.chosen(entry.modelData)
++            }
++        }
++    }
++}
+diff --git a/src/qml/ExtraKeyRow.qml b/src/qml/ExtraKeyRow.qml
+new file mode 100644
+index 0000000..fb96b41
+--- /dev/null
++++ b/src/qml/ExtraKeyRow.qml
+@@ -0,0 +1,131 @@
++/*
++    SPDX-FileCopyrightText: 2026 Surface Overdrive
++    SPDX-License-Identifier: GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
++*/
++
++import QtQuick
++import QtQuick.Controls as QQC2
++
++import org.kde.kirigami as Kirigami
++import org.kde.plasma.keyboard.lib as PlasmaKeyboard
++
++// The row of keys a touch keyboard otherwise lacks, above the letters: Esc, Tab, Ctrl, Alt, Meta, the arrows, Home,
++// End, the page keys, Delete, and the function keys on a second page. Ctrl, Alt and Meta are armed by a tap and hold
++// for the next key, of this row or of the keyboard below (Ctrl then "c").
++Item {
++    id: row
++
++    // The ExtraKeys device
++    required property var keys
++    property real scaleHint: 1
++    property bool functionPage: false
++
++    signal clipboardRequested()
++
++    readonly property var theme: PlasmaKeyboard.BreezeConstants
++
++    // t: label, i: icon, k: key name of ExtraKeys.code(), m: modifier property, a: action, r: repeats while held
++    readonly property var mainPage: [
++        {t: "Esc", k: "esc"}, {t: "Tab", k: "tab"},
++        {t: "Ctrl", m: "ctrl"}, {t: "Alt", m: "alt"}, {t: "Meta", m: "meta"},
++        {t: "←", k: "left", r: true}, {t: "↓", k: "down", r: true}, {t: "↑", k: "up", r: true}, {t: "→", k: "right", r: true},
++        {t: "Home", k: "home"}, {t: "End", k: "end"}, {t: "PgUp", k: "pgup", r: true}, {t: "PgDn", k: "pgdn", r: true},
++        {t: "Del", k: "del", r: true}, {t: "Fn", a: "fn"}, {i: "edit-paste", a: "clipboard"}
++    ]
++    readonly property var secondPage: [
++        {t: "F1", k: "f1"}, {t: "F2", k: "f2"}, {t: "F3", k: "f3"}, {t: "F4", k: "f4"}, {t: "F5", k: "f5"}, {t: "F6", k: "f6"},
++        {t: "F7", k: "f7"}, {t: "F8", k: "f8"}, {t: "F9", k: "f9"}, {t: "F10", k: "f10"}, {t: "F11", k: "f11"}, {t: "F12", k: "f12"},
++        {t: "Ins", k: "ins"}, {t: "PrtSc", k: "print"}, {t: "Fn", a: "fn"}, {i: "edit-paste", a: "clipboard"}
++    ]
++
++    function activate(entry) {
++        if (entry.m) {
++            row.keys[entry.m] = !row.keys[entry.m];
++        } else if (entry.a === "fn") {
++            row.functionPage = !row.functionPage;
++        } else if (entry.a === "clipboard") {
++            row.clipboardRequested();
++        } else if (entry.k) {
++            row.keys.tap(row.keys.code(entry.k));
++        }
++    }
++
++    ListView {
++        id: view
++        anchors.fill: parent
++        orientation: ListView.Horizontal
++        boundsBehavior: Flickable.StopAtBounds
++        clip: true
++        model: row.functionPage ? row.secondPage : row.mainPage
++        // every key on screen when there is room, a strip to flick through when there is not
++        readonly property real cellWidth: Math.max(row.height * 1.05, count > 0 ? width / count : width)
++        interactive: cellWidth * count > width + 1
++
++        delegate: Item {
++            id: cell
++            required property var modelData
++            width: view.cellWidth
++            height: view.height
++
++            readonly property bool armed: modelData.m ? row.keys[modelData.m] : (modelData.a === "fn" && row.functionPage)
++
++            Rectangle {
++                anchors.fill: parent
++                anchors.margins: row.theme.keyBackgroundMargin
++                radius: row.theme.buttonRadius
++                color: area.pressed ? row.theme.normalKeyPressedBackgroundColor : row.theme.normalKeyBackgroundColor
++                border.width: cell.armed ? 2 : 0
++                border.color: Kirigami.Theme.highlightColor
++
++                QQC2.Label {
++                    anchors.centerIn: parent
++                    visible: !!cell.modelData.t
++                    text: cell.modelData.t || ""
++                    color: cell.armed ? Kirigami.Theme.highlightColor : row.theme.keyTextColor
++                    font {
++                        family: row.theme.fontFamily
++                        weight: Font.Light
++                        pixelSize: Math.max(10, 36 * row.scaleHint)
++                    }
++                }
++                Kirigami.Icon {
++                    anchors.centerIn: parent
++                    visible: !!cell.modelData.i
++                    source: cell.modelData.i || ""
++                    width: Math.min(parent.width, parent.height) * 0.6
++                    height: width
++                    color: row.theme.keyTextColor
++                }
++            }
++
++            Timer {
++                id: repeat
++                interval: 420
++                repeat: true
++                onTriggered: {
++                    interval = 70;
++                    row.activate(cell.modelData);
++                }
++            }
++
++            MouseArea {
++                id: area
++                anchors.fill: parent
++                onPressed: {
++                    if (cell.modelData.r) {
++                        row.activate(cell.modelData);
++                        repeat.interval = 420;
++                        repeat.start();
++                    }
++                }
++                onReleased: repeat.stop()
++                onCanceled: repeat.stop()
++                onClicked: {
++                    if (!cell.modelData.r) {
++                        row.activate(cell.modelData);
++                    }
++                }
++            }
++        }
++    }
++}
+diff --git a/src/qml/KeyboardMenu.qml b/src/qml/KeyboardMenu.qml
+new file mode 100644
+index 0000000..faab916
+--- /dev/null
++++ b/src/qml/KeyboardMenu.qml
+@@ -0,0 +1,114 @@
++/*
++    SPDX-FileCopyrightText: 2026 Surface Overdrive
++    SPDX-License-Identifier: GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
++*/
++
++import QtQuick
++import QtQuick.Controls as QQC2
++
++import org.kde.kirigami as Kirigami
++import org.kde.plasma.keyboard.lib as PlasmaKeyboard
++
++// The keyboard's own menu, opened by holding the space bar: what the keyboard is (floating, split) and what it shows
++// (the extra keys, the clipboard, the emoji). An entry is chosen by sliding onto it and lifting the finger, or by a tap.
++Item {
++    id: menu
++
++    property bool floating: false
++    property bool split: false
++    property bool extraKeys: false
++    // Index of the entry under the finger that still holds the space bar (-1: none)
++    property int hovered: -1
++
++    signal triggered(string name)
++
++    readonly property var theme: PlasmaKeyboard.BreezeConstants
++    readonly property real cellWidth: Kirigami.Units.gridUnit * 4.6
++    readonly property real cellHeight: Kirigami.Units.gridUnit * 3.6
++
++    readonly property var entries: [
++        {name: "floating", icon: "window-duplicate", text: menu.floating ? i18n("Dock") : i18n("Float"), checked: menu.floating, enabled: true},
++        {name: "split", icon: "view-split-left-right", text: i18n("Split"), checked: menu.split && !menu.floating, enabled: !menu.floating},
++        {name: "extra", icon: "input-keyboard", text: i18n("Extra keys"), checked: menu.extraKeys, enabled: true},
++        {name: "clipboard", icon: "edit-paste", text: i18n("Clipboard"), checked: false, enabled: true},
++        {name: "emoji", icon: "smiley", text: i18n("Emoji"), checked: false, enabled: true},
++        {name: "settings", icon: "configure", text: i18n("Settings"), checked: false, enabled: true}
++    ]
++
++    implicitWidth: cellWidth * entries.length + Kirigami.Units.smallSpacing * 2
++    implicitHeight: cellHeight + Kirigami.Units.smallSpacing * 2
++
++    // The entry at a point of this item, for the finger that slides up from the space bar
++    function indexAt(x, y) {
++        if (y < -cellHeight * 0.5 || y > height + cellHeight * 0.5) {
++            return -1;
++        }
++        const index = Math.floor((x - Kirigami.Units.smallSpacing) / cellWidth);
++        return index >= 0 && index < entries.length && entries[index].enabled ? index : -1;
++    }
++
++    function trigger(index) {
++        if (index >= 0 && index < entries.length && entries[index].enabled) {
++            menu.triggered(entries[index].name);
++        }
++    }
++
++    PlasmaKeyboard.BreezePopup {
++        anchors.fill: parent
++        theme: menu.theme
++    }
++
++    Row {
++        anchors.centerIn: parent
++
++        Repeater {
++            model: menu.entries
++
++            Item {
++                id: cell
++                required property var modelData
++                required property int index
++                width: menu.cellWidth
++                height: menu.cellHeight
++                opacity: modelData.enabled ? 1 : 0.35
++
++                Rectangle {
++                    anchors.fill: parent
++                    anchors.margins: Kirigami.Units.smallSpacing / 2
++                    radius: menu.theme.buttonRadius
++                    color: (cellArea.pressed || menu.hovered === cell.index) ? menu.theme.popupHighlightColor : "transparent"
++                    border.width: cell.modelData.checked ? 2 : 0
++                    border.color: Kirigami.Theme.highlightColor
++                }
++                Column {
++                    anchors.centerIn: parent
++                    spacing: Kirigami.Units.smallSpacing / 2
++
++                    Kirigami.Icon {
++                        anchors.horizontalCenter: parent.horizontalCenter
++                        source: cell.modelData.icon
++                        width: Kirigami.Units.iconSizes.smallMedium
++                        height: width
++                        color: menu.theme.popupTextColor
++                    }
++                    QQC2.Label {
++                        anchors.horizontalCenter: parent.horizontalCenter
++                        width: menu.cellWidth - Kirigami.Units.smallSpacing * 2
++                        horizontalAlignment: Text.AlignHCenter
++                        elide: Text.ElideRight
++                        text: cell.modelData.text
++                        color: menu.theme.popupTextColor
++                        font.family: menu.theme.fontFamily
++                        font.pixelSize: Kirigami.Theme.smallFont.pixelSize
++                    }
++                }
++                MouseArea {
++                    id: cellArea
++                    anchors.fill: parent
++                    enabled: cell.modelData.enabled
++                    onClicked: menu.trigger(cell.index)
++                }
++            }
++        }
++    }
++}
+diff --git a/src/qml/SpaceGesture.qml b/src/qml/SpaceGesture.qml
+new file mode 100644
+index 0000000..7884d70
+--- /dev/null
++++ b/src/qml/SpaceGesture.qml
+@@ -0,0 +1,106 @@
++/*
++    SPDX-FileCopyrightText: 2026 Surface Overdrive
++    SPDX-License-Identifier: GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
++*/
++
++import QtQuick
++
++import org.kde.kirigami as Kirigami
++
++// Lies over the space bar and gives it three uses: a tap types a space, a slide moves the text cursor, a hold opens
++// the keyboard's menu (which can then be chosen from without lifting the finger).
++MultiPointTouchArea {
++    id: area
++
++    // A slide of this length is one step of the cursor
++    property real stepSize: 20
++    property real radius: 0
++
++    signal tapped()
++    signal cursorStep(int direction)
++    signal menuRequested()
++    signal menuMoved(real x, real y)
++    signal menuReleased(real x, real y)
++
++    property bool held: false
++    property bool cursorMode: false
++    property bool menuMode: false
++    property real startX: 0
++    property real lastStepX: 0
++
++    maximumTouchPoints: 1
++    mouseEnabled: true
++
++    function stop() {
++        hold.stop();
++        held = false;
++        cursorMode = false;
++        menuMode = false;
++    }
++
++    Timer {
++        id: hold
++        interval: 550
++        onTriggered: {
++            if (area.held && !area.cursorMode) {
++                area.menuMode = true;
++                area.menuRequested();
++            }
++        }
++    }
++
++    onPressed: (points) => {
++        const p = points[0];
++        held = true;
++        cursorMode = false;
++        menuMode = false;
++        startX = p.x;
++        lastStepX = p.x;
++        hold.restart();
++    }
++    onUpdated: (points) => {
++        const p = points[0];
++        if (!held) {
++            return;
++        }
++        if (menuMode) {
++            area.menuMoved(p.x, p.y);
++            return;
++        }
++        if (!cursorMode && Math.abs(p.x - startX) > stepSize * 1.5) {
++            cursorMode = true;
++            hold.stop();
++            lastStepX = p.x;
++        }
++        if (cursorMode) {
++            while (p.x - lastStepX >= stepSize) {
++                lastStepX += stepSize;
++                area.cursorStep(1);
++            }
++            while (lastStepX - p.x >= stepSize) {
++                lastStepX -= stepSize;
++                area.cursorStep(-1);
++            }
++        }
++    }
++    onReleased: (points) => {
++        const p = points[0];
++        const wasMenu = menuMode;
++        const wasCursor = cursorMode;
++        const wasHeld = held;
++        stop();
++        if (wasMenu) {
++            area.menuReleased(p.x, p.y);
++        } else if (wasHeld && !wasCursor) {
++            area.tapped();
++        }
++    }
++    onCanceled: stop()
++
++    Rectangle {
++        anchors.fill: parent
++        radius: area.radius
++        visible: area.held
++        color: Qt.rgba(Kirigami.Theme.highlightColor.r, Kirigami.Theme.highlightColor.g, Kirigami.Theme.highlightColor.b, area.cursorMode ? 0.35 : 0.2)
++    }
++}
+diff --git a/src/qml/main.qml b/src/qml/main.qml
+index 703f675..155c6b6 100644
+--- a/src/qml/main.qml
++++ b/src/qml/main.qml
+@@ -13,6 +13,7 @@ import org.kde.plasma.keyboard
+ import org.kde.plasma.keyboard.lib as PlasmaKeyboard
+ 
+ import org.kde.kirigami as Kirigami
++import org.kde.layershell as LayerShell
+ 
+ InputPanelWindow {
+     id: root
+@@ -58,7 +59,263 @@ InputPanelWindow {
+         onCandidateSelected: (index) => thing.overlayController.commitCandidate(index)
+     }
+ 
+-    interactiveRegion: Qt.rect(panelWrapper.x, panelWrapper.y, panelWrapper.width, panelWrapper.height)
++    // ---- Surface Overdrive: floating and split keyboard, extra keys, clipboard, emoji, gestures of the space bar
++
++    // The floating keyboard is in a window of its own (floatWindow below), which is not shown above the lock screen:
++    // while the screen is locked, the keyboard is the docked one whatever the setting says
++    readonly property bool floating: PlasmaKeyboardSettings.floating && !screenLock.locked
++    readonly property var keyboardStyle: inputPanel.keyboard.style
++    // "" (none), "menu", "clipboard" or "emoji"
++    property string popup: ""
++    // Where the floating keyboard is: its top left corner, kept on the screen whatever was saved
++    property real floatX: PlasmaKeyboardSettings.floatX
++    property real floatY: PlasmaKeyboardSettings.floatY
++    // The space bars of the layout on screen (two when it is split), found again whenever the layout changes
++    property var spaceKeys: []
++    property int layoutTick: 0
++
++    function saveFloatPosition() {
++        PlasmaKeyboardSettings.floatX = Math.round(panelWrapper.x);
++        PlasmaKeyboardSettings.floatY = Math.round(panelWrapper.y);
++        root.saveSettings();
++    }
++
++    function menuAction(name) {
++        root.popup = "";
++        if (name === "floating") {
++            PlasmaKeyboardSettings.floating = !PlasmaKeyboardSettings.floating;
++            root.saveSettings();
++        } else if (name === "split") {
++            PlasmaKeyboardSettings.splitLayout = !PlasmaKeyboardSettings.splitLayout;
++            root.saveSettings();
++        } else if (name === "extra") {
++            PlasmaKeyboardSettings.extraKeysVisible = !PlasmaKeyboardSettings.extraKeysVisible;
++            root.saveSettings();
++        } else if (name === "clipboard") {
++            root.showClipboard();
++        } else if (name === "emoji") {
++            root.popup = "emoji";
++        } else if (name === "settings") {
++            root.showSettings();
++        }
++    }
++
++    function showClipboard() {
++        if (root.popup === "clipboard") {
++            root.popup = "";
++            return;
++        }
++        clipboardList.entries = clipboardHistory.entries(8);
++        root.popup = "clipboard";
++    }
++
++    function collectSpaceKeys(item, found) {
++        if (!item) {
++            return;
++        }
++        if (item.keyType !== undefined && item.keyType === QtVirtualKeyboard.KeyType.SpaceKey && item.visible && item.width > 0) {
++            found.push(item);
++            return;
++        }
++        const children = item.children;
++        for (let i = 0; i < children.length; ++i) {
++            collectSpaceKeys(children[i], found);
++        }
++    }
++
++    function findSpaceKeys() {
++        const found = [];
++        collectSpaceKeys(inputPanel.keyboard.keyboardLayoutLoader, found);
++        root.spaceKeys = found;
++        root.layoutTick++;
++    }
++
++    Timer {
++        id: layoutSettled
++        interval: 120
++        onTriggered: root.findSpaceKeys()
++    }
++    // The layout is loaded and laid out a little after what causes it; a second look catches the slow cases
++    Timer {
++        id: layoutSettledLate
++        interval: 700
++        onTriggered: root.findSpaceKeys()
++    }
++    function scanLayoutSoon() {
++        layoutSettled.restart();
++        layoutSettledLate.restart();
++    }
++    Connections {
++        target: inputPanel
++        function onWidthChanged() { root.scanLayoutSoon(); }
++        function onHeightChanged() { root.scanLayoutSoon(); }
++    }
++    Connections {
++        target: inputPanel.keyboard
++        ignoreUnknownSignals: true
++        function onLayoutChanged() { root.scanLayoutSoon(); }
++        function onSymbolModeChanged() { root.scanLayoutSoon(); }
++        function onLocaleChanged() { root.scanLayoutSoon(); }
++        function onHandwritingModeChanged() { root.scanLayoutSoon(); }
++    }
++    Connections {
++        target: PlasmaKeyboardSettings
++        function onSplitLayoutChanged() { root.scanLayoutSoon(); }
++        function onFloatingChanged() {
++            root.floatX = PlasmaKeyboardSettings.floatX;
++            root.floatY = PlasmaKeyboardSettings.floatY;
++            root.scanLayoutSoon();
++        }
++        function onExtraKeysVisibleChanged() {
++            if (PlasmaKeyboardSettings.extraKeysVisible) {
++                extraKeys.prepare();
++            }
++            root.scanLayoutSoon();
++        }
++    }
++    onVisibilityChanged: {
++        if (visible) {
++            root.scanLayoutSoon();
++            if (PlasmaKeyboardSettings.extraKeysVisible) {
++                extraKeys.prepare();
++            }
++        } else {
++            root.popup = "";
++        }
++    }
++
++    ExtraKeys {
++        id: extraKeys
++    }
++    Binding {
++        target: thing
++        property: "extraKeys"
++        value: extraKeys
++    }
++    ClipboardHistory {
++        id: clipboardHistory
++    }
++    ScreenLock {
++        id: screenLock
++    }
++    // The style and the layouts size themselves by this (they cannot see this window)
++    Binding {
++        target: PlasmaKeyboard.BreezeConstants
++        property: "floating"
++        value: root.floating
++    }
++
++    // What the keyboard and what it opened cover, in the window they are in
++    function keyboardRegion() {
++        let left = panelWrapper.x;
++        let top = panelWrapper.y;
++        let right = panelWrapper.x + panelWrapper.width;
++        let bottom = panelWrapper.y + panelWrapper.height;
++        const extras = [menuBox, resizeOutline];
++        for (const item of extras) {
++            if (item.visible) {
++                left = Math.min(left, item.x);
++                top = Math.min(top, item.y);
++                right = Math.max(right, item.x + item.width);
++                bottom = Math.max(bottom, item.y + item.height);
++            }
++        }
++        left = Math.max(0, left);
++        top = Math.max(0, top);
++        return Qt.rect(left, top, Math.min(stage.width, right) - left, Math.min(stage.height, bottom) - top);
++    }
++
++    // KWin puts an input panel at the bottom centre of the screen whatever its window says (it takes the area that
++    // accepts touches for the keyboard, and aligns that), and keeps the focused window clear of it. So the floating
++    // keyboard cannot be this window: it is shown in a plain overlay window, and this one stays behind as a single
++    // point at the bottom edge, to tell when the compositor wants a keyboard on screen (root.shown).
++    InputPanelWindow {
++        id: floatWindow
++        LayerShell.Window.scope: "plasma-keyboard-floating"
++        LayerShell.Window.layer: LayerShell.Window.LayerOverlay
++        LayerShell.Window.anchors: LayerShell.Window.AnchorTop | LayerShell.Window.AnchorBottom | LayerShell.Window.AnchorLeft | LayerShell.Window.AnchorRight
++        LayerShell.Window.keyboardInteractivity: LayerShell.Window.KeyboardInteractivityNone
++        LayerShell.Window.exclusionZone: -1
++        width: Screen.width
++        height: Screen.height
++        color: "transparent"
++        visible: root.floating && root.visible && root.shown
++        interactiveRegion: root.floating ? root.keyboardRegion() : Qt.rect(0, 0, 1, 1)
++    }
++
++    interactiveRegion: root.floating ? Qt.rect(Math.round(root.width / 2), root.height - 1, 1, 1) : root.keyboardRegion()
++
++    // Everything of the keyboard, in whichever of the two windows shows it
++    Item {
++        id: stage
++        parent: root.floating ? floatWindow.contentItem : root.contentItem
++        anchors.fill: parent
++
++    // The clipboard list and the emoji grid: above the keyboard, or below it when it floats near the top
++    Item {
++        id: popupBox
++        visible: root.popup === "clipboard" || root.popup === "emoji"
++        z: 2
++        // over the upper rows of the keys, not above the keyboard: the area of the keyboard stays what it is, and
++        // the window that is typed into is not pushed around; the bottom row (space, backspace, enter) stays free
++        width: Math.min(panelWrapper.width - panelWrapper.padding * 2, Math.max(panelWrapper.width * 0.7, Kirigami.Units.gridUnit * 30))
++        height: Math.min(root.popup === "clipboard" ? clipboardList.implicitHeight : emojiGrid.implicitHeight, topArea.height + inputPanel.height * 0.74)
++        x: panelWrapper.x + (panelWrapper.width - width) / 2
++        y: panelWrapper.y + panelWrapper.padding
++
++        ClipboardList {
++            id: clipboardList
++            anchors.fill: parent
++            visible: root.popup === "clipboard"
++            onChosen: (text) => {
++                thing.commitText(text);
++                root.popup = "";
++            }
++            onCloseRequested: root.popup = ""
++        }
++        EmojiGrid {
++            id: emojiGrid
++            anchors.fill: parent
++            visible: root.popup === "emoji"
++            onChosen: (text) => thing.commitText(text)
++            onCloseRequested: root.popup = ""
++        }
++    }
++
++    // The keyboard's menu, right above the space bar that was held
++    KeyboardMenu {
++        id: menuBox
++        visible: root.popup === "menu"
++        z: 3
++        width: Math.min(implicitWidth, stage.width)
++        height: implicitHeight
++        property real anchorX: stage.width / 2
++        property real anchorY: stage.height
++        x: Math.max(0, Math.min(stage.width - width, anchorX - width / 2))
++        y: Math.max(0, anchorY - height - Kirigami.Units.smallSpacing)
++        floating: root.floating
++        split: PlasmaKeyboardSettings.splitLayout
++        extraKeys: PlasmaKeyboardSettings.extraKeysVisible
++        onTriggered: (name) => root.menuAction(name)
++        onVisibleChanged: hovered = -1
++    }
++    // The menu does not wait forever for a choice
++    Timer {
++        interval: 8000
++        running: root.popup === "menu"
++        onTriggered: root.popup = ""
++    }
++
++    // What the floating keyboard will be, while its corner is dragged: the keys are laid out once, at the end
++    Rectangle {
++        id: resizeOutline
++        visible: false
++        z: 4
++        color: Qt.rgba(Kirigami.Theme.highlightColor.r, Kirigami.Theme.highlightColor.g, Kirigami.Theme.highlightColor.b, 0.15)
++        border.width: 2
++        border.color: Kirigami.Theme.highlightColor
++        radius: Kirigami.Units.cornerRadius
++    }
+ 
+     Kirigami.ShadowedRectangle {
+         id: panelWrapper
+@@ -72,15 +329,14 @@ InputPanelWindow {
+         }
+ 
+         // Whether the panel takes the full width of the screen
+-        readonly property bool isFullScreenWidth: PlasmaKeyboardSettings.panelFillScreenWidth
++        readonly property bool isFullScreenWidth: !root.floating && PlasmaKeyboardSettings.panelFillScreenWidth
+ 
+         color: PlasmaKeyboard.BreezeConstants.keyboardBackgroundColor
+ 
+         // Provide shadow and radius when the keyboard is detached from edges
+         corners {
+-            // The window isn't floating, so only curve the top
+-            bottomLeftRadius: Kirigami.Units.cornerRadius
+-            bottomRightRadius: Kirigami.Units.cornerRadius
++            bottomLeftRadius: root.floating ? Kirigami.Units.cornerRadius : 0
++            bottomRightRadius: root.floating ? Kirigami.Units.cornerRadius : 0
+             topLeftRadius: isFullScreenWidth ? 0 : Kirigami.Units.cornerRadius
+             topRightRadius: isFullScreenWidth ? 0 : Kirigami.Units.cornerRadius
+         }
+@@ -89,25 +345,210 @@ InputPanelWindow {
+             color: Qt.rgba(0, 0, 0, 0.3)
+         }
+ 
+-        // Starting x and y centers the panel on the bottom
+-        x: (root.width / 2) - (width / 2)
+-        y: root.height - height
++        // Docked: centered on the bottom edge. Floating: where it was put, never off the screen
++        x: {
++            if (!root.floating || root.floatX < 0) {
++                return (stage.width / 2) - (width / 2);
++            }
++            return Math.max(0, Math.min(stage.width - width, root.floatX));
++        }
++        y: {
++            if (!root.floating) {
++                return stage.height - height;
++            }
++            if (root.floatY < 0) {
++                return Math.max(0, stage.height - height - Kirigami.Units.gridUnit * 3);
++            }
++            return Math.max(0, Math.min(stage.height - height, root.floatY));
++        }
+ 
+         // Padding for background corners and panel drag area
+         readonly property real padding: isFullScreenWidth ? 0 : Kirigami.Units.largeSpacing
+ 
+         // Never let width & height to be 0, otherwise it can cause problems for setting interactiveRegion
+         width: inputPanel.width > 0 ? (inputPanel.width + padding * 2) : 100
+-        height: inputPanel.height > 0 ? (inputPanel.height + padding * 2) : 100
++        height: inputPanel.height > 0 ? (topArea.height + inputPanel.height + padding * 2) : 100
+ 
+-        InputPanel {
+-            id: inputPanel
++        // Above the keys: the bar the floating keyboard is moved and sized by, and the row of extra keys
++        Column {
++            id: topArea
+             anchors {
+                 top: parent.top
+                 topMargin: parent.padding
+                 left: parent.left
+                 leftMargin: parent.padding
+             }
++            width: inputPanel.width
++
++            Item {
++                id: moveBar
++                visible: root.floating
++                width: parent.width
++                height: visible ? Kirigami.Units.gridUnit * 1.6 : 0
++
++                Rectangle {
++                    anchors.centerIn: parent
++                    width: Kirigami.Units.gridUnit * 4
++                    height: Math.max(3, Kirigami.Units.smallSpacing)
++                    radius: height / 2
++                    color: PlasmaKeyboard.BreezeConstants.keyTextColor
++                    opacity: moveArea.pressed ? 0.9 : 0.45
++                }
++
++                MouseArea {
++                    id: moveArea
++                    anchors.fill: parent
++                    anchors.rightMargin: sizeHandle.width
++                    property real grabX: 0
++                    property real grabY: 0
++                    preventStealing: true
++                    onPressed: (mouse) => {
++                        const p = mapToItem(stage, mouse.x, mouse.y);
++                        grabX = p.x - panelWrapper.x;
++                        grabY = p.y - panelWrapper.y;
++                        root.popup = "";
++                    }
++                    onPositionChanged: (mouse) => {
++                        const p = mapToItem(stage, mouse.x, mouse.y);
++                        root.floatX = Math.max(0, Math.min(stage.width - panelWrapper.width, p.x - grabX));
++                        root.floatY = Math.max(0, Math.min(stage.height - panelWrapper.height, p.y - grabY));
++                    }
++                    onReleased: root.saveFloatPosition()
++                }
++
++                // The corner the keyboard is sized by: wider to the right, taller upwards, the bottom left corner stays
++                Item {
++                    id: sizeHandle
++                    anchors { right: parent.right; top: parent.top; bottom: parent.bottom }
++                    width: Kirigami.Units.gridUnit * 3
++
++                    Kirigami.Icon {
++                        anchors.centerIn: parent
++                        source: "transform-scale"
++                        width: Kirigami.Units.iconSizes.small
++                        height: width
++                        color: PlasmaKeyboard.BreezeConstants.keyTextColor
++                        opacity: sizeArea.pressed ? 0.9 : 0.6
++                    }
++
++                    MouseArea {
++                        id: sizeArea
++                        anchors.fill: parent
++                        preventStealing: true
++                        property real startX: 0
++                        property real startY: 0
++                        property real newWidth: 0
++                        property real newHeight: 0
++                        // The height of the whole panel when the keys are this high (the row of extra keys grows with them)
++                        function panelHeightFor(keysHeight) {
++                            const extra = extraRow.visible ? Math.round(keysHeight * 0.2) : 0;
++                            return panelWrapper.height - inputPanel.height - extraRow.height + keysHeight + extra;
++                        }
++                        function limits(point) {
++                            const style = root.keyboardStyle;
++                            const most = Math.min(style.maxFloatingWidth, stage.width - panelWrapper.padding * 2);
++                            newWidth = Math.max(style.minFloatingWidth, Math.min(most, inputPanel.width + (point.x - startX)));
++                            newHeight = Math.max(style.minFloatingHeight, Math.min(style.maxFloatingHeight, inputPanel.height - (point.y - startY)));
++                        }
++                        onPressed: (mouse) => {
++                            const p = mapToItem(stage, mouse.x, mouse.y);
++                            startX = p.x;
++                            startY = p.y;
++                            limits(p);
++                            root.popup = "";
++                            resizeOutline.x = Qt.binding(() => panelWrapper.x);
++                            resizeOutline.width = Qt.binding(() => sizeArea.newWidth + panelWrapper.padding * 2);
++                            resizeOutline.height = Qt.binding(() => sizeArea.panelHeightFor(sizeArea.newHeight));
++                            resizeOutline.y = Qt.binding(() => Math.max(0, panelWrapper.y + panelWrapper.height - resizeOutline.height));
++                            resizeOutline.visible = true;
++                        }
++                        onPositionChanged: (mouse) => limits(mapToItem(stage, mouse.x, mouse.y))
++                        onReleased: {
++                            const bottom = panelWrapper.y + panelWrapper.height;
++                            const left = panelWrapper.x;
++                            const newPanelHeight = panelHeightFor(newHeight);
++                            resizeOutline.visible = false;
++                            PlasmaKeyboardSettings.floatWidth = Math.round(newWidth);
++                            PlasmaKeyboardSettings.floatHeight = Math.round(newHeight);
++                            root.floatX = left;
++                            root.floatY = Math.max(0, bottom - newPanelHeight);
++                            PlasmaKeyboardSettings.floatX = Math.round(root.floatX);
++                            PlasmaKeyboardSettings.floatY = Math.round(root.floatY);
++                            root.saveSettings();
++                        }
++                        onCanceled: resizeOutline.visible = false
++                    }
++                }
++            }
++
++            ExtraKeyRow {
++                id: extraRow
++                visible: PlasmaKeyboardSettings.extraKeysVisible
++                width: parent.width
++                height: visible ? Math.round(inputPanel.height * 0.2) : 0
++                keys: extraKeys
++                scaleHint: root.keyboardStyle ? root.keyboardStyle.scaleHint : 1
++                onClipboardRequested: root.showClipboard()
++            }
++        }
++
++        // The space bars: tap, slide for the cursor, hold for the menu
++        Repeater {
++            model: root.spaceKeys
++
++            SpaceGesture {
++                id: gesture
++                required property var modelData
++                readonly property rect place: {
++                    root.layoutTick;
++                    panelWrapper.x;
++                    return modelData && modelData.width > 0 ? panelWrapper.mapFromItem(modelData, 0, 0, modelData.width, modelData.height) : Qt.rect(0, 0, 0, 0);
++                }
++                z: 1
++                x: place.x
++                y: place.y
++                width: place.width
++                height: place.height
++                radius: PlasmaKeyboard.BreezeConstants.buttonRadius
++                stepSize: Math.max(12, Kirigami.Units.gridUnit * 1.1)
++
++                onTapped: inputPanel.InputContext.inputEngine.virtualKeyClick(Qt.Key_Space, " ", Qt.NoModifier)
++                onCursorStep: (direction) => extraKeys.tap(extraKeys.code(direction > 0 ? "right" : "left"))
++                onMenuRequested: {
++                    const top = gesture.mapToItem(stage, gesture.width / 2, 0);
++                    menuBox.anchorX = top.x;
++                    menuBox.anchorY = top.y;
++                    root.popup = "menu";
++                }
++                onMenuMoved: (x, y) => {
++                    const p = gesture.mapToItem(menuBox, x, y);
++                    menuBox.hovered = menuBox.indexAt(p.x, p.y);
++                }
++                onMenuReleased: (x, y) => {
++                    const p = gesture.mapToItem(menuBox, x, y);
++                    const index = menuBox.indexAt(p.x, p.y);
++                    menuBox.hovered = -1;
++                    // lifted on the space bar itself: the menu stays for a tap
++                    if (index >= 0 && p.y < menuBox.height) {
++                        menuBox.trigger(index);
++                    }
++                }
++                onPressed: {
++                    extraKeys.prepare();
++                    if (root.popup === "menu") {
++                        root.popup = "";
++                    }
++                }
++            }
++        }
++
++        InputPanel {
++            id: inputPanel
++            anchors {
++                top: topArea.bottom
++                left: parent.left
++                leftMargin: parent.padding
++            }
+ 
+             // height is calculated by InputPanel
+             width: inputPanel.keyboard.style ? inputPanel.keyboard.style.aspectRatio * inputPanel.keyboard.style.targetKeyboardHeight : 0
+@@ -152,4 +593,5 @@ InputPanelWindow {
+             }
+         }
+     }
++    }
+ }
+diff --git a/src/qmlplugin/BreezeConstants.qml b/src/qmlplugin/BreezeConstants.qml
+index 5385d62..3a91910 100644
+--- a/src/qmlplugin/BreezeConstants.qml
++++ b/src/qmlplugin/BreezeConstants.qml
+@@ -11,6 +11,9 @@ QtObject {
+     // Filled in by the style
+     property real scaleHint
+ 
++    // Filled in by the keyboard's window: whether the keyboard floats (it is then sized by the user, and never split)
++    property bool floating: false
++
+     readonly property string fontFamily: Kirigami.Theme.defaultFont.family
+     readonly property real keyBackgroundMargin: Math.round(8 * scaleHint)
+     readonly property real keyContentMargin: Math.round(40 * scaleHint)
+diff --git a/src/screenlock.cpp b/src/screenlock.cpp
+new file mode 100644
+index 0000000..57edf3e
+--- /dev/null
++++ b/src/screenlock.cpp
+@@ -0,0 +1,41 @@
++/*
++    SPDX-FileCopyrightText: 2026 Surface Overdrive
++    SPDX-License-Identifier: GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
++*/
++
++#include "screenlock.h"
++
++#include <QDBusConnection>
++#include <QDBusMessage>
++#include <QDBusPendingCallWatcher>
++#include <QDBusPendingReply>
++
++static const QString SERVICE = QStringLiteral("org.freedesktop.ScreenSaver");
++static const QString PATH = QStringLiteral("/ScreenSaver");
++
++ScreenLock::ScreenLock(QObject *parent)
++    : QObject(parent)
++{
++    QDBusConnection bus = QDBusConnection::sessionBus();
++    bus.connect(SERVICE, PATH, SERVICE, QStringLiteral("ActiveChanged"), this, SLOT(activeChanged(bool)));
++
++    auto *watcher = new QDBusPendingCallWatcher(bus.asyncCall(QDBusMessage::createMethodCall(SERVICE, PATH, SERVICE, QStringLiteral("GetActive"))), this);
++    connect(watcher, &QDBusPendingCallWatcher::finished, this, [this](QDBusPendingCallWatcher *call) {
++        const QDBusPendingReply<bool> reply = *call;
++        // no answer: stays "locked", the safe side
++        if (!reply.isError()) {
++            activeChanged(reply.value());
++        }
++        call->deleteLater();
++    });
++}
++
++void ScreenLock::activeChanged(bool active)
++{
++    if (m_locked != active) {
++        m_locked = active;
++        Q_EMIT lockedChanged();
++    }
++}
++
++#include "moc_screenlock.cpp"
+diff --git a/src/screenlock.h b/src/screenlock.h
+new file mode 100644
+index 0000000..94ee685
+--- /dev/null
++++ b/src/screenlock.h
+@@ -0,0 +1,38 @@
++/*
++    SPDX-FileCopyrightText: 2026 Surface Overdrive
++    SPDX-License-Identifier: GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
++*/
++
++#pragma once
++
++#include <QObject>
++#include <qqmlintegration.h>
++
++/**
++ * Whether the screen is locked (org.freedesktop.ScreenSaver of the session).
++ *
++ * The floating keyboard lives in a window of its own, which the compositor does not show above the lock screen: while
++ * the screen is locked the keyboard has to be the docked one, or there would be nothing to type the password with.
++ * When the answer is not known, the screen counts as locked: the docked keyboard is the one that always shows.
++ */
++class ScreenLock : public QObject
++{
++    Q_OBJECT
++    QML_ELEMENT
++
++    Q_PROPERTY(bool locked READ locked NOTIFY lockedChanged)
++
++public:
++    explicit ScreenLock(QObject *parent = nullptr);
++
++    bool locked() const { return m_locked; }
++
++Q_SIGNALS:
++    void lockedChanged();
++
++private Q_SLOTS:
++    void activeChanged(bool active);
++
++private:
++    bool m_locked = true;
++};
+diff --git a/src/styles/breeze/style.qml b/src/styles/breeze/style.qml
+index 3c31aef..1fde13c 100644
+--- a/src/styles/breeze/style.qml
++++ b/src/styles/breeze/style.qml
+@@ -50,11 +50,33 @@ KeyboardStyle {
+         }
+     }
+ 
+-    // Always have the keyboard panel be 30% of the screen height, or 150px (whichever is larger)
+-    readonly property real targetKeyboardHeight: Math.max(Screen.height * 0.3, 150)
++    // Docked, the keyboard panel is always 30% of the screen height, or 150px (whichever is larger)
++    readonly property real dockedKeyboardHeight: Math.max(Screen.height * 0.3, 150)
++
++    // Floating, the user sizes it (PlasmaKeyboardSettings.floatWidth/floatHeight) within these limits: never taller
++    // than the docked keyboard, never so small that the keys cannot be hit
++    readonly property bool floating: PlasmaKeyboard.BreezeConstants.floating
++    readonly property real minFloatingHeight: Math.max(Screen.height * 0.18, 120)
++    readonly property real maxFloatingHeight: dockedKeyboardHeight
++    readonly property real minFloatingWidth: Math.min(Screen.width, Math.max(Screen.width * 0.34, 300))
++    readonly property real maxFloatingWidth: Screen.width
++    readonly property real floatingHeight: {
++        const wanted = PlasmaKeyboardSettings.floatHeight > 0 ? PlasmaKeyboardSettings.floatHeight : dockedKeyboardHeight * 0.85;
++        return Math.max(minFloatingHeight, Math.min(maxFloatingHeight, wanted));
++    }
++    readonly property real floatingWidth: {
++        const wanted = PlasmaKeyboardSettings.floatWidth > 0 ? PlasmaKeyboardSettings.floatWidth : Math.min(Screen.width * 0.6, floatingHeight * 3);
++        return Math.max(minFloatingWidth, Math.min(maxFloatingWidth, wanted));
++    }
++
++    readonly property real targetKeyboardHeight: floating ? floatingHeight : dockedKeyboardHeight
+ 
+     // The value to multiply the height by to get the width
+     readonly property real aspectRatio: {
++        if (floating) {
++            return floatingWidth / floatingHeight;
++        }
++
+         // Ratio to just fill the screen width
+         const fillScreenWidth = Screen.width / targetKeyboardHeight;
+         if (PlasmaKeyboardSettings.panelFillScreenWidth) {

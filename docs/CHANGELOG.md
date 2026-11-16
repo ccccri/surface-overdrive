@@ -4,6 +4,41 @@ What was added, what broke, and what fixed it. Newest first. "Verified" means tr
 
 ## 2026-11-16
 
+- **On-screen keyboard: Plasma's own, with additions** (`patches/plasma-keyboard/0001-overdrive-keyboard.patch`,
+  `ci/build_keyboard.sh`; Fedora's `plasma-keyboard` rebuilt with a `.overdrive1` release, Fedora's kept when the
+  patch does not apply). What the owner asked for after trying the prototype: the keyboard he already has, same size
+  and look, with more on it.
+  - *Hold the space bar*: a strip opens over it (Float/Dock, Split, Extra keys, Clipboard, Emoji, Settings); an entry
+    is chosen by sliding onto it and lifting the finger, or by a tap. *Slide on the space bar*: the text cursor moves.
+  - *Extra keys*: a row above the letters with Esc, Tab, Ctrl, Alt, Meta, the arrows, Home, End, PgUp, PgDn, Del, and
+    F1 to F12, Ins and PrtSc behind Fn. Ctrl, Alt and Meta are armed by a tap and hold for the next key, also a letter
+    of the keyboard (Ctrl then A). They are typed on a keyboard device of the program (/dev/uinput): KWin drops the
+    modifiers of the key symbols an input method may send.
+  - *Clipboard*: the last eight texts of Plasma's clipboard, a tap types one. *Emoji*: a grid of the common ones.
+    Both open over the upper key rows, so the window being typed into is not pushed around.
+  - *Floating*: the keyboard leaves the bottom edge, is moved by the bar at its top and sized by the corner beside it
+    (width and height apart; never taller than the docked keyboard, never under 18% of the screen height or 34% of
+    its width); place and size are remembered. KWin puts an input panel at the bottom centre whatever its window
+    says, and keeps the focused window clear of it, so the floating keyboard is a layer-shell window of its own; the
+    input panel stays behind as one point at the bottom edge, which says when the compositor wants a keyboard. While
+    the screen is locked the keyboard is always the docked one (the other window is not shown there).
+  - *Split*: the docked keyboard in two halves with a gap of a third of the screen, for the thumbs (letters only; the
+    symbol pages stay whole). English and Italian layouts.
+  - *More on a long press*: every letter now has the digit or sign printed in its corner (1 to 0 on the top row,
+    `@ # $ % & - + ( )` on the middle one, `* " ' : ; ! ?` on the bottom one) and more accented forms; the full stop
+    gives `! ? … : ;`.
+  - Verified on the Surface with a virtual finger: typing, the space bar's tap, slide and hold, each menu entry,
+    Ctrl+A, the clipboard list, an emoji, floating (moved, made larger and smaller, place kept over a restart of the
+    keyboard), split (both halves, both space bars). Not tried: the lock screen (it needs the owner's pattern to come
+    back from), a mouse or the Type Cover in use (the floating keyboard is meant to stay away then, as the docked one
+    does), the long-press popups by eye, applications under XWayland.
+- Health monitor: two more *Repair* buttons in Software Update (`maintenance.REPAIRS`). "Pen battery filter" plays the
+  appearing of the touchscreen again, which attaches the filter (`udevadm trigger --action=add --subsystem-match=hid`);
+  "Volume buttons hold to repeat" loads `intel_hid`. Both ask for the administrator. Not provoked on the Surface: the
+  two checks are fine there. The other checks (modules, kernel, libcamera, tuning, signing key) keep their
+  explanation only: what mends them is another image or a restart, which the update guard already offers.
+- To check after the next start: the settings pages and the patched parts of Plasma on 6.8.3 (the image of today has
+  it; they were verified on 6.8.2).
 - The floating keyboard prototype is removed (`src/overdrive/osk/`, `overdrive-osk`, its menu entry). Two reasons. The
   owner tried it and wants Plasma's own keyboard with the additions instead (being made: see the next entries). And
   its package `overdrive/osk/` hid the module `overdrive/osk.py` of the lock-screen keyboard guard: in the images of

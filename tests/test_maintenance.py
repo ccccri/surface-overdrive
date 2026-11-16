@@ -5,7 +5,7 @@ import unittest
 from types import SimpleNamespace
 from unittest import mock
 
-from overdrive import maintenance, userconfig
+from overdrive import health, maintenance, userconfig
 
 
 class Settings(unittest.TestCase):
@@ -100,6 +100,23 @@ class Repairs(unittest.TestCase):
             self.assertEqual((out["result"], out["error"]), ("failed", "denied"))
             self.assertEqual(ran[-1][0], "pkexec")
         self.assertEqual(maintenance.repair("secure-boot; rm -rf /")["result"], "refused")
+
+    def test_every_repair_is_one_fixed_command_of_a_known_check(self):
+        """A repair is a command without a shell and without anything of the caller in it, for a check that exists."""
+        known = {c.id for c in health.run_all(health.System())} if hasattr(health, "System") else set()
+        for check_id, (what, command, root) in maintenance.REPAIRS.items():
+            self.assertTrue(what and isinstance(command, list) and all(isinstance(part, str) for part in command), check_id)
+            self.assertNotIn(command[0], ("sh", "bash"), check_id)
+            self.assertIsInstance(root, bool)
+            if known:
+                self.assertIn(check_id, known)
+
+    def test_root_repairs_go_through_pkexec(self):
+        for check_id in ("pen-battery", "volume-hold"):
+            ran = []
+            maintenance.repair(check_id, run=lambda cmd, **kw: ran.append(cmd) or SimpleNamespace(returncode=1, stderr="no"), settle=0)
+            self.assertEqual(ran[0][0], "pkexec", check_id)
+            self.assertEqual(ran[0][1:], maintenance.REPAIRS[check_id][1])
 
 
 class Images(unittest.TestCase):

@@ -44,7 +44,8 @@ RUN rpm -q --qf '%{VERSION}-%{RELEASE}' libcamera > /libcamera-nvr && rpm -qa --
     && rpm -q --qf '%{VERSION}-%{RELEASE}' powerdevil > /powerdevil-nvr \
     && rpm -q --qf '%{VERSION}-%{RELEASE}' plasma-discover > /discover-nvr \
     && rpm -q --qf '%{VERSION}-%{RELEASE}' pipewire > /pipewire-nvr \
-    && rpm -q --qf '%{VERSION}-%{RELEASE}' plasma-desktop > /plasma-desktop-nvr
+    && rpm -q --qf '%{VERSION}-%{RELEASE}' plasma-desktop > /plasma-desktop-nvr \
+    && rpm -q --qf '%{VERSION}-%{RELEASE}' plasma-keyboard > /plasma-keyboard-nvr
 
 FROM registry.fedoraproject.org/fedora:${FEDORA} AS libcamera
 COPY --from=probe /libcamera-nvr /libcamera-packages /
@@ -82,6 +83,14 @@ COPY --from=probe /plasma-pa-nvr /
 RUN dnf -y install --setopt=install_weak_deps=False rpm-build dnf-plugins-core python3 curl diffutils && dnf clean all
 COPY ci/build_plasma_pa.sh ci/patch_plasma_pa.py /src/ci/
 RUN /src/ci/build_plasma_pa.sh "$(cat /plasma-pa-nvr)" /out/rpms
+
+# ---- Plasma's on-screen keyboard with extra keys, clipboard, emoji, floating and split (ci/build_keyboard.sh); nothing comes out when the patch does not fit
+FROM registry.fedoraproject.org/fedora:${FEDORA} AS keyboard
+COPY --from=probe /plasma-keyboard-nvr /
+RUN dnf -y install --setopt=install_weak_deps=False rpm-build dnf-plugins-core python3 curl diffutils patch && dnf clean all
+COPY ci/build_keyboard.sh /src/ci/
+COPY patches/plasma-keyboard /src/patches/plasma-keyboard
+RUN /src/ci/build_keyboard.sh "$(cat /plasma-keyboard-nvr)" /out/rpms
 
 # ---- The Brightness & Color popup scrolling vertically only (ci/build_powerdevil.sh); nothing comes out when the patch does not fit
 FROM registry.fedoraproject.org/fedora:${FEDORA} AS powerdevil
@@ -231,6 +240,15 @@ RUN set -eux; \
         dnf5 -y install /tmp/pa-rpms/plasma-pa-[0-9]*.rpm; rpm -q plasma-pa | grep -q overdrive; \
     else echo "warning: stock plasma-pa (with Raise maximum volume)"; fi; \
     rm -rf /tmp/pa-rpms; dnf5 clean all
+# Plasma's on-screen keyboard with the image's additions, when ci/build_keyboard.sh could make it. Its floating mode
+# is a layer-shell window (the QML module of layer-shell-qt, which Plasma itself needs).
+COPY --from=keyboard /out/rpms /tmp/kb-rpms
+RUN set -eux; \
+    if ls /tmp/kb-rpms/plasma-keyboard-[0-9]*.rpm >/dev/null 2>&1; then \
+        dnf5 -y install $(for p in $(rpm -qa --qf '%{NAME}\n' '*plasma-keyboard*'); do ls /tmp/kb-rpms/$p-[0-9]*.rpm; done); \
+        rpm -q plasma-keyboard | grep -q overdrive; test -d /usr/lib64/qt6/qml/org/kde/layershell; \
+    else echo "warning: stock plasma-keyboard (no extra keys, clipboard, floating or split)"; fi; \
+    rm -rf /tmp/kb-rpms; dnf5 clean all
 # The Brightness & Color popup that scrolls only vertically, when ci/build_powerdevil.sh could make it
 COPY --from=powerdevil /out/rpms /tmp/pd-rpms
 RUN set -eux; \
