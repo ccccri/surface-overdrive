@@ -4,6 +4,12 @@ What was added, what broke, and what fixed it. Newest first. "Verified" means tr
 
 ## 2026-11-17
 
+- On-screen keyboard, found reading it again: the clipboard list could be opened on the lock screen, where whoever
+  holds the tablet has the keyboard (what was copied in the session, passwords included, in the hands of a stranger).
+  While the screen is locked the keyboard now has no clipboard (the menu entry is greyed, the key of the extra row is
+  gone, an open list closes when the screen locks), no Settings and no Float; unknown counts as locked, as it does at
+  the login screen. Checked unlocked on the tablet (the list still opens); the locked side is by the code and the
+  test of the patch, not seen.
 - Camera sharpening made cheap (libcamera patch 0049). The unsharp mask behind "sharpness" in the Cameras page went
   over the picture one pixel after the other on the thread that also hands the buffers on: 30 ms for a 2560x1920 frame
   on the tablet's processor, a whole frame's time at 30 fps (measured with the same loop outside libcamera,

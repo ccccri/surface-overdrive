@@ -1365,10 +1365,10 @@ index 0000000..0b8aa99
 +}
 diff --git a/src/qml/ExtraKeyRow.qml b/src/qml/ExtraKeyRow.qml
 new file mode 100644
-index 0000000..fb96b41
+index 0000000..c29eb1e
 --- /dev/null
 +++ b/src/qml/ExtraKeyRow.qml
-@@ -0,0 +1,131 @@
+@@ -0,0 +1,133 @@
 +/*
 +    SPDX-FileCopyrightText: 2026 Surface Overdrive
 +    SPDX-License-Identifier: GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
@@ -1390,6 +1390,8 @@ index 0000000..fb96b41
 +    required property var keys
 +    property real scaleHint: 1
 +    property bool functionPage: false
++    // False on the lock screen: the key of the clipboard is then left out
++    property bool clipboardAvailable: true
 +
 +    signal clipboardRequested()
 +
@@ -1427,7 +1429,7 @@ index 0000000..fb96b41
 +        orientation: ListView.Horizontal
 +        boundsBehavior: Flickable.StopAtBounds
 +        clip: true
-+        model: row.functionPage ? row.secondPage : row.mainPage
++        model: (row.functionPage ? row.secondPage : row.mainPage).filter((entry) => row.clipboardAvailable || entry.a !== "clipboard")
 +        // every key on screen when there is room, a strip to flick through when there is not
 +        readonly property real cellWidth: Math.max(row.height * 1.05, count > 0 ? width / count : width)
 +        interactive: cellWidth * count > width + 1
@@ -1502,10 +1504,10 @@ index 0000000..fb96b41
 +}
 diff --git a/src/qml/KeyboardMenu.qml b/src/qml/KeyboardMenu.qml
 new file mode 100644
-index 0000000..7e6ccf7
+index 0000000..c568329
 --- /dev/null
 +++ b/src/qml/KeyboardMenu.qml
-@@ -0,0 +1,116 @@
+@@ -0,0 +1,118 @@
 +/*
 +    SPDX-FileCopyrightText: 2026 Surface Overdrive
 +    SPDX-License-Identifier: GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
@@ -1527,6 +1529,8 @@ index 0000000..7e6ccf7
 +    property bool extraKeys: false
 +    // False on an upright screen, where the keyboard is never split
 +    property bool splitPossible: true
++    // On the lock screen: no clipboard, no settings, no floating window
++    property bool locked: false
 +    // Index of the entry under the finger that still holds the space bar (-1: none)
 +    property int hovered: -1
 +
@@ -1537,12 +1541,12 @@ index 0000000..7e6ccf7
 +    readonly property real cellHeight: Kirigami.Units.gridUnit * 3.6
 +
 +    readonly property var entries: [
-+        {name: "floating", icon: "window-duplicate", text: menu.floating ? i18n("Dock") : i18n("Float"), checked: menu.floating, enabled: true},
++        {name: "floating", icon: "window-duplicate", text: menu.floating ? i18n("Dock") : i18n("Float"), checked: menu.floating, enabled: !menu.locked},
 +        {name: "split", icon: "view-split-left-right", text: i18n("Split"), checked: menu.split && !menu.floating && menu.splitPossible, enabled: !menu.floating && menu.splitPossible},
 +        {name: "extra", icon: "input-keyboard", text: i18n("Extra keys"), checked: menu.extraKeys, enabled: true},
-+        {name: "clipboard", icon: "edit-paste", text: i18n("Clipboard"), checked: false, enabled: true},
++        {name: "clipboard", icon: "edit-paste", text: i18n("Clipboard"), checked: false, enabled: !menu.locked},
 +        {name: "emoji", icon: "smiley", text: i18n("Emoji"), checked: false, enabled: true},
-+        {name: "settings", icon: "configure", text: i18n("Settings"), checked: false, enabled: true}
++        {name: "settings", icon: "configure", text: i18n("Settings"), checked: false, enabled: !menu.locked}
 +    ]
 +
 +    implicitWidth: cellWidth * entries.length + Kirigami.Units.smallSpacing * 2
@@ -1735,7 +1739,7 @@ index 0000000..7884d70
 +    }
 +}
 diff --git a/src/qml/main.qml b/src/qml/main.qml
-index 703f675..aa8eb5b 100644
+index 703f675..2950b27 100644
 --- a/src/qml/main.qml
 +++ b/src/qml/main.qml
 @@ -13,6 +13,7 @@ import org.kde.plasma.keyboard
@@ -1746,7 +1750,7 @@ index 703f675..aa8eb5b 100644
  
  InputPanelWindow {
      id: root
-@@ -58,7 +59,264 @@ InputPanelWindow {
+@@ -58,7 +59,274 @@ InputPanelWindow {
          onCandidateSelected: (index) => thing.overlayController.commitCandidate(index)
      }
  
@@ -1774,6 +1778,11 @@ index 703f675..aa8eb5b 100644
 +
 +    function menuAction(name) {
 +        root.popup = "";
++        // On the lock screen the keyboard is in the hands of whoever holds the tablet: nothing of the session
++        // (what was copied, its settings) and no window of its own
++        if (screenLock.locked && (name === "floating" || name === "clipboard" || name === "settings")) {
++            return;
++        }
 +        if (name === "floating") {
 +            PlasmaKeyboardSettings.floating = !PlasmaKeyboardSettings.floating;
 +            root.saveSettings();
@@ -1795,6 +1804,9 @@ index 703f675..aa8eb5b 100644
 +    function showClipboard() {
 +        if (root.popup === "clipboard") {
 +            root.popup = "";
++            return;
++        }
++        if (screenLock.locked) {
 +            return;
 +        }
 +        clipboardList.entries = clipboardHistory.entries(8);
@@ -1889,6 +1901,7 @@ index 703f675..aa8eb5b 100644
 +    }
 +    ScreenLock {
 +        id: screenLock
++        onLockedChanged: root.popup = ""
 +    }
 +    // The style and the layouts size themselves by this (they cannot see this window)
 +    Binding {
@@ -1988,6 +2001,7 @@ index 703f675..aa8eb5b 100644
 +        floating: root.floating
 +        split: PlasmaKeyboardSettings.splitLayout
 +        splitPossible: Screen.width > Screen.height
++        locked: screenLock.locked
 +        extraKeys: PlasmaKeyboardSettings.extraKeysVisible
 +        onTriggered: (name) => root.menuAction(name)
 +        onVisibleChanged: hovered = -1
@@ -2012,7 +2026,7 @@ index 703f675..aa8eb5b 100644
  
      Kirigami.ShadowedRectangle {
          id: panelWrapper
-@@ -72,15 +330,14 @@ InputPanelWindow {
+@@ -72,15 +340,14 @@ InputPanelWindow {
          }
  
          // Whether the panel takes the full width of the screen
@@ -2031,7 +2045,7 @@ index 703f675..aa8eb5b 100644
              topLeftRadius: isFullScreenWidth ? 0 : Kirigami.Units.cornerRadius
              topRightRadius: isFullScreenWidth ? 0 : Kirigami.Units.cornerRadius
          }
-@@ -89,25 +346,210 @@ InputPanelWindow {
+@@ -89,25 +356,211 @@ InputPanelWindow {
              color: Qt.rgba(0, 0, 0, 0.3)
          }
  
@@ -2184,6 +2198,7 @@ index 703f675..aa8eb5b 100644
 +                height: visible ? Math.round(inputPanel.height * 0.2) : 0
 +                keys: extraKeys
 +                scaleHint: root.keyboardStyle ? root.keyboardStyle.scaleHint : 1
++                clipboardAvailable: !screenLock.locked
 +                onClipboardRequested: root.showClipboard()
 +            }
 +        }
@@ -2248,7 +2263,7 @@ index 703f675..aa8eb5b 100644
  
              // height is calculated by InputPanel
              width: inputPanel.keyboard.style ? inputPanel.keyboard.style.aspectRatio * inputPanel.keyboard.style.targetKeyboardHeight : 0
-@@ -152,4 +594,5 @@ InputPanelWindow {
+@@ -152,4 +605,5 @@ InputPanelWindow {
              }
          }
      }

@@ -36,6 +36,13 @@ class KeyboardPatch(unittest.TestCase):
         self.assertIn("PlasmaKeyboardSettings.floating && !screenLock.locked", self.patch)
         self.assertIn("bool m_locked = true;", self.patch)          # unknown counts as locked
 
+    def test_nothing_of_the_session_on_the_lock_screen(self):
+        """Whoever holds a locked tablet has the keyboard: it must not show what was copied, nor open the settings."""
+        self.assertIn('if (screenLock.locked && (name === "floating" || name === "clipboard" || name === "settings"))', self.patch)
+        self.assertRegex(self.patch, r"function showClipboard\(\) \{(?:\n\+.*){0,6}\n\+\s+if \(screenLock\.locked\) \{\n\+\s+return;")
+        self.assertIn("clipboardAvailable: !screenLock.locked", self.patch)
+        self.assertIn("onLockedChanged: root.popup = \"\"", self.patch)
+
     def test_image_builds_and_installs_it(self):
         container = read(os.path.join(ROOT, "Containerfile"))
         self.assertIn("plasma-keyboard > /plasma-keyboard-nvr", container)
