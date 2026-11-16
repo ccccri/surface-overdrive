@@ -86,5 +86,14 @@ class OutputPath(unittest.TestCase):
             self.assertTrue(cameraapp.output_path(d, "photo", now).endswith(".jpg"))
 
 
+class Pause(unittest.TestCase):
+    def test_when_nobody_can_see_the_picture(self):
+        self.assertFalse(cameraapp.should_pause(True, False, False, 0))
+        self.assertFalse(cameraapp.should_pause(False, False, False, 1))            # a moment out of sight: not yet
+        self.assertTrue(cameraapp.should_pause(False, False, False, cameraapp.HIDDEN_SECONDS))
+        self.assertTrue(cameraapp.should_pause(True, True, False, 0))               # the screen is locked
+        self.assertFalse(cameraapp.should_pause(False, True, True, 60))             # never while recording
+
+
 if __name__ == "__main__":
     unittest.main()

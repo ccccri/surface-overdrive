@@ -142,6 +142,18 @@ def output_path(directory, kind, now=None):
     return path
 
 
+HIDDEN_SECONDS = 3                # the window out of sight this long: the camera is let go
+
+
+def should_pause(exposed, locked, recording, hidden_for):
+    """Whether the preview is stopped because nobody can see it: the screen is locked, or the window has not been on
+    screen (minimized, on another desktop, the screen off) for HIDDEN_SECONDS. Never while a video is recorded. An app
+    left open kept the sensor, the image processor and the "performance" power profile running for nothing."""
+    if recording:
+        return False
+    return bool(locked) or (not exposed and hidden_for >= HIDDEN_SECONDS)
+
+
 def pw_dump():
     try:
         out = subprocess.run(["pw-dump"], capture_output=True, text=True, timeout=10, check=False).stdout
@@ -166,7 +178,7 @@ def main():
     gi.require_version("Gst", "1.0")
     gi.require_version("GstApp", "1.0")
     from gi.repository import Gst
-    from PySide6.QtCore import QEvent, QFileSystemWatcher, Property, QObject, Qt, QStandardPaths, QTimer, QUrl, Signal, Slot
+    from PySide6.QtCore import SLOT, QEvent, QFileSystemWatcher, Property, QObject, Qt, QStandardPaths, QTimer, QUrl, Signal, Slot
     from PySide6.QtDBus import QDBusConnection, QDBusMessage
     from PySide6.QtGui import QDesktopServices, QGuiApplication, QIcon
     from PySide6.QtQml import QQmlApplicationEngine
@@ -225,6 +237,16 @@ def main():
             self._last_frame = 0.0
             self._stalls = 0
             self._got_frame = False         # a frame came since the preview last started
+            self._window = None             # set once the window exists: its being on screen is looked at in _poll
+            self._hidden_since = None
+            self._locked = False
+            self._paused = False            # the preview was stopped because nobody can see it (should_pause)
+            bus = QDBusConnection.sessionBus()
+            bus.connect("org.freedesktop.ScreenSaver", "/ScreenSaver", "org.freedesktop.ScreenSaver", "ActiveChanged",
+                        self, SLOT("_lock_changed(bool)"))
+            answer = bus.call(QDBusMessage.createMethodCall("org.freedesktop.ScreenSaver", "/ScreenSaver",
+                                                            "org.freedesktop.ScreenSaver", "GetActive")).arguments()
+            self._locked = bool(answer[0]) if answer else False
             self._bus_timer = QTimer(self, interval=100, timeout=self._poll)
             self._bus_timer.start()
             self._applying_size = False
@@ -587,8 +609,34 @@ def main():
             self._tries = 0
             self.select(self._key if self._key in self._cameras else ("front" if "front" in self._cameras else self._get_keys()[0]))
 
+        @Slot(bool)
+        def _lock_changed(self, locked):
+            self._locked = bool(locked)
+
+        def _watch_visibility(self):
+            """Let the camera go while nobody can see the picture, and take it again when somebody can."""
+            if self._window is None:
+                return
+            now = time.monotonic()
+            if self._window.isExposed():
+                self._hidden_since = None
+            elif self._hidden_since is None:
+                self._hidden_since = now
+            hidden_for = now - self._hidden_since if self._hidden_since is not None else 0
+            pause = should_pause(self._hidden_since is None, self._locked, self._recorder is not None, hidden_for)
+            if pause and not self._paused:
+                self._paused = True
+                if self._preview is not None:
+                    self._stop_preview()
+                    self.changed.emit()
+            elif not pause and self._paused:
+                self._paused = False
+                self.retry()
+
         @Slot()
         def retry(self):
+            if self._paused:
+                return                      # nobody is looking: it starts again when the window is back (_watch_visibility)
             if self._recorder is None and self._preview is None:
                 self._tries = 0
                 self.start()
@@ -826,6 +874,7 @@ def main():
             QTimer.singleShot(1500, lambda: self._preview is None and self._recorder is None and self.select(key))
 
         def _poll(self):
+            self._watch_visibility()
             self._watch_frames()
             for pipe, is_rec in ((self._recorder, True), (self._preview, False)):
                 if pipe is None:
@@ -930,6 +979,7 @@ def main():
     # the camera starts once the window has drawn its first frame: qml6glsink shares the window's OpenGL context, and
     # started before there was one it stopped after a few frames (the preview froze and the watchdog restarted it)
     window = engine.rootObjects()[0]
+    camera._window = window
     started = []
 
     def first_frame():
