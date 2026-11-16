@@ -74,6 +74,9 @@ What was added, what broke, and what fixed it. Newest first. "Verified" means tr
     file in the gallery, and the first frame of the next preview was saved into it; the empty file is now removed and
     the request dropped. Applying a preset deleted meanwhile in Settings raised an error instead of doing nothing.
   - Read in full and found sound: the equalizer and the camera settings module.
+  - QML linted (qmllint of Qt 6.11 over the pages, the camera app and the tour): the pen test's own `state` property
+    shadowed the `state` every Item has; renamed `penState`. The rest of what it reports is names reached through
+    the page's context, which the pages' logs on the tablet show working.
   On the tablet, measured after 4 h 52 min: our services together used 14 s of processor (NFC daemon 6.8 s, camera
   boost 4.2 s, wallpaper 1.6 s, the others under 1 s each), no failed unit of ours, health check all ok. Tried there:
   the wallpaper service uses 0 ms while idle and wakes on a save; the camera boost holds "performance" when the camera
