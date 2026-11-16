@@ -204,6 +204,14 @@ RUN set -eux; \
     else dnf5 -y --enablerepo=fedora-cisco-openh264 install openh264; fi; \
     rpm -q openh264; ! rpm -q noopenh264; \
     dnf5 clean all
+# PySide6, for the camera app and the floating keyboard (Qt Quick windows written in Python). The base image shipped it
+# until 2026-11-15; the next one, with Plasma 6.8.3, did not, and neither app started ("No module named 'PySide6'",
+# 2026-11-16). It is installed by name, and what the apps import is tried, GStreamer's bindings and Qt sink included.
+RUN set -eux; \
+    dnf5 -y install --setopt=install_weak_deps=False python3-pyside6 python3-gobject gstreamer1-plugins-good-qt6; \
+    python3 -c 'import PySide6.QtCore, PySide6.QtDBus, PySide6.QtGui, PySide6.QtNetwork, PySide6.QtQml, PySide6.QtQuick, PySide6.QtQuickControls2, PySide6.QtWidgets; import gi; gi.require_version("Gst", "1.0"); gi.require_version("GstApp", "1.0"); from gi.repository import Gst, GstApp'; \
+    gst-inspect-1.0 qml6glsink >/dev/null; \
+    dnf5 clean all
 COPY ci/patch_acp_mic.py /tmp/patch_acp_mic.py
 RUN python3 /tmp/patch_acp_mic.py && rm /tmp/patch_acp_mic.py
 # The login screen with the PIN and pattern pad, when ci/build_login.sh could make it

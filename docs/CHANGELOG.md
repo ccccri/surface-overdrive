@@ -4,6 +4,13 @@ What was added, what broke, and what fixed it. Newest first. "Verified" means tr
 
 ## 2026-11-16
 
+- The image 45.20261116.0 had no PySide6: Fedora's base image dropped `python3-pyside6` with Plasma 6.8.3, and the
+  camera app and the floating keyboard did not start ("No module named 'PySide6'"; seen on the Surface after its
+  restart). The Containerfile now installs it by name, with `python3-gobject` and `gstreamer1-plugins-good-qt6`, and the
+  build fails when an import of the apps or `qml6glsink` is missing. The installer's own password windows are shown
+  only where the system to be replaced has PySide6; elsewhere pkexec and kdialog ask, as before.
+- Floating keyboard seen on the Surface for the first time (started by hand, PySide6 put back in the test overlay): it
+  comes up over the desktop at the expected size. Typing on the tablet is still to be tried by the owner.
 - Floating on-screen keyboard, a prototype (`overdrive-osk`, "Floating Keyboard" in the menu; `src/overdrive/osk`). What
   the owner asked for: a keyboard that leaves the bottom edge and goes anywhere, with the clipboard history on it. It
   is one transparent window over the screen (layer shell, overlay layer, never takes the keyboard focus) of which only

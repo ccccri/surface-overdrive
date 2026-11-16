@@ -476,7 +476,7 @@ ASK = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ask.py")
 
 
 def have_window():
-    """Our own password windows (ask.py) can be shown: a desktop, the file and PySide6 (Kinoite ships it)."""
+    """Our own password windows (ask.py) can be shown: a desktop, the file and PySide6 (Kinoite shipped it until November 2026)."""
     return graphical() and os.path.exists(ASK) and importlib.util.find_spec("PySide6") is not None
 
 

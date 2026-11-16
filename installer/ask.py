@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The installer's two password windows (PySide6, which Fedora Kinoite ships), each one window:
+"""The installer's two password windows (PySide6, when the system has it: Fedora Kinoite shipped it until November 2026), each one window:
 
   ask.py admin [--wrong]   the administrator password, "to install Surface Overdrive" (pkexec's own window could only
                            say "to run /tmp/.../install-surface-overdrive as the super user")
