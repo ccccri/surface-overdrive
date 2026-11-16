@@ -2,6 +2,17 @@
 
 What was added, what broke, and what fixed it. Newest first. "Verified" means tried on the Surface Go itself.
 
+## 2026-11-16
+
+- Camera app: the camera is let go while nobody can see the picture. The preview stops when the screen is locked or the
+  window has been out of sight for three seconds (minimized, another desktop, the screen off) and starts again when it
+  is back; never while a video is recorded. An app left open kept the sensor, the image processor and the
+  "performance" power profile running. Tried on the tablet: minimized, the camera node goes to "suspended" within
+  seconds; restored, it runs again with a live preview; visible, it stays on. Not tried: the lock screen.
+- NFC tag contents and logs that leave the tablet (the owner's decision): the system journal keeps them, readable by
+  administrators only; the report for a bug report, the only log of ours meant to leave the tablet, leaves them out
+  (done on 2026-11-15, see below).
+
 ## 2026-11-15
 
 - Installer, first enrolment of the module key on real firmware (after `mokutil --reset`): the key was queued, then the
