@@ -23,15 +23,19 @@ What was added, what broke, and what fixed it. Newest first. "Verified" means tr
     input panel stays behind as one point at the bottom edge, which says when the compositor wants a keyboard. While
     the screen is locked the keyboard is always the docked one (the other window is not shown there).
   - *Split*: the docked keyboard in two halves with a gap of a third of the screen, for the thumbs (letters only; the
-    symbol pages stay whole). English and Italian layouts.
+    symbol pages stay whole). English and Italian layouts. Only on a screen that lies on its long side: upright, the
+    halves would be a third of the short side each, so the keyboard stays whole there and the menu entry is greyed.
   - *More on a long press*: every letter now has the digit or sign printed in its corner (1 to 0 on the top row,
     `@ # $ % & - + ( )` on the middle one, `* " ' : ; ! ?` on the bottom one) and more accented forms; the full stop
     gives `! ? … : ;`.
   - Verified on the Surface with a virtual finger: typing, the space bar's tap, slide and hold, each menu entry,
     Ctrl+A, the clipboard list, an emoji, floating (moved, made larger and smaller, place kept over a restart of the
-    keyboard), split (both halves, both space bars). Not tried: the lock screen (it needs the owner's pattern to come
-    back from), a mouse or the Type Cover in use (the floating keyboard is meant to stay away then, as the docked one
-    does), the long-press popups by eye, applications under XWayland.
+    keyboard), split (both halves, both space bars). In the night, with the packages of the image installed
+    (`plasma-keyboard-6.8.3-1.fc45.overdrive1`): the long-press popup (E: `ê 3 ë è é ē ę ė €`, the digit chosen when
+    the finger just lifts), the Italian layout split (O: `ò ó 9 ô ö º`, the accented letter first), a text field
+    focused with a mouse while the keyboard floats (it stays away, as the docked one does), the upright screen (whole
+    keyboard, the extra keys as a strip to flick). Not tried: the lock screen (it needs the owner's pattern to come
+    back from), applications under XWayland.
 - Health monitor: two more *Repair* buttons in Software Update (`maintenance.REPAIRS`). "Pen battery filter" plays the
   appearing of the touchscreen again, which attaches the filter (`udevadm trigger --action=add --subsystem-match=hid`);
   "Volume buttons hold to repeat" loads `intel_hid`. Both ask for the administrator. Not provoked on the Surface: the

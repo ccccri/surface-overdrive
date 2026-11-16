@@ -604,10 +604,10 @@ index 79cc5ce..28b5011 100644
 +    bool m_shown = false;
  };
 diff --git a/src/layouts/fallback/main.qml b/src/layouts/fallback/main.qml
-index 48502fe..e1d18cc 100644
+index 48502fe..c272c80 100644
 --- a/src/layouts/fallback/main.qml
 +++ b/src/layouts/fallback/main.qml
-@@ -6,9 +6,15 @@ import QtQuick.VirtualKeyboard
+@@ -6,9 +6,16 @@ import QtQuick.VirtualKeyboard
  import QtQuick.VirtualKeyboard.Components
  import QtQuick.Layouts
  
@@ -617,13 +617,14 @@ index 48502fe..e1d18cc 100644
  KeyboardLayout {
      inputMode: InputEngine.InputMode.Latin
      keyWeight: 160
-+    // Split in two halves, one for each thumb, when the docked keyboard is asked to be (a gap in every row)
-+    readonly property bool split: PlasmaKeyboardSettings.splitLayout && !PlasmaKeyboard.BreezeConstants.floating
++    // Split in two halves, one for each thumb, when the docked keyboard is asked to be (a gap in every row). Not on
++    // an upright screen: the halves would be a third of its short side each, with keys too small to hit
++    readonly property bool split: PlasmaKeyboardSettings.splitLayout && !PlasmaKeyboard.BreezeConstants.floating && Screen.width > Screen.height
 +    readonly property real gapWeight: keyWeight * 5
      readonly property real normalKeyWidth: normalKey.width
      readonly property real functionKeyWidth: mapFromItem(normalKey, normalKey.width / 2, 0).x
      KeyboardRow {
-@@ -23,14 +29,14 @@ KeyboardLayout {
+@@ -23,14 +30,14 @@ KeyboardLayout {
              id: normalKey
              key: Qt.Key_W
              text: "w"
@@ -640,7 +641,7 @@ index 48502fe..e1d18cc 100644
              smallText: "3"
              smallTextVisible: true
          }
-@@ -44,14 +50,18 @@ KeyboardLayout {
+@@ -44,14 +51,18 @@ KeyboardLayout {
          Key {
              key: Qt.Key_T
              text: "t"
@@ -661,7 +662,7 @@ index 48502fe..e1d18cc 100644
              smallText: "6"
              smallTextVisible: true
          }
-@@ -65,21 +75,21 @@ KeyboardLayout {
+@@ -65,21 +76,21 @@ KeyboardLayout {
          Key {
              key: Qt.Key_I
              text: "i"
@@ -686,7 +687,7 @@ index 48502fe..e1d18cc 100644
              smallText: "0"
              smallTextVisible: true
          }
-@@ -93,7 +103,9 @@ KeyboardLayout {
+@@ -93,7 +104,9 @@ KeyboardLayout {
              Key {
                  key: Qt.Key_A
                  text: "a"
@@ -697,7 +698,7 @@ index 48502fe..e1d18cc 100644
                  weight: normalKeyWidth
                  Layout.fillWidth: false
              }
-@@ -101,33 +113,55 @@ KeyboardLayout {
+@@ -101,33 +114,55 @@ KeyboardLayout {
          Key {
              key: Qt.Key_S
              text: "s"
@@ -756,7 +757,7 @@ index 48502fe..e1d18cc 100644
          }
          KeyboardRow {
              Layout.preferredWidth: functionKeyWidth
-@@ -135,7 +169,9 @@ KeyboardLayout {
+@@ -135,7 +170,9 @@ KeyboardLayout {
              Key {
                  key: Qt.Key_L
                  text: "l"
@@ -767,7 +768,7 @@ index 48502fe..e1d18cc 100644
                  weight: normalKeyWidth
                  Layout.fillWidth: false
              }
-@@ -151,33 +187,55 @@ KeyboardLayout {
+@@ -151,33 +188,55 @@ KeyboardLayout {
          Key {
              key: Qt.Key_Z
              text: "z"
@@ -826,7 +827,7 @@ index 48502fe..e1d18cc 100644
          }
          BackspaceKey {
              weight: functionKeyWidth
-@@ -204,12 +262,19 @@ KeyboardLayout {
+@@ -204,12 +263,19 @@ KeyboardLayout {
          }
          SpaceKey {
          }
@@ -848,10 +849,10 @@ index 48502fe..e1d18cc 100644
              smallTextVisible: true
              highlighted: true
 diff --git a/src/layouts/it_IT/main.qml b/src/layouts/it_IT/main.qml
-index 54cacad..e26eed1 100644
+index 54cacad..1bb801c 100644
 --- a/src/layouts/it_IT/main.qml
 +++ b/src/layouts/it_IT/main.qml
-@@ -6,56 +6,92 @@ import QtQuick.VirtualKeyboard
+@@ -6,56 +6,93 @@ import QtQuick.VirtualKeyboard
  import QtQuick.VirtualKeyboard.Components
  import QtQuick.Layouts
  
@@ -861,8 +862,9 @@ index 54cacad..e26eed1 100644
  KeyboardLayout {
      inputMode: InputEngine.InputMode.Latin
      keyWeight: 160
-+    // Split in two halves, one for each thumb, when the docked keyboard is asked to be (a gap in every row)
-+    readonly property bool split: PlasmaKeyboardSettings.splitLayout && !PlasmaKeyboard.BreezeConstants.floating
++    // Split in two halves, one for each thumb, when the docked keyboard is asked to be (a gap in every row). Not on
++    // an upright screen: the halves would be a third of its short side each, with keys too small to hit
++    readonly property bool split: PlasmaKeyboardSettings.splitLayout && !PlasmaKeyboard.BreezeConstants.floating && Screen.width > Screen.height
 +    readonly property real gapWeight: keyWeight * 5
      readonly property real normalKeyWidth: normalKey.width
      readonly property real functionKeyWidth: mapFromItem(normalKey, normalKey.width / 2, 0).x
@@ -948,7 +950,7 @@ index 54cacad..e26eed1 100644
          }
      }
      KeyboardRow {
-@@ -67,7 +103,9 @@ KeyboardLayout {
+@@ -67,7 +104,9 @@ KeyboardLayout {
              Key {
                  key: Qt.Key_A
                  text: "a"
@@ -959,7 +961,7 @@ index 54cacad..e26eed1 100644
                  weight: normalKeyWidth
                  Layout.fillWidth: false
              }
-@@ -75,30 +113,55 @@ KeyboardLayout {
+@@ -75,30 +114,55 @@ KeyboardLayout {
          Key {
              key: Qt.Key_S
              text: "s"
@@ -1015,7 +1017,7 @@ index 54cacad..e26eed1 100644
          }
          KeyboardRow {
              Layout.preferredWidth: functionKeyWidth
-@@ -106,6 +169,9 @@ KeyboardLayout {
+@@ -106,6 +170,9 @@ KeyboardLayout {
              Key {
                  key: Qt.Key_L
                  text: "l"
@@ -1025,7 +1027,7 @@ index 54cacad..e26eed1 100644
                  weight: normalKeyWidth
                  Layout.fillWidth: false
              }
-@@ -121,30 +187,55 @@ KeyboardLayout {
+@@ -121,30 +188,55 @@ KeyboardLayout {
          Key {
              key: Qt.Key_Z
              text: "z"
@@ -1081,7 +1083,7 @@ index 54cacad..e26eed1 100644
          }
          BackspaceKey {
              weight: functionKeyWidth
-@@ -171,12 +262,19 @@ KeyboardLayout {
+@@ -171,12 +263,19 @@ KeyboardLayout {
          }
          SpaceKey {
          }
@@ -1500,10 +1502,10 @@ index 0000000..fb96b41
 +}
 diff --git a/src/qml/KeyboardMenu.qml b/src/qml/KeyboardMenu.qml
 new file mode 100644
-index 0000000..faab916
+index 0000000..7e6ccf7
 --- /dev/null
 +++ b/src/qml/KeyboardMenu.qml
-@@ -0,0 +1,114 @@
+@@ -0,0 +1,116 @@
 +/*
 +    SPDX-FileCopyrightText: 2026 Surface Overdrive
 +    SPDX-License-Identifier: GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
@@ -1523,6 +1525,8 @@ index 0000000..faab916
 +    property bool floating: false
 +    property bool split: false
 +    property bool extraKeys: false
++    // False on an upright screen, where the keyboard is never split
++    property bool splitPossible: true
 +    // Index of the entry under the finger that still holds the space bar (-1: none)
 +    property int hovered: -1
 +
@@ -1534,7 +1538,7 @@ index 0000000..faab916
 +
 +    readonly property var entries: [
 +        {name: "floating", icon: "window-duplicate", text: menu.floating ? i18n("Dock") : i18n("Float"), checked: menu.floating, enabled: true},
-+        {name: "split", icon: "view-split-left-right", text: i18n("Split"), checked: menu.split && !menu.floating, enabled: !menu.floating},
++        {name: "split", icon: "view-split-left-right", text: i18n("Split"), checked: menu.split && !menu.floating && menu.splitPossible, enabled: !menu.floating && menu.splitPossible},
 +        {name: "extra", icon: "input-keyboard", text: i18n("Extra keys"), checked: menu.extraKeys, enabled: true},
 +        {name: "clipboard", icon: "edit-paste", text: i18n("Clipboard"), checked: false, enabled: true},
 +        {name: "emoji", icon: "smiley", text: i18n("Emoji"), checked: false, enabled: true},
@@ -1731,7 +1735,7 @@ index 0000000..7884d70
 +    }
 +}
 diff --git a/src/qml/main.qml b/src/qml/main.qml
-index 703f675..155c6b6 100644
+index 703f675..aa8eb5b 100644
 --- a/src/qml/main.qml
 +++ b/src/qml/main.qml
 @@ -13,6 +13,7 @@ import org.kde.plasma.keyboard
@@ -1742,7 +1746,7 @@ index 703f675..155c6b6 100644
  
  InputPanelWindow {
      id: root
-@@ -58,7 +59,263 @@ InputPanelWindow {
+@@ -58,7 +59,264 @@ InputPanelWindow {
          onCandidateSelected: (index) => thing.overlayController.commitCandidate(index)
      }
  
@@ -1983,6 +1987,7 @@ index 703f675..155c6b6 100644
 +        y: Math.max(0, anchorY - height - Kirigami.Units.smallSpacing)
 +        floating: root.floating
 +        split: PlasmaKeyboardSettings.splitLayout
++        splitPossible: Screen.width > Screen.height
 +        extraKeys: PlasmaKeyboardSettings.extraKeysVisible
 +        onTriggered: (name) => root.menuAction(name)
 +        onVisibleChanged: hovered = -1
@@ -2007,7 +2012,7 @@ index 703f675..155c6b6 100644
  
      Kirigami.ShadowedRectangle {
          id: panelWrapper
-@@ -72,15 +329,14 @@ InputPanelWindow {
+@@ -72,15 +330,14 @@ InputPanelWindow {
          }
  
          // Whether the panel takes the full width of the screen
@@ -2026,7 +2031,7 @@ index 703f675..155c6b6 100644
              topLeftRadius: isFullScreenWidth ? 0 : Kirigami.Units.cornerRadius
              topRightRadius: isFullScreenWidth ? 0 : Kirigami.Units.cornerRadius
          }
-@@ -89,25 +345,210 @@ InputPanelWindow {
+@@ -89,25 +346,210 @@ InputPanelWindow {
              color: Qt.rgba(0, 0, 0, 0.3)
          }
  
@@ -2243,7 +2248,7 @@ index 703f675..155c6b6 100644
  
              // height is calculated by InputPanel
              width: inputPanel.keyboard.style ? inputPanel.keyboard.style.aspectRatio * inputPanel.keyboard.style.targetKeyboardHeight : 0
-@@ -152,4 +593,5 @@ InputPanelWindow {
+@@ -152,4 +594,5 @@ InputPanelWindow {
              }
          }
      }
