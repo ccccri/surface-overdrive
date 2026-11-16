@@ -84,6 +84,14 @@ What was added, what broke, and what fixed it. Newest first. "Verified" means tr
   pages' pictures (the screen was locked and off), so the stillness of the scrolling areas is checked only on "About".
   Not ours, left alone: three kioworker (thumbnail) crashes at exit when System Settings was killed by these tests,
   two "binding loop" warnings of Plasma's own sound page, drkonqi's pickup service timing out.
+  On the tablet on 2026-11-16, with the night's pages and services put on it: the eight pages opened one by one, each
+  pictured and its log read (no error of ours; two binding-loop warnings of Plasma's own sound page). Rear camera page:
+  one `follow-focus` reader while the preview runs, none after the page closes; the "performance" profile held within
+  the page's start and released when it closes. "About this System": one `sensors follow` reader, none after closing.
+  With a virtual finger held at the end of a drag: the sensors panel and Plasma's list of "About this System" do not
+  move (only the live values change), the form of the Wallpaper page does not move, its grid of pictures scrolls, and
+  the sidebar of System Settings scrolls (the control that the finger arrives). Not run: the limit of 12 calls (nothing
+  reaches it any more).
 - A default Konsole window on the tablet is 110x28 characters: the show fits (88x26 at least) without resizing it.
 
 ## 2026-11-14
