@@ -24,6 +24,9 @@ Window {
     readonly property bool floating: s.floating
     readonly property real u: Math.round(Math.min(width / 23, 54) * s.scale)        // the size of a key
     readonly property real gap: Math.max(3, Math.round(u * 0.09))
+    // the width of a key: as wide as high while floating; docked, the ten keys of a row share the screen's width, up to
+    // nearly twice their height (wider than that they are no easier to hit, and the eye loses the row)
+    readonly property real kw: floating ? u : Math.min(u * 1.9, (width - 2 * Math.round(u * 0.22) - 9 * gap) / 10)
 
     // ---- state ----
     property string page: "letters"            // letters | symbols | emoji
@@ -75,7 +78,10 @@ Window {
     readonly property var extras: [
         ["esc", "Esc"], ["tab", "Tab"], ["@ctrl", "Ctrl"], ["@alt", "Alt"], ["left", "←"], ["down", "↓"], ["up", "↑"], ["right", "→"],
         ["home", "Home"], ["end", "End"], ["delete", "Del"],
-        ["+ctrl+z", "Undo"], ["+ctrl+x", "Cut"], ["+ctrl+c", "Copy"], ["+ctrl+v", "Paste"], ["+ctrl+a", "All"]
+        ["+ctrl+z", "Undo"], ["+ctrl+x", "Cut"], ["+ctrl+c", "Copy"], ["+ctrl+v", "Paste"], ["+ctrl+a", "All"],
+        ["pageup", "PgUp"], ["pagedown", "PgDn"], ["insert", "Ins"], ["@meta", "Super"],
+        ["f1", "F1"], ["f2", "F2"], ["f3", "F3"], ["f4", "F4"], ["f5", "F5"], ["f6", "F6"],
+        ["f7", "F7"], ["f8", "F8"], ["f9", "F9"], ["f10", "F10"], ["f11", "F11"], ["f12", "F12"]
     ]
     function keyWidth(k) {
         if (k === "@space") return 4.6
@@ -112,7 +118,7 @@ Window {
     }
     function commitExtra(e) {
         const id = e[0]
-        if (id === "@ctrl" || id === "@alt") { toggleLatch(id.substring(1)); return }
+        if (id[0] === "@") { toggleLatch(id.substring(1)); return }
         if (id[0] === "+") { backend.combo(id.substring(1).split("+")); latched = []; return }
         backend.pressKey(id, latched)
         if (id !== "left" && id !== "right" && id !== "up" && id !== "down") latched = []
@@ -134,7 +140,7 @@ Window {
         id: panel
         visible: win.shown
         readonly property real cols: 10
-        readonly property real innerW: cols * win.u + (cols - 1) * win.gap
+        readonly property real innerW: cols * win.kw + (cols - 1) * win.gap
         width: win.floating ? innerW + 2 * pad : win.width
         readonly property real pad: Math.round(win.u * 0.22)
         height: column.height + 2 * pad
@@ -187,6 +193,8 @@ Window {
                 Row {
                     anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter; spacing: win.gap
                     BarButton { label: "📋"; lit: win.clipsOpen; onTapped: { win.clipsOpen = !win.clipsOpen; if (win.clipsOpen) backend.refreshClips() } }
+                    BarButton { label: "⚡"; lit: win.s.auto; onTapped: backend.setSetting("auto", !win.s.auto) }       // come up by itself on a text field
+                    BarButton { label: "🎓"; lit: win.s.learn; onTapped: backend.setSetting("learn", !win.s.learn) }     // learn my words (off: see app.py)
                     BarButton { label: "⌥"; lit: win.s.extras; onTapped: backend.setSetting("extras", !win.s.extras) }
                     BarButton { label: "✕"; onTapped: backend.setSetting("visible", false) }
                 }
@@ -253,8 +261,8 @@ Window {
                             anchors.horizontalCenter: parent.horizontalCenter
                             spacing: win.gap
                             readonly property real units: { let n = 0; for (const k of modelData) n += win.keyWidth(k); return n }
-                            // a row is as wide as the ten keys of the first one: its keys share what is left
-                            readonly property real unit: (keysArea.width - (modelData.length - 1) * win.gap) / Math.max(units, 10 - (10 - modelData.length) * 0)
+                            // a key is win.kw wide; a row with more than ten keys' worth (the bottom one) shares the width instead
+                            readonly property real unit: Math.min(win.kw, (keysArea.width - (modelData.length - 1) * win.gap) / units)
                             Repeater {
                                 model: rowItem.modelData
                                 Rectangle {
@@ -262,7 +270,7 @@ Window {
                                     required property string modelData
                                     readonly property string key: modelData
                                     property bool down: false
-                                    width: Math.floor(Math.min(rowItem.unit, win.u * (rowItem.modelData.length < 10 && win.keyWidth(key) === 1 ? 1.0 : 99)) * win.keyWidth(key))
+                                    width: Math.floor(rowItem.unit * win.keyWidth(key))
                                     height: win.u
                                     radius: 7
                                     color: down ? "#8ab4f8" : key[0] === "@" && key !== "@space" ? "#3c4043" : "#5f6368"
@@ -321,7 +329,7 @@ Window {
                     const f = fingers[p.pointId]
                     if (!f) return
                     if (win.alt && win.alt.finger === p.pointId) {
-                        const i = Math.max(0, Math.min(win.alt.list.length - 1, Math.floor((p.x - win.alt.x0) / win.u + win.alt.start)))
+                        const i = Math.max(0, Math.min(win.alt.list.length - 1, Math.floor((p.x - win.alt.x0) / win.u + win.alt.start + 0.5)))
                         if (i !== win.alt.index) win.alt = Object.assign({}, win.alt, { index: i })
                         return
                     }

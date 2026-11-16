@@ -18,6 +18,7 @@ class Words:
         self.counts = {}
         self._lists = lists
         self._system = None            # {two first letters: [words]}, read at the first question
+        self.learning = True           # False: learn() keeps nothing (the app's setting; see app.DEFAULTS)
         if user_file:
             try:
                 with open(user_file) as f:
@@ -58,6 +59,8 @@ class Words:
         return out
 
     def learn(self, word):
+        if not self.learning:
+            return
         w = word.lower().strip("'")
         if len(w) < 3 or not all(c in LETTERS for c in w):
             return

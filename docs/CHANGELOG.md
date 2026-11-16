@@ -18,6 +18,15 @@ What was added, what broke, and what fixed it. Newest first. "Verified" means tr
   Limits, by design of a prototype: it is not an input method, so it does not come up by itself when a text field is
   touched (its tab at the screen's edge, or the menu entry, shows it) and Plasma's own keyboard still does; the key
   table is for the "us" layout; pasting uses Ctrl+V, which a terminal does not take.
+  Added after the first trial: Plasma's own keyboard came up on a touch in a text field and covered ours, so while ours
+  is shown Plasma's is switched off (KWin's VirtualKeyboard mode 0, its mode given back when ours is hidden or ends) and
+  never on the lock screen, where Plasma's must stay; pastes use Ctrl+Shift+V when the focused window is a terminal (a
+  small KWin script tells the keyboard the class of the active window); word learning is off unless turned on (the
+  keyboard cannot tell a password field, so a password of letters would be kept and offered); a warning when the
+  desktop's layout is not "us"; PgUp, PgDn, Ins, Super and F1-F12 in the extras row; docked, the keys share the width.
+  Drafts, not proven: "auto" (ours comes up in place of Plasma's on a text field; off by default). On the PC, mode 0
+  kept Plasma's keyboard away in a clean run, but in one run it still came up over ours (it was already up when ours
+  started): to be looked at on the tablet. The terminal paste and the lock-screen rule are covered by unit tests only.
   Tried on the PC (the same Plasma 6.8.2 and layout; the tablet's screen was locked) with a virtual finger into KWrite:
   typing, a suggestion, "è" by long press, "ô" by long press and slide, the cursor by the space bar, Ctrl then "a"
   then backspace, a capital, two emoji.
