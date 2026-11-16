@@ -1,0 +1,138 @@
+From: Surface Overdrive <noreply@surface-overdrive>
+Subject: [PATCH] ipu3: sharpening in bands and sixteen pixels at a time
+
+The unsharp mask of colourGrade() (the "sharpness" of the Cameras page) went over the luma one pixel after the other,
+on the thread of the pipeline handler: 30 ms for a 2560x1920 frame on the Pentium 4415Y (measured with the same loop
+outside libcamera, tools/dev/sharpen_bench.cpp), which is all of a frame's time at 30 fps, before the temporal denoise
+and the handing on of the buffers. With sharpness above zero at that size the handler could not keep up, and a camera
+that stopped completing requests after a change of the profile (CIO2 buffer underrun, open since 2026-11-11) was seen
+with exactly that setting.
+
+The rows are now split over the processors, as temporalDenoise() does, and a row is done sixteen pixels at a time
+(SSE2, with the plain loop for the last pixels and for other processors): 2.7 ms for the same frame on the tablet.
+The picture is the same byte for byte: the blur is a sum of non-negative values, so its division is a shift, and the
+cored difference is scaled as a magnitude and given its sign back, which rounds towards zero as the division did.
+Each band starts from a copy of the row above it and ends on a copy of the row below it, taken before any band
+writes, so no band reads a row another one has already sharpened.
+
+Not tried on the cameras yet (written in a night with the tablet in a dark room): the equivalence and the times are
+from the bench, and whether the stall is gone has to be seen with the reproduction of 2026-11-11.
+
+---
+diff --git a/src/libcamera/pipeline/ipu3/ipu3.cpp b/src/libcamera/pipeline/ipu3/ipu3.cpp
+--- a/src/libcamera/pipeline/ipu3/ipu3.cpp
++++ b/src/libcamera/pipeline/ipu3/ipu3.cpp
+@@ -2524,6 +2524,54 @@
+ }
+ 
+ /*
++ * One row of the unsharp mask of colourGrade(): out[1 .. width-2] from the rows above, at and below it, all three as
++ * they were before sharpening. The numbers of the plain loop it replaces: the blur is a sum of non-negative values, so
++ * its division is a shift; the cored difference is taken as a magnitude and a sign, so that its scaling rounds towards
++ * zero as the division did. (Checked against that loop, byte for byte: tools/dev/sharpen_bench.cpp.)
++ */
++static void sharpenRow(uint8_t *out, const uint8_t *above, const uint8_t *cur, const uint8_t *below, unsigned int width, int amount)
++{
++	unsigned int x = 1;
++#if defined(__SSE2__)
++	const __m128i zero = _mm_setzero_si128();
++	const __m128i one = _mm_set1_epi16(1);
++	const __m128i gain = _mm_set1_epi16(static_cast<short>(amount));
++	for (; x + 16 < width; x += 16) {
++		const __m128i c8 = _mm_loadu_si128(reinterpret_cast<const __m128i *>(cur + x));
++		const __m128i a8 = _mm_loadu_si128(reinterpret_cast<const __m128i *>(above + x));
++		const __m128i b8 = _mm_loadu_si128(reinterpret_cast<const __m128i *>(below + x));
++		const __m128i l8 = _mm_loadu_si128(reinterpret_cast<const __m128i *>(cur + x - 1));
++		const __m128i r8 = _mm_loadu_si128(reinterpret_cast<const __m128i *>(cur + x + 1));
++		__m128i res[2];
++		for (int half = 0; half < 2; half++) {
++			auto widen = [&](const __m128i &v) { return half ? _mm_unpackhi_epi8(v, zero) : _mm_unpacklo_epi8(v, zero); };
++			const __m128i c = widen(c8);
++			__m128i sum = _mm_add_epi16(_mm_add_epi16(widen(a8), widen(b8)), _mm_add_epi16(widen(l8), widen(r8)));
++			sum = _mm_add_epi16(sum, _mm_slli_epi16(c, 2));
++			const __m128i blur = _mm_srli_epi16(sum, 3);
++			const __m128i d = _mm_sub_epi16(c, blur);
++			const __m128i neg = _mm_cmpgt_epi16(zero, d); /* all ones where d < 0 */
++			__m128i mag = _mm_sub_epi16(_mm_xor_si128(d, neg), neg); /* |d| */
++			mag = _mm_subs_epu16(mag, one); /* coring: a difference of one level is noise, leave it alone */
++			const __m128i step = _mm_srli_epi16(_mm_mullo_epi16(mag, gain), 4);
++			const __m128i delta = _mm_sub_epi16(_mm_xor_si128(step, neg), neg); /* the sign back */
++			res[half] = _mm_add_epi16(c, delta);
++		}
++		_mm_storeu_si128(reinterpret_cast<__m128i *>(out + x), _mm_packus_epi16(res[0], res[1]));
++	}
++#endif
++	for (; x + 1 < width; x++) {
++		const int c = cur[x];
++		const int blur = (above[x] + below[x] + cur[x - 1] + cur[x + 1] + 4 * c) / 8;
++		int d = c - blur;
++		/* Coring: a difference of one level is noise, leave it alone. */
++		d = d > 1 ? d - 1 : (d < -1 ? d + 1 : 0);
++		const int v = c + (d * amount) / 16;
++		out[x] = static_cast<uint8_t>(v < 0 ? 0 : (v > 255 ? 255 : v));
++	}
++}
++
++/*
+  * Now and then the ImgU hands back a frame that is entirely black (luma 0, neutral chroma): it processed a raw frame that held no
+  * light, which shows as a flash. Show the previous good frame again instead, which nobody notices. Returns true when the frame was
+  * replaced; with no previous good frame there is nothing to show and the frame is left alone.
+@@ -2637,23 +2685,43 @@
+ 		return;
+ 
+ 	if (sharp > 0.0 && width > 2 && height > 2) {
++		/*
++		 * The rows are split over the processors, as in temporalDenoise(), and each row is done sixteen pixels
++		 * at a time: one pixel after the other on one thread, a 2560x1920 frame took 30 ms on this tablet, all
++		 * of a frame's time at 30 fps, on the thread that also hands the buffers on (2.7 ms now, the same
++		 * picture byte for byte). Every band starts from a copy of the row above it and ends on a copy of the
++		 * row below it, both taken before any band writes.
++		 */
+ 		const int amount = static_cast<int>(std::clamp(sharp, 0.0, 3.0) * 16);
+-		std::vector<uint8_t> prevRow(y, y + width), curRow(width);
+-		for (unsigned int r = 1; r + 1 < height; r++) {
+-			uint8_t *row = y + static_cast<size_t>(r) * stride;
+-			const uint8_t *next = row + stride;
+-			std::copy(row, row + width, curRow.begin());
+-			for (unsigned int x = 1; x + 1 < width; x++) {
+-				const int c = curRow[x];
+-				const int blur = (prevRow[x] + next[x] + curRow[x - 1] + curRow[x + 1] + 4 * c) / 8;
+-				int d = c - blur;
+-				/* Coring: a difference of one level is noise, leave it alone. */
+-				d = d > 1 ? d - 1 : (d < -1 ? d + 1 : 0);
+-				const int v = c + (d * amount) / 16;
+-				row[x] = static_cast<uint8_t>(v < 0 ? 0 : (v > 255 ? 255 : v));
+-			}
+-			prevRow.swap(curRow);
++		const unsigned int rows = height - 2;
++		const unsigned int bands = std::clamp(std::thread::hardware_concurrency(), 1U, std::min(4U, rows));
++		std::vector<unsigned int> first(bands + 1);
++		std::vector<std::vector<uint8_t>> above(bands), below(bands);
++		for (unsigned int b = 0; b <= bands; b++)
++			first[b] = 1 + rows * b / bands;
++		for (unsigned int b = 0; b < bands; b++) {
++			const uint8_t *a = y + static_cast<size_t>(first[b] - 1) * stride;
++			const uint8_t *z = y + static_cast<size_t>(first[b + 1]) * stride;
++			above[b].assign(a, a + width);
++			below[b].assign(z, z + width);
+ 		}
++		auto band = [&](unsigned int b) {
++			std::vector<uint8_t> prevRow = above[b], curRow(width);
++			for (unsigned int r = first[b]; r < first[b + 1]; r++) {
++				uint8_t *row = y + static_cast<size_t>(r) * stride;
++				const uint8_t *next = r + 1 < first[b + 1] ? row + stride : below[b].data();
++				std::copy(row, row + width, curRow.begin());
++				sharpenRow(row, prevRow.data(), curRow.data(), next, width, amount);
++				prevRow.swap(curRow);
++			}
++		};
++		std::vector<std::thread> workers;
++		workers.reserve(bands - 1);
++		for (unsigned int b = 1; b < bands; b++)
++			workers.emplace_back(band, b);
++		band(0);
++		for (std::thread &worker : workers)
++			worker.join();
+ 	}
+ 
+ 	if (chroma) {
