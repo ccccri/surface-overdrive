@@ -84,4 +84,5 @@ private:
     QString m_startTab;
     bool m_stockButtons = true;
     QHash<QString, QProcess *> m_streams;
+    int m_calls = 0;                          // overdrivectl processes started by call() that have not ended yet
 };

@@ -8,12 +8,14 @@
 #include <KPluginMetaData>
 #include <KQuickConfigModuleLoader>
 #include <QProcess>
+#include <QTimer>
 #include <QQmlEngine>
 #include <QQuickItem>
 #include <QQuickWindow>
 #include <mutex>
 
 static const QString s_ctl = QStringLiteral("/usr/bin/overdrivectl");
+static const int s_maxCalls = 12;
 
 OverdriveKCM::OverdriveKCM(QObject *parent, const KPluginMetaData &data, const QVariantList &args)
     : KQuickConfigModule(parent, data)
@@ -269,18 +271,30 @@ void OverdriveKCM::stream(const QString &tag, const QStringList &args, const QSt
 
 void OverdriveKCM::callWithInput(const QString &tag, const QStringList &args, const QString &input)
 {
+    // A page never has more than a few of these at once. When a timer of a page started one every fraction of a second without
+    // waiting for the answer, and the answers got slow, 627 of them piled up and filled the memory (2026-11-15). The pages wait
+    // now; this limit makes such a pile impossible whatever a page does: past it the call is refused, and answered as failed.
+    if (m_calls >= s_maxCalls) {
+        QTimer::singleShot(0, this, [this, tag]() {
+            Q_EMIT callFinished(tag, false, {}, QStringLiteral("Too many overdrivectl calls are still running"));
+        });
+        return;
+    }
     if (asksPassword(args))
         releaseTextFocus(mainUi());
     auto *process = new QProcess(this);
+    ++m_calls;
     connect(process, &QProcess::finished, this, [this, process, tag](int code, QProcess::ExitStatus status) {
         const QString out = QString::fromUtf8(process->readAllStandardOutput());
         const QString err = QString::fromUtf8(process->readAllStandardError()).trimmed();
         process->deleteLater();
+        --m_calls;
         Q_EMIT callFinished(tag, code == 0 && status == QProcess::NormalExit, out, err);
     });
     connect(process, &QProcess::errorOccurred, this, [this, process, tag](QProcess::ProcessError error) {
         if (error == QProcess::FailedToStart) {
             process->deleteLater();
+            --m_calls;
             Q_EMIT callFinished(tag, false, {}, QStringLiteral("Could not run overdrivectl"));
         }
     });
