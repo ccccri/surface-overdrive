@@ -4,6 +4,12 @@ What was added, what broke, and what fixed it. Newest first. "Verified" means tr
 
 ## 2026-11-17
 
+- On-screen keyboard, last additions of the night (in the patch, tried on the tablet only as far as noted): the three
+  layout switches (extra keys, split, floating) are also in the keyboard's own settings page (System Settings, On-Screen
+  Keyboard; seen open, and Split toggled there reached the settings file); Fn in the extra row now goes round three
+  pages (keys, digits and `- / : @`, function keys); in a terminal Ctrl+C, the up arrow, a command and Enter worked;
+  in Firefox's address bar typing, Ctrl+A and the space bar's cursor worked. The digits page was written last and not
+  seen.
 - On-screen keyboard, found reading it again: the clipboard list could be opened on the lock screen, where whoever
   holds the tablet has the keyboard (what was copied in the session, passwords included, in the hands of a stranger).
   While the screen is locked the keyboard now has no clipboard (the menu entry is greyed, the key of the extra row is

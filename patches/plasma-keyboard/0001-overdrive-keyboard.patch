@@ -1,3 +1,188 @@
+diff --git a/kcm/plasmakeyboardkcm.cpp b/kcm/plasmakeyboardkcm.cpp
+index d04e451..c0012fe 100644
+--- a/kcm/plasmakeyboardkcm.cpp
++++ b/kcm/plasmakeyboardkcm.cpp
+@@ -127,6 +127,57 @@ void PlasmaKeyboardKcm::setAutoCapitalizationEnabled(bool autoCapitalizationEnab
+     setNeedsSave(true);
+ }
+ 
++bool PlasmaKeyboardKcm::floating() const
++{
++    return m_floating;
++}
++
++void PlasmaKeyboardKcm::setFloating(bool on)
++{
++    if (on == m_floating) {
++        return;
++    }
++
++    m_floating = on;
++    Q_EMIT floatingChanged();
++
++    setNeedsSave(true);
++}
++
++bool PlasmaKeyboardKcm::splitLayout() const
++{
++    return m_splitLayout;
++}
++
++void PlasmaKeyboardKcm::setSplitLayout(bool on)
++{
++    if (on == m_splitLayout) {
++        return;
++    }
++
++    m_splitLayout = on;
++    Q_EMIT splitLayoutChanged();
++
++    setNeedsSave(true);
++}
++
++bool PlasmaKeyboardKcm::extraKeysVisible() const
++{
++    return m_extraKeysVisible;
++}
++
++void PlasmaKeyboardKcm::setExtraKeysVisible(bool on)
++{
++    if (on == m_extraKeysVisible) {
++        return;
++    }
++
++    m_extraKeysVisible = on;
++    Q_EMIT extraKeysVisibleChanged();
++
++    setNeedsSave(true);
++}
++
+ bool PlasmaKeyboardKcm::diacriticsPopupEnabled() const
+ {
+     return m_diacriticsPopupEnabled;
+@@ -175,6 +226,9 @@ void PlasmaKeyboardKcm::load()
+     Q_EMIT enabledLocalesChanged();
+     setKeyboardNavigationEnabled(PlasmaKeyboardSettings::self()->keyboardNavigationEnabled());
+     setAutoCapitalizationEnabled(PlasmaKeyboardSettings::self()->autoCapitalizationEnabled());
++    setFloating(PlasmaKeyboardSettings::self()->floating());
++    setSplitLayout(PlasmaKeyboardSettings::self()->splitLayout());
++    setExtraKeysVisible(PlasmaKeyboardSettings::self()->extraKeysVisible());
+     setDiacriticsPopupEnabled(PlasmaKeyboardSettings::self()->diacriticsPopupEnabled());
+     setDiacriticsHoldThresholdMs(PlasmaKeyboardSettings::self()->diacriticsHoldThresholdMs());
+ 
+@@ -188,6 +242,9 @@ void PlasmaKeyboardKcm::save()
+     PlasmaKeyboardSettings::self()->setEnabledLocales(m_enabledLocales);
+     PlasmaKeyboardSettings::self()->setKeyboardNavigationEnabled(m_keyboardNavigationEnabled);
+     PlasmaKeyboardSettings::self()->setAutoCapitalizationEnabled(m_autoCapitalizationEnabled);
++    PlasmaKeyboardSettings::self()->setFloating(m_floating);
++    PlasmaKeyboardSettings::self()->setSplitLayout(m_splitLayout);
++    PlasmaKeyboardSettings::self()->setExtraKeysVisible(m_extraKeysVisible);
+     PlasmaKeyboardSettings::self()->setDiacriticsPopupEnabled(m_diacriticsPopupEnabled);
+     PlasmaKeyboardSettings::self()->setDiacriticsHoldThresholdMs(m_diacriticsHoldThresholdMs);
+     PlasmaKeyboardSettings::self()->save();
+diff --git a/kcm/plasmakeyboardkcm.h b/kcm/plasmakeyboardkcm.h
+index 469bcd6..cb44562 100644
+--- a/kcm/plasmakeyboardkcm.h
++++ b/kcm/plasmakeyboardkcm.h
+@@ -19,6 +19,9 @@ class PlasmaKeyboardKcm : public KQuickManagedConfigModule
+     Q_PROPERTY(QStringList enabledLocales READ enabledLocales NOTIFY enabledLocalesChanged)
+     Q_PROPERTY(bool keyboardNavigationEnabled READ keyboardNavigationEnabled WRITE setKeyboardNavigationEnabled NOTIFY keyboardNavigationEnabledChanged)
+     Q_PROPERTY(bool autoCapitalizationEnabled READ autoCapitalizationEnabled WRITE setAutoCapitalizationEnabled NOTIFY autoCapitalizationEnabledChanged)
++    Q_PROPERTY(bool floating READ floating WRITE setFloating NOTIFY floatingChanged)
++    Q_PROPERTY(bool splitLayout READ splitLayout WRITE setSplitLayout NOTIFY splitLayoutChanged)
++    Q_PROPERTY(bool extraKeysVisible READ extraKeysVisible WRITE setExtraKeysVisible NOTIFY extraKeysVisibleChanged)
+     Q_PROPERTY(bool diacriticsPopupEnabled READ diacriticsPopupEnabled WRITE setDiacriticsPopupEnabled NOTIFY diacriticsPopupEnabledChanged)
+     Q_PROPERTY(int diacriticsHoldThresholdMs READ diacriticsHoldThresholdMs WRITE setDiacriticsHoldThresholdMs NOTIFY diacriticsHoldThresholdMsChanged)
+ 
+@@ -42,6 +45,14 @@ public:
+     bool autoCapitalizationEnabled() const;
+     void setAutoCapitalizationEnabled(bool autoCapitalizationEnabled);
+ 
++    // Surface Overdrive: the floating and the split keyboard, the row of extra keys
++    bool floating() const;
++    void setFloating(bool on);
++    bool splitLayout() const;
++    void setSplitLayout(bool on);
++    bool extraKeysVisible() const;
++    void setExtraKeysVisible(bool on);
++
+     bool diacriticsPopupEnabled() const;
+     void setDiacriticsPopupEnabled(bool enabled);
+ 
+@@ -60,6 +71,9 @@ Q_SIGNALS:
+     void enabledLocalesChanged();
+     void keyboardNavigationEnabledChanged();
+     void autoCapitalizationEnabledChanged();
++    void floatingChanged();
++    void splitLayoutChanged();
++    void extraKeysVisibleChanged();
+     void diacriticsPopupEnabledChanged();
+     void diacriticsHoldThresholdMsChanged();
+ 
+@@ -68,6 +82,9 @@ private:
+     bool m_vibrationEnabled = true;
+     bool m_keyboardNavigationEnabled = false;
+     bool m_autoCapitalizationEnabled = true;
++    bool m_floating = false;
++    bool m_splitLayout = false;
++    bool m_extraKeysVisible = false;
+     bool m_diacriticsPopupEnabled = true;
+     int m_diacriticsHoldThresholdMs = 600;
+ 
+diff --git a/kcm/ui/main.qml b/kcm/ui/main.qml
+index 00ae6de..cb4e43e 100644
+--- a/kcm/ui/main.qml
++++ b/kcm/ui/main.qml
+@@ -74,6 +74,49 @@ KCM.ScrollViewKCM {
+             }
+         }
+ 
++        QQC2.CheckBox {
++            id: extraKeysCheckbox
++            Kirigami.FormData.label: i18n("Layout:")
++            text: i18n("Row of extra keys (Esc, Tab, Ctrl, arrows, digits, function keys)")
++
++            checked: kcm.extraKeysVisible
++            onCheckedChanged: {
++                kcm.extraKeysVisible = checked;
++                checked = Qt.binding(() => kcm.extraKeysVisible);
++            }
++        }
++
++        QQC2.CheckBox {
++            id: splitCheckbox
++            text: i18n("Split in two halves for the thumbs (landscape)")
++            enabled: !kcm.floating
++
++            checked: kcm.splitLayout
++            onCheckedChanged: {
++                kcm.splitLayout = checked;
++                checked = Qt.binding(() => kcm.splitLayout);
++            }
++        }
++
++        QQC2.CheckBox {
++            id: floatingCheckbox
++            text: i18n("Floating: moved and sized freely, not docked to the bottom edge")
++
++            checked: kcm.floating
++            onCheckedChanged: {
++                kcm.floating = checked;
++                checked = Qt.binding(() => kcm.floating);
++            }
++        }
++
++        QQC2.Label {
++            Layout.fillWidth: true
++            wrapMode: Text.WordWrap
++            font: Kirigami.Theme.smallFont
++            opacity: 0.7
++            text: i18n("The same switches, the clipboard and the emoji are on the keyboard itself: hold the space bar.")
++        }
++
+         QQC2.CheckBox {
+             id: diacriticsCheckbox
+             Kirigami.FormData.label: i18n("Alternate characters:")
 diff --git a/src/CMakeLists.txt b/src/CMakeLists.txt
 index 8114b89..46928f4 100644
 --- a/src/CMakeLists.txt
@@ -1365,10 +1550,10 @@ index 0000000..0b8aa99
 +}
 diff --git a/src/qml/ExtraKeyRow.qml b/src/qml/ExtraKeyRow.qml
 new file mode 100644
-index 0000000..c29eb1e
+index 0000000..647537d
 --- /dev/null
 +++ b/src/qml/ExtraKeyRow.qml
-@@ -0,0 +1,133 @@
+@@ -0,0 +1,150 @@
 +/*
 +    SPDX-FileCopyrightText: 2026 Surface Overdrive
 +    SPDX-License-Identifier: GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
@@ -1389,21 +1574,31 @@ index 0000000..c29eb1e
 +    // The ExtraKeys device
 +    required property var keys
 +    property real scaleHint: 1
-+    property bool functionPage: false
++    // 0: the keys, 1: the digits, 2: the function keys ("Fn" goes round)
++    property int page: 0
++    readonly property bool functionPage: page !== 0
 +    // False on the lock screen: the key of the clipboard is then left out
 +    property bool clipboardAvailable: true
 +
 +    signal clipboardRequested()
++    // Text for the focused field (the digits): typed as text, so that it does not depend on the keyboard layout
++    signal textRequested(string text)
 +
 +    readonly property var theme: PlasmaKeyboard.BreezeConstants
 +
-+    // t: label, i: icon, k: key name of ExtraKeys.code(), m: modifier property, a: action, r: repeats while held
++    // t: label, i: icon, k: key name of ExtraKeys.code(), m: modifier property, a: action, r: repeats while held,
++    // c: text typed as it is
 +    readonly property var mainPage: [
 +        {t: "Esc", k: "esc"}, {t: "Tab", k: "tab"},
 +        {t: "Ctrl", m: "ctrl"}, {t: "Alt", m: "alt"}, {t: "Meta", m: "meta"},
 +        {t: "←", k: "left", r: true}, {t: "↓", k: "down", r: true}, {t: "↑", k: "up", r: true}, {t: "→", k: "right", r: true},
 +        {t: "Home", k: "home"}, {t: "End", k: "end"}, {t: "PgUp", k: "pgup", r: true}, {t: "PgDn", k: "pgdn", r: true},
 +        {t: "Del", k: "del", r: true}, {t: "Fn", a: "fn"}, {i: "edit-paste", a: "clipboard"}
++    ]
++    readonly property var digitPage: [
++        {t: "1", c: "1"}, {t: "2", c: "2"}, {t: "3", c: "3"}, {t: "4", c: "4"}, {t: "5", c: "5"}, {t: "6", c: "6"},
++        {t: "7", c: "7"}, {t: "8", c: "8"}, {t: "9", c: "9"}, {t: "0", c: "0"}, {t: "-", c: "-"}, {t: "/", c: "/"},
++        {t: ":", c: ":"}, {t: "@", c: "@"}, {t: "Fn", a: "fn"}, {i: "edit-paste", a: "clipboard"}
 +    ]
 +    readonly property var secondPage: [
 +        {t: "F1", k: "f1"}, {t: "F2", k: "f2"}, {t: "F3", k: "f3"}, {t: "F4", k: "f4"}, {t: "F5", k: "f5"}, {t: "F6", k: "f6"},
@@ -1415,9 +1610,16 @@ index 0000000..c29eb1e
 +        if (entry.m) {
 +            row.keys[entry.m] = !row.keys[entry.m];
 +        } else if (entry.a === "fn") {
-+            row.functionPage = !row.functionPage;
++            row.page = (row.page + 1) % 3;
 +        } else if (entry.a === "clipboard") {
 +            row.clipboardRequested();
++        } else if (entry.c) {
++            // with Ctrl, Alt or Meta armed a digit is a key like any other (Alt+1, Ctrl+0)
++            if (row.keys.ctrl || row.keys.alt || row.keys.meta) {
++                row.keys.tap(row.keys.code(entry.c));
++            } else {
++                row.textRequested(entry.c);
++            }
 +        } else if (entry.k) {
 +            row.keys.tap(row.keys.code(entry.k));
 +        }
@@ -1429,7 +1631,7 @@ index 0000000..c29eb1e
 +        orientation: ListView.Horizontal
 +        boundsBehavior: Flickable.StopAtBounds
 +        clip: true
-+        model: (row.functionPage ? row.secondPage : row.mainPage).filter((entry) => row.clipboardAvailable || entry.a !== "clipboard")
++        model: (row.page === 2 ? row.secondPage : row.page === 1 ? row.digitPage : row.mainPage).filter((entry) => row.clipboardAvailable || entry.a !== "clipboard")
 +        // every key on screen when there is room, a strip to flick through when there is not
 +        readonly property real cellWidth: Math.max(row.height * 1.05, count > 0 ? width / count : width)
 +        interactive: cellWidth * count > width + 1
@@ -1739,7 +1941,7 @@ index 0000000..7884d70
 +    }
 +}
 diff --git a/src/qml/main.qml b/src/qml/main.qml
-index 703f675..2950b27 100644
+index 703f675..80ae37f 100644
 --- a/src/qml/main.qml
 +++ b/src/qml/main.qml
 @@ -13,6 +13,7 @@ import org.kde.plasma.keyboard
@@ -2045,7 +2247,7 @@ index 703f675..2950b27 100644
              topLeftRadius: isFullScreenWidth ? 0 : Kirigami.Units.cornerRadius
              topRightRadius: isFullScreenWidth ? 0 : Kirigami.Units.cornerRadius
          }
-@@ -89,25 +356,211 @@ InputPanelWindow {
+@@ -89,25 +356,212 @@ InputPanelWindow {
              color: Qt.rgba(0, 0, 0, 0.3)
          }
  
@@ -2200,6 +2402,7 @@ index 703f675..2950b27 100644
 +                scaleHint: root.keyboardStyle ? root.keyboardStyle.scaleHint : 1
 +                clipboardAvailable: !screenLock.locked
 +                onClipboardRequested: root.showClipboard()
++                onTextRequested: (text) => thing.commitText(text)
 +            }
 +        }
 +
@@ -2263,7 +2466,7 @@ index 703f675..2950b27 100644
  
              // height is calculated by InputPanel
              width: inputPanel.keyboard.style ? inputPanel.keyboard.style.aspectRatio * inputPanel.keyboard.style.targetKeyboardHeight : 0
-@@ -152,4 +605,5 @@ InputPanelWindow {
+@@ -152,4 +606,5 @@ InputPanelWindow {
              }
          }
      }
