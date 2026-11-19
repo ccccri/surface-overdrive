@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Turn handoff helper for the agents working on Surface Overdrive (Claude Code and OpenCode).
+"""Turn handoff helper for the agents working on this project (Claude Code and OpenCode).
 
   python3 tools/handoff.py start --agent claude    begin a turn: show context, take the lock
   python3 tools/handoff.py end --agent claude      end a turn: run checks, release the lock
@@ -7,6 +7,15 @@
 
 The lock file (team/.active, git-ignored) records which agent is working, so the other agent
 can tell when a turn was left unfinished. See AGENTS.md sections 1-2.
+
+One file for every project: what differs between projects is in the optional team/handoff.json (all keys optional):
+  "test_command": ["python3", "-m", "unittest", "discover", "-s", "tests"]   what `end` runs (none: tests are skipped with a warning)
+  "test_env":     {"PYTHONPATH": "{root}/src"}                               environment added to it ({root} = the repository)
+  "skip_scan":    ["path/file"]   files the secret scan leaves alone        "skip_dirs": ["patches/"]   directories it leaves alone
+  "secret_patterns": [{"label": "...", "regex": "..."}]                     project-specific things that must never be committed
+  "trailers":     {"claude": "...", "opencode": "..."}                       commit trailers printed at the end
+  "status_max_lines": 160           STATUS.md is loaded in every session of both agents: `end` warns when it grows beyond this
+The tool is copied from ~/.claude/skills/team-handoff/template/tools/handoff.py; improve it there, not per project.
 """
 
 import argparse
@@ -23,10 +32,23 @@ LOCK = os.path.join(TEAM, ".active")
 STATUS = os.path.join(TEAM, "STATUS.md")
 LOG = os.path.join(TEAM, "LOG.md")
 AGENTS = ("claude", "opencode")
+CONFIG_PATH = os.path.join(TEAM, "handoff.json")
+
+def load_config():
+    try:
+        with open(CONFIG_PATH, encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+CONFIG = load_config()
 
 TRAILERS = {
     "claude": "Co-Authored-By: Claude (<model>) <noreply@anthropic.com>",
     "opencode": "Co-Authored-By: OpenCode (<model>) <noreply@opencode.ai>",
+    **CONFIG.get("trailers", {}),
 }
 
 # Patterns that must never be committed: this repository is PUBLIC. Placeholders like REPLACE_ME are fine, and a line that
@@ -39,9 +61,15 @@ SECRET_PATTERNS = [
     ("a GitHub token", re.compile(r"\b(?:ghp|gho|ghs|github_pat)_[A-Za-z0-9_]{20,}")),
     ("a private key", re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----")),
     ("a bearer token", re.compile(r"(?i)authorization:\s*bearer\s+\S{10,}")),
+    ("an AWS access key id", re.compile(r"\b(?:AKIA|ASIA)[0-9A-Z]{16}\b")),
 ]
-SKIP_SCAN = {"tools/handoff.py", "tests/test_handoff.py"}  # contain the patterns themselves
-SKIP_SCAN_DIRS = ("patches/", "build/", "old-project-chat-archive/")
+for _extra in CONFIG.get("secret_patterns", []):
+    try:
+        SECRET_PATTERNS.append((_extra["label"], re.compile(_extra["regex"])))
+    except (KeyError, re.error, TypeError):
+        pass
+SKIP_SCAN = {"tools/handoff.py", "tests/test_handoff.py", *CONFIG.get("skip_scan", [])}  # contain the patterns themselves
+SKIP_SCAN_DIRS = tuple(CONFIG.get("skip_dirs", []))
 
 BOLD, RED, YELLOW, GREEN, RESET = "\033[1m", "\033[31m", "\033[33m", "\033[32m", "\033[0m"
 if not sys.stdout.isatty():
@@ -193,7 +221,7 @@ def cmd_start(args):
         json.dump({"agent": args.agent, "since": dt.datetime.now().isoformat(timespec="seconds"),
                    "head": git("rev-parse", "--short", "HEAD")}, f)
     ok(f"lock taken by {args.agent}. Read team/STATUS.md, the log entry above, team/DECISIONS.md and "
-       "team/CONTEXT.md before working; team/KNOWLEDGE.md before touching anything on the tablet or in the image.")
+       "team/CONTEXT.md before working; team/KNOWLEDGE.md before touching anything risky.")
     return 0
 
 
@@ -240,17 +268,22 @@ def cmd_end(args):
         fail(f"the lock belongs to {lock['agent']}, not {args.agent}")
         errors += 1
 
+    test_command = CONFIG.get("test_command") or ([sys.executable, "-m", "unittest", "discover", "-s", "tests"]
+                                                  if os.path.isdir(os.path.join(ROOT, "tests")) else None)
     if args.skip_tests:
         warn("tests skipped (--skip-tests)")
+    elif not test_command:
+        warn("no tests configured (add a tests/ directory or \"test_command\" in team/handoff.json)")
     else:
-        res = subprocess.run([sys.executable, "-m", "unittest", "discover", "-s", "tests"],
-                             cwd=ROOT, capture_output=True, text=True,
-                             env=dict(os.environ, PYTHONPATH=os.path.join(ROOT, "src")))
-        summary = [ln for ln in res.stderr.splitlines() if ln.startswith(("Ran ", "OK", "FAILED"))]
+        env = dict(os.environ)
+        for key, value in CONFIG.get("test_env", {}).items():
+            env[key] = value.replace("{root}", ROOT)
+        res = subprocess.run(test_command, cwd=ROOT, capture_output=True, text=True, env=env)
+        summary = [ln for ln in (res.stderr + res.stdout).splitlines() if ln.startswith(("Ran ", "OK", "FAILED"))]
         if res.returncode == 0:
-            ok("tests: " + " ".join(summary))
+            ok("tests: " + (" ".join(summary) or "passed"))
         else:
-            fail("tests failed:\n" + res.stderr[-3000:])
+            fail("tests failed:\n" + (res.stderr + res.stdout)[-3000:])
             errors += 1
 
     header, _ = top_log_entry()
@@ -270,6 +303,12 @@ def cmd_end(args):
         errors += 1
 
     notes = ["AGENTS.md", "CLAUDE.md"] + sorted("team/" + n for n in os.listdir(TEAM) if n.endswith(".md"))
+    limit = int(CONFIG.get("status_max_lines", 160))
+    lines = len(read(STATUS).splitlines())
+    if lines > limit:
+        warn(f"team/STATUS.md has {lines} lines (limit {limit}): it is loaded into every session of both agents and costs tokens each time; "
+             "move history to LOG.md, lessons to KNOWLEDGE.md, finished tasks out.")
+
     hits = scan_secrets(sorted(set(changed_files()) | set(notes)))
     if hits:
         fail("possible secrets in changed files:\n  " + "\n  ".join(hits))
@@ -286,7 +325,7 @@ def cmd_end(args):
     ok("lock released")
     print("\nNow commit your turn, for example:\n"
           f"  git add -A && git commit -m \"<summary> (T-NN)\" -m \"{TRAILERS[args.agent]}\"\n"
-          "Push to main when the work is meant to reach the tablet (CI builds the image from main); never cancel a CI run.")
+          "Push only as AGENTS.md allows for this project.")
     return 0
 
 

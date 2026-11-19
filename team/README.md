@@ -10,6 +10,7 @@ Claude Code and OpenCode take turns on this project: the owner sends the next re
 | `DECISIONS.md` | Settled decisions (D-NNN) with reasons; the owner's decisions are marked | When you or the owner decide something |
 | `CONTEXT.md` | The owner, the hardware, machines and access, words, ideas, references | When you learn something durable about them |
 | `KNOWLEDGE.md` | Technical lessons, recipes and traps by subject (devices, builds, cameras, audio, pages, lock screen, KWin) | When something cost you time, or turned out wrong |
+| `handoff.json` | Settings of `tools/handoff.py` (test environment, directories the secret scan skips, STATUS size limit) | Rarely |
 | `ARCHITECTURE.md` | The code map: what lives where, flows, where to change what | When code layout or behaviour changes |
 | `USER_STEPS.md` | Plain steps only the owner can do (update the tablet, try things, publish, decide) | When a step changes or a new one appears |
 

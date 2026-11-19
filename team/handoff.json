@@ -1,0 +1,5 @@
+{
+  "test_env": {"PYTHONPATH": "{root}/src"},
+  "skip_dirs": ["patches/", "build/", "old-project-chat-archive/"],
+  "status_max_lines": 160
+}

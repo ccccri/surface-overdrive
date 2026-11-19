@@ -93,3 +93,8 @@ tablet not left to run flat (they do not charge it at night because the charger 
 
 **D-026 · 2026-11-19 · Owner — Two agents, one at a time.** Claude Code and OpenCode take turns on their requests; the repository (`AGENTS.md`, `team/`) is the shared memory, private agent memories are
 not. This layout is the same as in the WOA project on purpose.
+
+**D-027 · 2026-11-19 · Owner — The two-agent workflow is the standard in every project, and its tool is one shared copy.**
+Every project of the owner gets `AGENTS.md`, `CLAUDE.md`, `opencode.json`, `team/` and `tools/handoff.py`, so that work can pass between Claude Code and OpenCode (partly to spend fewer credits/tokens).
+The reusable template and the scaffold script live in `~/.claude/skills/team-handoff/` (outside this repository); standing rules for both agents are in `~/.claude/CLAUDE.md` and `~/.config/opencode/AGENTS.md`.
+`tools/handoff.py` here is that template's copy: project differences are in `team/handoff.json`. Fix bugs in the template and copy them (`scaffold.py --update-tool`). Mark mechanical tasks `[opencode-ok]` in `STATUS.md`.

@@ -20,6 +20,17 @@ Be exact about "verified": say *tried on the tablet*, *tested by the unit tests*
 
 <!-- entries below -->
 
+## 2026-11-19 — claude — The workflow becomes the standard for every project
+**Request:** Make this method (copied from the WOA project) the standard for every project and every Claude Code session, so that work can go to OpenCode in parallel and credits/tokens are saved.
+**Done:** `tools/handoff.py` made project-independent (optional `team/handoff.json`: test command/environment, extra secret patterns, skipped paths, STATUS size limit with a warning; AWS key pattern added) and
+copied to the reusable template; new skill `~/.claude/skills/team-handoff/` (SKILL.md, `scaffold.py`, `template/` with AGENTS.md, CLAUDE.md, opencode.json, team/*, tools/handoff.py, a generic test); standing rules for Claude Code in
+`~/.claude/CLAUDE.md` and for OpenCode in `~/.config/opencode/AGENTS.md`; a memory note for Claude. Decision D-027. This repository's `team/handoff.json` now carries what was hard-coded.
+**Verified:** the scaffold was run on an empty directory and `start`/`end` worked there (the generic tests passed, `end` correctly refused without a log entry); this repository's 258 tests pass with the generalised tool;
+a real OpenCode session started in an empty directory answered from the global `AGENTS.md` (the rules, the start command, what to do in a project without `team/`). Not done: retrofitting the other projects (`~/Claude/*`):
+by design they get it when the owner brings them up; WOA already has an older copy of the tool (works the same, can be updated with `scaffold.py --update-tool`).
+**Not done / open:** the template files outside this repository are not versioned; if the owner wants them in git, make `~/.claude/skills/team-handoff` a repository.
+**Next:** unchanged: T-03 (owner brings the tablet back), then T-04/T-07.
+
 ## 2026-11-19 — claude — Team workflow for Claude Code + OpenCode
 **Request:** From now on Claude Code and OpenCode alternate on this project (the owner sends the next request to one or the other).
 The repository must hold everything an agent needs, explained as completely as possible, plus a way to pass on what was changed,
