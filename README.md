@@ -38,6 +38,11 @@ to the image, followed on screen by a little show and the numbers (percentage, l
 
 Its predecessor, with the original patches and the write-up of root causes, is the `surface-go-kinoite` repository.
 
+## Working on it with AI agents
+
+Two agents, Claude Code and OpenCode, take turns on the owner's requests. [`AGENTS.md`](AGENTS.md) has the rules and [`team/`](team/README.md) the shared memory
+(status, log, decisions, context, knowledge, code map, the owner's steps); `python3 tools/handoff.py start --agent <name>` begins a turn.
+
 ## License
 
 MIT for original code. Patches derived from other projects keep their license (libcamera LGPL-2.1+, kernel GPL-2.0).
